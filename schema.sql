@@ -1,0 +1,212 @@
+-- D1 schema for CRM
+
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS companies (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  company_code TEXT,
+  website TEXT,
+  email TEXT,
+  phone TEXT,
+  address TEXT,
+  owner TEXT,
+  status TEXT DEFAULT 'Active',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  first_name TEXT NOT NULL,
+  last_name TEXT NOT NULL,
+  email TEXT,
+  phone TEXT,
+  role TEXT,
+  status TEXT DEFAULT 'Engaged',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  sku TEXT,
+  category TEXT,
+  price REAL,
+  currency TEXT DEFAULT 'USD',
+  status TEXT DEFAULT 'Active',
+  description TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+  quotation_id INTEGER REFERENCES quotations(id) ON DELETE SET NULL,
+  invoice_ids TEXT,
+  status TEXT DEFAULT 'Pending',
+  total_amount REAL DEFAULT 0,
+  currency TEXT DEFAULT 'USD',
+  reference TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS quotations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+  reference TEXT,
+  amount REAL DEFAULT 0,
+  currency TEXT DEFAULT 'USD',
+  status TEXT DEFAULT 'Draft',
+  valid_until TEXT,
+  title TEXT,
+  tax_rate REAL DEFAULT 0,
+  notes TEXT,
+  bank_charge_method TEXT,
+  attachment_key TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS invoices (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+  reference TEXT,
+  total_amount REAL DEFAULT 0,
+  currency TEXT DEFAULT 'USD',
+  due_date TEXT,
+  status TEXT DEFAULT 'Open',
+  attachment_key TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS documents (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  contact_id INTEGER REFERENCES contacts(id) ON DELETE SET NULL,
+  invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+  doc_type_id INTEGER REFERENCES doc_types(id) ON DELETE SET NULL,
+  title TEXT NOT NULL,
+  storage_key TEXT UNIQUE NOT NULL,
+  content_type TEXT,
+  size INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS shipping_schedules (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  order_id INTEGER REFERENCES orders(id) ON DELETE CASCADE,
+  invoice_id INTEGER REFERENCES invoices(id) ON DELETE SET NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  carrier TEXT,
+  tracking_number TEXT,
+  factory_exit_date TEXT,
+  etc_date TEXT,
+  etd_date TEXT,
+  eta TEXT,
+  status TEXT DEFAULT 'Factory exit',
+  notes TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  title TEXT NOT NULL,
+  status TEXT DEFAULT 'Not Started',
+  due_date TEXT,
+  assignee TEXT,
+  related_type TEXT,
+  related_id INTEGER,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id INTEGER,
+  body TEXT NOT NULL,
+  author TEXT,
+  note_date TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  color TEXT DEFAULT '#2563eb',
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tag_links (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  tag_id INTEGER REFERENCES tags(id) ON DELETE CASCADE,
+  entity_type TEXT NOT NULL,
+  entity_id INTEGER NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(tag_id, entity_type, entity_id)
+);
+
+CREATE TABLE IF NOT EXISTS quotation_items (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  quotation_id INTEGER REFERENCES quotations(id) ON DELETE CASCADE,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  product_name TEXT,
+  qty REAL DEFAULT 0,
+  unit_price REAL DEFAULT 0,
+  drums_price REAL DEFAULT 0,
+  bank_charge_price REAL DEFAULT 0,
+  shipping_price REAL DEFAULT 0,
+  customer_commission REAL DEFAULT 0,
+  line_total REAL DEFAULT 0,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS doc_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Helpful indexes
+CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id);
+CREATE INDEX IF NOT EXISTS idx_orders_company ON orders(company_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id);
+CREATE INDEX IF NOT EXISTS idx_docs_company ON documents(company_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_name_owner ON companies(name, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_code_owner ON companies(company_code, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_email_owner ON contacts(email, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_products_sku_owner ON products(sku, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_reference_owner ON orders(reference, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_reference_owner ON quotations(reference, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_reference_owner ON invoices(reference, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_owner ON tags(name, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_types_name_owner ON doc_types(name, owner_email);

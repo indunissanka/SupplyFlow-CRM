@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SL CRM</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="login-screen">
+    <div class="login-panel">
+      <div class="login-brand">
+        <div class="login-logo">SL</div>
+        <div>
+          <p class="login-title">SL CRM Workspace</p>
+          <p class="login-subtitle">Authenticate with your workspace credentials.</p>
+        </div>
+      </div>
+      <form id="login-form" class="login-form">
+        <label class="form-label" for="login-email">Email</label>
+        <input id="login-email" name="email" type="email" placeholder="admin@salesaid.com" required />
+        <label class="form-label" for="login-password">Password</label>
+        <input id="login-password" name="password" type="password" placeholder="••••••••" required />
+        <label class="form-label" for="login-role">Role</label>
+        <select id="login-role" name="workspaceRole" required>
+          <option value="Admin">Admin</option>
+          <option value="Salesperson">Salesperson</option>
+        </select>
+        <p id="login-error" class="login-error" aria-live="polite"></p>
+        <button type="submit" class="btn primary">Log in</button>
+        <p class="login-hint">Demo credentials: <strong>admin@salesaid.com</strong> / <strong>demo1234</strong>.</p>
+      </form>
+    </div>
+  </div>
+  <div class="app-shell hidden">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-title">SL CRM</span>
+      </div>
+      <nav class="nav">
+        <button class="nav-item active" data-section="dashboard">
+          <i data-lucide="home"></i>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-section="companies">
+          <i data-lucide="building-2"></i>
+          <span>Companies</span>
+        </button>
+        <button class="nav-item" data-section="contacts">
+          <i data-lucide="users"></i>
+          <span>Contacts</span>
+        </button>
+        <button class="nav-item" data-section="products">
+          <i data-lucide="package"></i>
+          <span>Products</span>
+        </button>
+        <button class="nav-item" data-section="orders">
+          <i data-lucide="shopping-cart"></i>
+          <span>Orders</span>
+        </button>
+        <button class="nav-item" data-section="quotations">
+          <i data-lucide="file-text"></i>
+          <span>Quotations</span>
+        </button>
+        <button class="nav-item" data-section="invoices">
+          <i data-lucide="receipt"></i>
+          <span>Invoices</span>
+        </button>
+        <button class="nav-item" data-section="documents">
+          <i data-lucide="file-box"></i>
+          <span>Documents</span>
+        </button>
+        <button class="nav-item" data-section="shipping">
+          <i data-lucide="truck"></i>
+          <span>Shipping Schedules</span>
+        </button>
+        <button class="nav-item" data-section="sample_shipments">
+          <i data-lucide="send"></i>
+          <span>Samples</span>
+        </button>
+        <button class="nav-item" data-section="tasks">
+          <i data-lucide="check-square"></i>
+          <span>Tasks</span>
+        </button>
+        <button class="nav-item" data-section="notes">
+          <i data-lucide="notebook"></i>
+          <span>Notes</span>
+        </button>
+        <button class="nav-item" data-section="tags">
+          <i data-lucide="tags"></i>
+          <span>Tags</span>
+        </button>
+        <button class="nav-item" data-section="settings">
+          <i data-lucide="settings"></i>
+          <span>Settings</span>
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="footer-label">Developer</div>
+        <div class="footer-name">Mark Nissanka</div>
+      </div>
+    </aside>
+    <main class="main">
+      <div id="sales-workspace" class="sales-workspace hidden">
+        <div class="sales-panel">
+          <div class="sales-panel-header">
+            <div>
+              <p class="eyebrow">Sales workspace</p>
+              <h2 class="page-title">Pitch & capture</h2>
+              <p class="page-meta">Only Salesperson mode can add and manage these notes.</p>
+            </div>
+            <div class="sales-actions">
+              <span class="sales-status-badge">Salesperson</span>
+              <button id="sales-logout-button" class="btn ghost small">Logout</button>
+            </div>
+          </div>
+          <form id="sales-add-content-form" class="sales-form">
+            <label>
+              <span>Content title</span>
+              <input name="title" type="text" placeholder="New talking point" required />
+            </label>
+            <label>
+              <span>Description</span>
+              <textarea name="description" placeholder="Capture what you need" required></textarea>
+            </label>
+            <div class="sales-form-actions">
+              <button type="submit" class="btn primary">Save content</button>
+              <button type="reset" class="btn ghost small">Reset</button>
+            </div>
+          </form>
+          <div class="sales-divider"></div>
+          <div id="sales-content-list" class="sales-content-list"></div>
+        </div>
+      </div>
+      <header class="topbar">
+        <h1 id="section-title">Dashboard</h1>
+        <div class="topbar-meta">
+          <div class="chip">Cloudflare D1 · R2</div>
+          <div id="user-display" class="user-display"></div>
+          <button id="logout-button" class="btn ghost small">Logout</button>
+        </div>
+      </header>
+      <section class="content">
+        <div id="section-content" class="section-content"></div>
+      </section>
+    </main>
+  </div>
+  <script src="https://unpkg.com/lucide@0.561.0/dist/umd/lucide.js"></script>
+  <script src="/vendor/jszip.min.js"></script>
+  <script type="module" src="/app.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+INFO:     Started server process [14975]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "/Users/markwu/Library/Python/3.9/lib/python/site-packages/starlette/routing.py", line 693, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+  File "/Users/markwu/Library/Python/3.9/lib/python/site-packages/starlette/routing.py", line 569, in __aenter__
+    await self._router.startup()
+  File "/Users/markwu/Library/Python/3.9/lib/python/site-packages/starlette/routing.py", line 670, in startup
+    await handler()
+  File "/Users/markwu/dve/salesaid-master/python_app/main.py", line 371, in on_startup
+    account_id=get_env("CLOUDFLARE_ACCOUNT_ID"),
+  File "/Users/markwu/dve/salesaid-master/python_app/main.py", line 356, in get_env
+    raise RuntimeError(f"Missing required env var: {name}")
+RuntimeError: Missing required env var: CLOUDFLARE_ACCOUNT_ID
+
+ERROR:    Application startup failed. Exiting.

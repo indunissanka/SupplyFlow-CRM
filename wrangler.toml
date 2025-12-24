@@ -1,0 +1,19 @@
+name = "crmforall-python"
+compatibility_date = "2024-12-15"
+compatibility_flags = ["nodejs_compat"]
+
+[container_registry]
+type = "docker"
+image = "registry.cloudflare.com/2a0e052b75e7f62e2a7be2e54747a947/crm-python-app-amd64:latest"
+
+assets = { binding = "ASSETS", directory = "./public" }
+
+[[d1_databases]]
+binding = "DB"
+database_name = "crmforall-db"
+database_id = "68cd9034-6e88-420c-8584-3a521726e26a"
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "crmforall-files"
+preview_bucket_name = "crmforall-files-dev"

@@ -1,0 +1,30 @@
+{
+  "name": "crmforall",
+  "version": "1.0.0",
+  "description": "Cloudflare Worker CRM with D1 + R2 backing and Cloudflare asset hosting",
+  "main": "dist/worker.js",
+  "scripts": {
+    "dev": "wrangler dev --local --ip 0.0.0.0",
+    "deploy": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "db:local": "wrangler d1 execute crmforall-db --local --file ./schema.sql",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "hono": "^4.11.1",
+    "pdfjs-dist": "^5.4.449"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.10.15",
+    "@cloudflare/workers-types": "^4.20251213.0",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
+    "wrangler": "^4.54.0"
+  }
+}
