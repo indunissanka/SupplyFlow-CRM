@@ -20,7 +20,8 @@ crm-cloudflare-app/
 │   └── index.test.ts      # Tests
 ├── python_app/            # Python FastAPI application
 │   ├── main.py           # FastAPI application
-│   └── requirements.txt  # Python dependencies
+│   └── __init__.py       # Python package marker
+├── requirements.txt      # Python dependencies
 ├── public/                # Frontend static assets
 │   ├── index.html        # Main application
 │   ├── styles.css        # CSS styles
@@ -64,9 +65,8 @@ crm-cloudflare-app/
 
 2. **Python Server**:
    ```bash
-   cd python_app
    pip install -r requirements.txt
-   python main.py
+   python python_app/main.py
    ```
    Server runs on `http://localhost:8080`
 
@@ -81,13 +81,13 @@ crm-cloudflare-app/
 1. **Configure environment variables** in `.env` file:
    ```
    CLOUDFLARE_ACCOUNT_ID=your_account_id
-   CLOUDFLARE_API_TOKEN=your_api_token
+   D1_API_TOKEN=your_api_token
    D1_DATABASE_ID=your_database_id
    ```
 
 2. **Deploy Node.js Worker**:
    ```bash
-   npx wrangler deploy
+   npx wrangler deploy -c wrangler.toml
    ```
 
 3. **Deploy Python Container**:
@@ -95,6 +95,7 @@ crm-cloudflare-app/
    # Build and push to Cloudflare registry
    npx wrangler containers build .
    npx wrangler containers push crm-python-app:latest
+   npx wrangler deploy -c wrangler-container.toml
    ```
 
 ## GitHub Repository Setup
@@ -127,6 +128,7 @@ Create a `.env` file with:
 CLOUDFLARE_ACCOUNT_ID=your_account_id
 CLOUDFLARE_API_TOKEN=your_api_token
 D1_DATABASE_ID=your_database_id
+ D1_API_TOKEN=your_api_token
 R2_ACCESS_KEY_ID=your_r2_access_key
 R2_SECRET_ACCESS_KEY=your_r2_secret_key
 R2_BUCKET=your_r2_bucket
