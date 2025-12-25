@@ -15,3 +15,8 @@ database_id = "68cd9034-6e88-420c-8584-3a521726e26a"
 binding = "FILES"
 bucket_name = "crmforall-files"
 preview_bucket_name = "crmforall-files-dev"
+
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_WITH_KV_ID"
+preview_id = "REPLACE_WITH_KV_PREVIEW_ID"

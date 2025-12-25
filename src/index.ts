@@ -6,6 +6,7 @@ type Env = {
   DB: D1Database;
   FILES: R2Bucket;
   ASSETS: Fetcher;
+  CACHE: KVNamespace;
 };
 
 const allowedTables = [
@@ -40,6 +41,9 @@ const cacheableTables = new Set<string>([
 ]);
 
 const CACHE_TTL_SECONDS = 60;
+const TAGGED_LIST_TABLES = ["orders", "quotations", "documents"];
+const DOC_TYPE_LIST_TABLES = ["doc_types", "documents"];
+const CACHEABLE_TABLES_LIST = Array.from(cacheableTables.values());
 
 const ownerEmailTables = [
   "companies",
@@ -320,15 +324,19 @@ const buildFilterKey = (filters: Array<{ column: string; value: string | number 
   return encodeURIComponent(parts.join("&"));
 };
 
+const cacheVersionKey = (ownerEmail: string, table: string) =>
+  `cache:v1:${ownerEmail}:${table}`;
+
 const buildCacheKey = (
   ownerEmail: string,
   table: string,
   filterKey: string,
+  version: string,
   limit: number,
   offset: number
 ) => {
   const owner = encodeURIComponent(ownerEmail);
-  return `https://cache.local/api/${table}?owner=${owner}&filters=${filterKey}&limit=${limit}&offset=${offset}`;
+  return `https://cache.local/api/${table}?owner=${owner}&filters=${filterKey}&v=${version}&limit=${limit}&offset=${offset}`;
 };
 
 const buildWhereClause = (
@@ -353,6 +361,16 @@ const runBatches = async (db: D1Database, statements: D1PreparedStatement[], bat
       await db.batch(chunk);
     }
   }
+};
+
+const bumpCacheVersion = async (env: Env, ownerEmail: string, table: string) => {
+  if (!cacheableTables.has(table)) return;
+  await env.CACHE.put(cacheVersionKey(ownerEmail, table), String(Date.now()));
+};
+
+const bumpCacheVersions = async (env: Env, ownerEmail: string, tables: string[]) => {
+  if (!tables.length) return;
+  await Promise.all(tables.map((table) => bumpCacheVersion(env, ownerEmail, table)));
 };
 
 const shippingStatusRank: Record<string, number> = {
@@ -679,7 +697,8 @@ app.get("/api/:table", async (c) => {
 
   if (!cacheBypass && cacheableTables.has(table)) {
     const filterKey = buildFilterKey(filters);
-    const cacheKey = new Request(buildCacheKey(ownerEmail, table, filterKey, limit, offset));
+    const version = (await c.env.CACHE.get(cacheVersionKey(ownerEmail, table))) ?? "0";
+    const cacheKey = new Request(buildCacheKey(ownerEmail, table, filterKey, version, limit, offset));
     const cached = await caches.default.match(cacheKey);
     if (cached) {
       return cached;
@@ -728,6 +747,7 @@ app.post("/api/account/update", async (c) => {
     c.env.DB.prepare(`UPDATE ${table} SET owner_email = ? WHERE owner_email = ?`).bind(nextEmail, ownerEmail)
   );
   await runBatches(c.env.DB, updates);
+  await bumpCacheVersions(c.env, nextEmail, CACHEABLE_TABLES_LIST);
 
   return c.json({ ok: true, email: nextEmail });
 });
@@ -778,6 +798,9 @@ app.put("/api/:table/:id", async (c) => {
     await syncShippingMilestones(c.env.DB, ownerEmail);
   }
 
+  if (changes || tags.length) {
+    await bumpCacheVersion(c.env, ownerEmail, table);
+  }
   return c.json({ ok: true, changes });
 });
 
@@ -803,6 +826,7 @@ app.delete("/api/:table/:id", async (c) => {
   }
 
   await c.env.DB.prepare(`DELETE FROM ${table} WHERE id = ? AND owner_email = ?`).bind(id, ownerEmail).run();
+  await bumpCacheVersion(c.env, ownerEmail, table);
   return c.json({ ok: true });
 });
 
@@ -839,6 +863,16 @@ app.post("/api/contacts", async (c) => {
   const id = result.meta.last_row_id;
   await attachTags(c.env.DB, ownerEmail, "contact", id, tags);
 
+  await bumpCacheVersion(c.env, ownerEmail, "contacts");
+  await bumpCacheVersion(c.env, ownerEmail, "companies");
+  await bumpCacheVersion(c.env, ownerEmail, "products");
+  await bumpCacheVersion(c.env, ownerEmail, "orders");
+  await bumpCacheVersion(c.env, ownerEmail, "quotations");
+  await bumpCacheVersion(c.env, ownerEmail, "invoices");
+  await bumpCacheVersion(c.env, ownerEmail, "shipping_schedules");
+  await bumpCacheVersion(c.env, ownerEmail, "sample_shipments");
+  await bumpCacheVersion(c.env, ownerEmail, "tasks");
+  await bumpCacheVersion(c.env, ownerEmail, "notes");
   return c.json({ id });
 });
 
@@ -937,6 +971,7 @@ app.post("/api/companies/bulk", async (c) => {
     });
 
     await runBatches(c.env.DB, inserts);
+    await bumpCacheVersion(c.env, ownerEmail, "companies");
     return c.json({ inserted: inserts.length });
   } catch (err) {
     console.error("Bulk company insert failed", err);
@@ -1036,6 +1071,7 @@ app.post("/api/contacts/bulk", async (c) => {
     );
 
   await runBatches(c.env.DB, inserts);
+  await bumpCacheVersion(c.env, ownerEmail, "contacts");
   return c.json({ inserted: inserts.length });
 });
 
@@ -1094,6 +1130,7 @@ app.post("/api/products/bulk", async (c) => {
   );
 
   await runBatches(c.env.DB, inserts);
+  await bumpCacheVersion(c.env, ownerEmail, "products");
   return c.json({ inserted: inserts.length });
 });
 
@@ -1437,6 +1474,7 @@ app.post("/api/tags", async (c) => {
     .bind(body.name, body.color ?? "#2563eb", ownerEmail)
     .run();
 
+  await bumpCacheVersions(c.env, ownerEmail, ["tags", ...TAGGED_LIST_TABLES]);
   return c.json({ id: result.meta.last_row_id });
 });
 
@@ -1445,6 +1483,7 @@ app.delete("/api/tags/:id", async (c) => {
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
   await c.env.DB.prepare("DELETE FROM tags WHERE id = ? AND owner_email = ?").bind(id, ownerEmail).run();
+  await bumpCacheVersions(c.env, ownerEmail, ["tags", ...TAGGED_LIST_TABLES]);
   return c.json({ ok: true });
 });
 
@@ -1453,6 +1492,7 @@ app.post("/api/doc_types", async (c) => {
   const body = await c.req.json<{ name: string }>();
   if (!body.name) return c.json({ error: "name is required" }, 400);
   const result = await c.env.DB.prepare(`INSERT INTO doc_types (name, owner_email) VALUES (?, ?)`).bind(body.name, ownerEmail).run();
+  await bumpCacheVersions(c.env, ownerEmail, DOC_TYPE_LIST_TABLES);
   return c.json({ id: result.meta.last_row_id });
 });
 
@@ -1461,6 +1501,7 @@ app.delete("/api/doc_types/:id", async (c) => {
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
   await c.env.DB.prepare("DELETE FROM doc_types WHERE id = ? AND owner_email = ?").bind(id, ownerEmail).run();
+  await bumpCacheVersions(c.env, ownerEmail, DOC_TYPE_LIST_TABLES);
   return c.json({ ok: true });
 });
 
@@ -1503,6 +1544,7 @@ app.post("/api/documents", async (c) => {
   const docId = typeof row?.id === "number" ? row.id : null;
   await attachTags(c.env.DB, ownerEmail, "document", docId, normalizeTags(body.tags));
 
+  await bumpCacheVersion(c.env, ownerEmail, "documents");
   return c.json({ document: row });
 });
 
@@ -1588,6 +1630,9 @@ app.post("/api/upload", async (c) => {
     results.push({ key, document: doc });
   }
 
+  if (results.length) {
+    await bumpCacheVersion(c.env, ownerEmail, "documents");
+  }
   return c.json({ success: true, uploaded: results.length, documents: results });
 });
 
