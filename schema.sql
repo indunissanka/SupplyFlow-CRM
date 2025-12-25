@@ -127,6 +127,23 @@ CREATE TABLE IF NOT EXISTS shipping_schedules (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS sample_shipments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  owner_email TEXT NOT NULL,
+  company_id INTEGER REFERENCES companies(id) ON DELETE SET NULL,
+  product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+  document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+  receiving_address TEXT,
+  phone TEXT,
+  quantity REAL DEFAULT 0,
+  waybill_number TEXT,
+  courier TEXT,
+  status TEXT DEFAULT 'Preparing',
+  notes TEXT,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_email TEXT NOT NULL,
@@ -201,6 +218,24 @@ CREATE INDEX IF NOT EXISTS idx_orders_company ON orders(company_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id);
 CREATE INDEX IF NOT EXISTS idx_docs_company ON documents(company_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_companies_owner_updated ON companies(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_contacts_owner_updated ON contacts(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_products_owner_updated ON products(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_orders_owner_updated ON orders(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_quotations_owner_updated ON quotations(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_invoices_owner_updated ON invoices(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_documents_owner_updated ON documents(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_shipping_owner_updated ON shipping_schedules(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_sample_shipments_owner_updated ON sample_shipments(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tasks_owner_updated ON tasks(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_notes_owner_updated ON notes(owner_email, updated_at);
+CREATE INDEX IF NOT EXISTS idx_tags_owner_created ON tags(owner_email, created_at);
+CREATE INDEX IF NOT EXISTS idx_doc_types_owner_created ON doc_types(owner_email, created_at);
+CREATE INDEX IF NOT EXISTS idx_quotation_items_owner_created ON quotation_items(owner_email, created_at);
+CREATE INDEX IF NOT EXISTS idx_companies_owner_name ON companies(owner_email, name);
+CREATE INDEX IF NOT EXISTS idx_products_owner_name ON products(owner_email, name);
+CREATE INDEX IF NOT EXISTS idx_contacts_owner_last_first ON contacts(owner_email, last_name, first_name);
+CREATE INDEX IF NOT EXISTS idx_tag_links_owner_entity ON tag_links(owner_email, entity_type, entity_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_name_owner ON companies(name, owner_email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_code_owner ON companies(company_code, owner_email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_email_owner ON contacts(email, owner_email);
