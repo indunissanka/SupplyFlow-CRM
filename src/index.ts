@@ -313,6 +313,15 @@ const buildWhereClause = (
   return { clause: parts.join(" AND "), params };
 };
 
+const runBatches = async (db: D1Database, statements: D1PreparedStatement[], batchSize = 50) => {
+  for (let i = 0; i < statements.length; i += batchSize) {
+    const chunk = statements.slice(i, i + batchSize);
+    if (chunk.length) {
+      await db.batch(chunk);
+    }
+  }
+};
+
 const shippingStatusRank: Record<string, number> = {
   "Factory exit": 1,
   "Dispatched": 2,
@@ -664,7 +673,7 @@ app.post("/api/account/update", async (c) => {
   const updates = ownerEmailTables.map((table) =>
     c.env.DB.prepare(`UPDATE ${table} SET owner_email = ? WHERE owner_email = ?`).bind(nextEmail, ownerEmail)
   );
-  await c.env.DB.batch(updates);
+  await runBatches(c.env.DB, updates);
 
   return c.json({ ok: true, email: nextEmail });
 });
@@ -873,7 +882,7 @@ app.post("/api/companies/bulk", async (c) => {
       );
     });
 
-    await c.env.DB.batch(inserts);
+    await runBatches(c.env.DB, inserts);
     return c.json({ inserted: inserts.length });
   } catch (err) {
     console.error("Bulk company insert failed", err);
@@ -972,7 +981,7 @@ app.post("/api/contacts/bulk", async (c) => {
       )
     );
 
-  await c.env.DB.batch(inserts);
+  await runBatches(c.env.DB, inserts);
   return c.json({ inserted: inserts.length });
 });
 
@@ -1030,7 +1039,7 @@ app.post("/api/products/bulk", async (c) => {
     )
   );
 
-  await c.env.DB.batch(inserts);
+  await runBatches(c.env.DB, inserts);
   return c.json({ inserted: inserts.length });
 });
 
@@ -1178,7 +1187,7 @@ app.post("/api/quotations", async (c) => {
         ownerEmail
       )
     );
-    await c.env.DB.batch(inserts);
+    await runBatches(c.env.DB, inserts);
   }
 
   await attachTags(c.env.DB, ownerEmail, "quotation", quotationId, tags);
@@ -2007,7 +2016,7 @@ async function attachTags(db: D1Database, ownerEmail: string, entityType: string
       .bind(tagId, entityType, entityId, ownerEmail)
   );
   if (inserts.length) {
-    await db.batch(inserts);
+    await runBatches(db, inserts);
   }
 }
 
