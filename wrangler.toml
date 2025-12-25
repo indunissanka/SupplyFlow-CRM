@@ -18,5 +18,5 @@ preview_bucket_name = "crmforall-files-dev"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_WITH_KV_ID"
-preview_id = "REPLACE_WITH_KV_PREVIEW_ID"
+id = "6c551091e4554abf8afcf6befa1db72d"
+preview_id = "78a18a45560d4d6782389af88e1f4f5b"
