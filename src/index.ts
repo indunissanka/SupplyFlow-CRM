@@ -85,6 +85,184 @@ const entityTypes: Record<string, string> = {
   notes: "note"
 };
 
+const tableColumns: Record<string, string[]> = {
+  companies: [
+    "id",
+    "owner_email",
+    "name",
+    "company_code",
+    "website",
+    "email",
+    "phone",
+    "address",
+    "owner",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  contacts: [
+    "id",
+    "owner_email",
+    "company_id",
+    "first_name",
+    "last_name",
+    "email",
+    "phone",
+    "role",
+    "status",
+    "created_at",
+    "updated_at"
+  ],
+  products: [
+    "id",
+    "owner_email",
+    "name",
+    "sku",
+    "category",
+    "price",
+    "currency",
+    "status",
+    "description",
+    "created_at",
+    "updated_at"
+  ],
+  orders: [
+    "id",
+    "owner_email",
+    "company_id",
+    "contact_id",
+    "quotation_id",
+    "invoice_ids",
+    "status",
+    "total_amount",
+    "currency",
+    "reference",
+    "created_at",
+    "updated_at"
+  ],
+  quotations: [
+    "id",
+    "owner_email",
+    "company_id",
+    "contact_id",
+    "reference",
+    "amount",
+    "currency",
+    "status",
+    "valid_until",
+    "title",
+    "tax_rate",
+    "notes",
+    "bank_charge_method",
+    "attachment_key",
+    "created_at",
+    "updated_at"
+  ],
+  invoices: [
+    "id",
+    "owner_email",
+    "company_id",
+    "contact_id",
+    "reference",
+    "total_amount",
+    "currency",
+    "due_date",
+    "status",
+    "attachment_key",
+    "created_at",
+    "updated_at"
+  ],
+  documents: [
+    "id",
+    "owner_email",
+    "company_id",
+    "contact_id",
+    "invoice_id",
+    "doc_type_id",
+    "title",
+    "storage_key",
+    "content_type",
+    "size",
+    "created_at",
+    "updated_at"
+  ],
+  shipping_schedules: [
+    "id",
+    "owner_email",
+    "order_id",
+    "invoice_id",
+    "company_id",
+    "carrier",
+    "tracking_number",
+    "factory_exit_date",
+    "etc_date",
+    "etd_date",
+    "eta",
+    "status",
+    "notes",
+    "created_at",
+    "updated_at"
+  ],
+  sample_shipments: [
+    "id",
+    "owner_email",
+    "company_id",
+    "product_id",
+    "document_id",
+    "receiving_address",
+    "phone",
+    "quantity",
+    "waybill_number",
+    "courier",
+    "status",
+    "notes",
+    "created_at",
+    "updated_at"
+  ],
+  tasks: [
+    "id",
+    "owner_email",
+    "title",
+    "status",
+    "due_date",
+    "assignee",
+    "related_type",
+    "related_id",
+    "created_at",
+    "updated_at"
+  ],
+  notes: [
+    "id",
+    "owner_email",
+    "entity_type",
+    "entity_id",
+    "body",
+    "author",
+    "note_date",
+    "created_at",
+    "updated_at"
+  ],
+  tags: ["id", "owner_email", "name", "color", "created_at"],
+  doc_types: ["id", "owner_email", "name", "created_at"],
+  quotation_items: [
+    "id",
+    "owner_email",
+    "quotation_id",
+    "product_id",
+    "product_name",
+    "qty",
+    "unit_price",
+    "drums_price",
+    "bank_charge_price",
+    "shipping_price",
+    "customer_commission",
+    "line_total",
+    "created_at"
+  ]
+};
+
+const selectColumns = (alias: string, columns: string[]) => columns.map((col) => `${alias}.${col}`).join(", ");
+
 const shippingStatusRank: Record<string, number> = {
   "Factory exit": 1,
   "Dispatched": 2,
@@ -1584,12 +1762,13 @@ async function getStats(db: D1Database, ownerEmail: string) {
 
 async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
   const orderColumn = table === "tags" || table === "doc_types" ? "created_at" : "updated_at";
-  let query = `SELECT * FROM ${table} WHERE owner_email = ? ORDER BY ${orderColumn} DESC LIMIT 50`;
+  const baseColumns = tableColumns[table] ?? ["*"];
+  let query = `SELECT ${baseColumns.join(", ")} FROM ${table} WHERE owner_email = ? ORDER BY ${orderColumn} DESC LIMIT 50`;
   let params: unknown[] = [ownerEmail];
 
   switch (table) {
     case "contacts":
-      query = `SELECT c.*, co.name as company_name 
+      query = `SELECT ${selectColumns("c", tableColumns.contacts)}, co.name as company_name 
                FROM contacts c 
                LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
                WHERE c.owner_email = ?
@@ -1597,7 +1776,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail];
       break;
     case "orders":
-      query = `SELECT o.*, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
+      query = `SELECT ${selectColumns("o", tableColumns.orders)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                GROUP_CONCAT(DISTINCT t.name) as tags
                FROM orders o
                LEFT JOIN companies co ON co.id = o.company_id AND co.owner_email = ?
@@ -1610,7 +1789,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
       break;
     case "quotations":
-      query = `SELECT q.*, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
+      query = `SELECT ${selectColumns("q", tableColumns.quotations)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                GROUP_CONCAT(DISTINCT t.name) as tags
                FROM quotations q
                LEFT JOIN companies co ON co.id = q.company_id AND co.owner_email = ?
@@ -1623,7 +1802,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
       break;
     case "invoices":
-      query = `SELECT i.*, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name
+      query = `SELECT ${selectColumns("i", tableColumns.invoices)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name
                FROM invoices i
                LEFT JOIN companies co ON co.id = i.company_id AND co.owner_email = ?
                LEFT JOIN contacts ct ON ct.id = i.contact_id AND ct.owner_email = ?
@@ -1632,7 +1811,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail];
       break;
     case "documents":
-      query = `SELECT d.*, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
+      query = `SELECT ${selectColumns("d", tableColumns.documents)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                dt.name as doc_type_name, i.reference as invoice_reference, GROUP_CONCAT(DISTINCT t.name) as tags
                FROM documents d
                LEFT JOIN companies co ON co.id = d.company_id AND co.owner_email = ?
@@ -1647,7 +1826,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
       break;
     case "shipping_schedules":
-      query = `SELECT ss.*, o.reference as order_reference, i.reference as invoice_reference, co.name as company_name
+      query = `SELECT ${selectColumns("ss", tableColumns.shipping_schedules)}, o.reference as order_reference, i.reference as invoice_reference, co.name as company_name
                FROM shipping_schedules ss
                LEFT JOIN orders o ON o.id = ss.order_id AND o.owner_email = ?
                LEFT JOIN invoices i ON i.id = ss.invoice_id AND i.owner_email = ?
@@ -1657,7 +1836,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail];
       break;
     case "sample_shipments":
-      query = `SELECT ss.*, co.name as company_name, p.name as product_name, d.title as document_title
+      query = `SELECT ${selectColumns("ss", tableColumns.sample_shipments)}, co.name as company_name, p.name as product_name, d.title as document_title
                FROM sample_shipments ss
                LEFT JOIN companies co ON co.id = ss.company_id AND co.owner_email = ?
                LEFT JOIN products p ON p.id = ss.product_id AND p.owner_email = ?
@@ -1667,7 +1846,7 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
       params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail];
       break;
     case "quotation_items":
-      query = `SELECT qi.*, p.name as product_name
+      query = `SELECT ${selectColumns("qi", tableColumns.quotation_items)}, p.name as product_name
               FROM quotation_items qi
               LEFT JOIN products p ON p.id = qi.product_id AND p.owner_email = ?
               WHERE qi.owner_email = ?
