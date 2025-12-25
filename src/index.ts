@@ -261,7 +261,57 @@ const tableColumns: Record<string, string[]> = {
   ]
 };
 
+const filterableFields: Record<string, string[]> = {
+  companies: ["status", "name", "company_code"],
+  contacts: ["company_id", "status", "email", "last_name"],
+  products: ["status", "category", "sku"],
+  orders: ["company_id", "contact_id", "status", "reference"],
+  quotations: ["company_id", "contact_id", "status", "reference"],
+  invoices: ["company_id", "contact_id", "status", "reference"],
+  documents: ["company_id", "contact_id", "invoice_id", "doc_type_id", "title"],
+  shipping_schedules: ["order_id", "invoice_id", "company_id", "status", "carrier"],
+  sample_shipments: ["company_id", "product_id", "document_id", "status", "courier"],
+  tasks: ["status", "assignee", "related_type", "related_id"],
+  notes: ["entity_type", "entity_id", "author"],
+  tags: ["name"],
+  doc_types: ["name"],
+  quotation_items: ["quotation_id", "product_id"]
+};
+
 const selectColumns = (alias: string, columns: string[]) => columns.map((col) => `${alias}.${col}`).join(", ");
+
+const parseFilters = (table: string, searchParams: URLSearchParams) => {
+  const allowed = filterableFields[table] ?? [];
+  return allowed
+    .map((field) => {
+      const raw = searchParams.get(field);
+      if (!raw) return null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
+      if (field.endsWith("_id") || field === "related_id" || field === "entity_id") {
+        const numeric = Number(trimmed);
+        if (!Number.isFinite(numeric)) return null;
+        return { column: field, value: numeric };
+      }
+      return { column: field, value: trimmed };
+    })
+    .filter((entry): entry is { column: string; value: string | number } => entry !== null);
+};
+
+const buildWhereClause = (
+  ownerEmail: string,
+  filters: Array<{ column: string; value: string | number }>,
+  alias?: string
+) => {
+  const prefix = alias ? `${alias}.` : "";
+  const parts = [`${prefix}owner_email = ?`];
+  const params: Array<string | number> = [ownerEmail];
+  for (const filter of filters) {
+    parts.push(`${prefix}${filter.column} = ?`);
+    params.push(filter.value);
+  }
+  return { clause: parts.join(" AND "), params };
+};
 
 const shippingStatusRank: Record<string, number> = {
   "Factory exit": 1,
@@ -556,6 +606,8 @@ app.get("/api/:table", async (c) => {
     return c.json({ error: "Unknown table" }, 404);
   }
   const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const filters = parseFilters(table, searchParams);
   const limitParam = c.req.query("limit");
   const offsetParam = c.req.query("offset");
   const limitRaw = limitParam ? Number.parseInt(limitParam, 10) : 50;
@@ -565,7 +617,7 @@ app.get("/api/:table", async (c) => {
   if (table === "orders" || table === "invoices" || table === "shipping_schedules") {
     await syncShippingMilestones(c.env.DB, ownerEmail);
   }
-  const rows = await fetchRows(c.env.DB, table, ownerEmail, limit, offset);
+  const rows = await fetchRows(c.env.DB, table, ownerEmail, filters, limit, offset);
   return c.json({ rows });
 });
 
@@ -1766,22 +1818,35 @@ async function getStats(db: D1Database, ownerEmail: string) {
   return result;
 }
 
-async function fetchRows(db: D1Database, table: string, ownerEmail: string, limit: number, offset: number) {
+async function fetchRows(
+  db: D1Database,
+  table: string,
+  ownerEmail: string,
+  filters: Array<{ column: string; value: string | number }>,
+  limit: number,
+  offset: number
+) {
   const orderColumn = table === "tags" || table === "doc_types" ? "created_at" : "updated_at";
   const baseColumns = tableColumns[table] ?? ["*"];
-  let query = `SELECT ${baseColumns.join(", ")} FROM ${table} WHERE owner_email = ? ORDER BY ${orderColumn} DESC LIMIT ? OFFSET ?`;
-  let params: unknown[] = [ownerEmail, limit, offset];
+  const baseWhere = buildWhereClause(ownerEmail, filters);
+  let query = `SELECT ${baseColumns.join(", ")} FROM ${table} WHERE ${baseWhere.clause} ORDER BY ${orderColumn} DESC LIMIT ? OFFSET ?`;
+  let params: unknown[] = [...baseWhere.params, limit, offset];
 
   switch (table) {
     case "contacts":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "c");
       query = `SELECT ${selectColumns("c", tableColumns.contacts)}, co.name as company_name 
                FROM contacts c 
                LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
-               WHERE c.owner_email = ?
+               WHERE ${where.clause}
                ORDER BY c.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "orders":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "o");
       query = `SELECT ${selectColumns("o", tableColumns.orders)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                GROUP_CONCAT(DISTINCT t.name) as tags
                FROM orders o
@@ -1789,12 +1854,15 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string, limi
                LEFT JOIN contacts ct ON ct.id = o.contact_id AND ct.owner_email = ?
                LEFT JOIN tag_links tl ON tl.entity_type = 'order' AND tl.entity_id = o.id AND tl.owner_email = ?
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
-               WHERE o.owner_email = ?
+               WHERE ${where.clause}
                GROUP BY o.id
                ORDER BY o.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "quotations":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "q");
       query = `SELECT ${selectColumns("q", tableColumns.quotations)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                GROUP_CONCAT(DISTINCT t.name) as tags
                FROM quotations q
@@ -1802,21 +1870,27 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string, limi
                LEFT JOIN contacts ct ON ct.id = q.contact_id AND ct.owner_email = ?
                LEFT JOIN tag_links tl ON tl.entity_type = 'quotation' AND tl.entity_id = q.id AND tl.owner_email = ?
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
-               WHERE q.owner_email = ?
+               WHERE ${where.clause}
                GROUP BY q.id
                ORDER BY q.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "invoices":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "i");
       query = `SELECT ${selectColumns("i", tableColumns.invoices)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name
                FROM invoices i
                LEFT JOIN companies co ON co.id = i.company_id AND co.owner_email = ?
                LEFT JOIN contacts ct ON ct.id = i.contact_id AND ct.owner_email = ?
-               WHERE i.owner_email = ?
+               WHERE ${where.clause}
                ORDER BY i.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "documents":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "d");
       query = `SELECT ${selectColumns("d", tableColumns.documents)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
                dt.name as doc_type_name, i.reference as invoice_reference, GROUP_CONCAT(DISTINCT t.name) as tags
                FROM documents d
@@ -1826,38 +1900,48 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string, limi
                LEFT JOIN invoices i ON i.id = d.invoice_id AND i.owner_email = ?
                LEFT JOIN tag_links tl ON tl.entity_type = 'document' AND tl.entity_id = d.id AND tl.owner_email = ?
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
-               WHERE d.owner_email = ?
+               WHERE ${where.clause}
                GROUP BY d.id
                ORDER BY d.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "shipping_schedules":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "ss");
       query = `SELECT ${selectColumns("ss", tableColumns.shipping_schedules)}, o.reference as order_reference, i.reference as invoice_reference, co.name as company_name
                FROM shipping_schedules ss
                LEFT JOIN orders o ON o.id = ss.order_id AND o.owner_email = ?
                LEFT JOIN invoices i ON i.id = ss.invoice_id AND i.owner_email = ?
                LEFT JOIN companies co ON co.id = ss.company_id AND co.owner_email = ?
-               WHERE ss.owner_email = ?
+               WHERE ${where.clause}
                ORDER BY ss.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "sample_shipments":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "ss");
       query = `SELECT ${selectColumns("ss", tableColumns.sample_shipments)}, co.name as company_name, p.name as product_name, d.title as document_title
                FROM sample_shipments ss
                LEFT JOIN companies co ON co.id = ss.company_id AND co.owner_email = ?
                LEFT JOIN products p ON p.id = ss.product_id AND p.owner_email = ?
                LEFT JOIN documents d ON d.id = ss.document_id AND d.owner_email = ?
-               WHERE ss.owner_email = ?
+               WHERE ${where.clause}
                ORDER BY ss.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      }
       break;
     case "quotation_items":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "qi");
       query = `SELECT ${selectColumns("qi", tableColumns.quotation_items)}, p.name as product_name
               FROM quotation_items qi
               LEFT JOIN products p ON p.id = qi.product_id AND p.owner_email = ?
-              WHERE qi.owner_email = ?
+              WHERE ${where.clause}
               ORDER BY qi.created_at DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, limit, offset];
+      params = [ownerEmail, ...where.params, limit, offset];
+      }
       break;
   }
 
