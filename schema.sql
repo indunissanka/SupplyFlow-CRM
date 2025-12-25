@@ -215,8 +215,24 @@ CREATE TABLE IF NOT EXISTS doc_types (
 -- Helpful indexes
 CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id);
 CREATE INDEX IF NOT EXISTS idx_orders_company ON orders(company_id);
+CREATE INDEX IF NOT EXISTS idx_orders_contact ON orders(contact_id);
+CREATE INDEX IF NOT EXISTS idx_orders_quotation ON orders(quotation_id);
+CREATE INDEX IF NOT EXISTS idx_quotations_company ON quotations(company_id);
+CREATE INDEX IF NOT EXISTS idx_quotations_contact ON quotations(contact_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_company ON invoices(company_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_contact ON invoices(contact_id);
 CREATE INDEX IF NOT EXISTS idx_docs_company ON documents(company_id);
+CREATE INDEX IF NOT EXISTS idx_docs_contact ON documents(contact_id);
+CREATE INDEX IF NOT EXISTS idx_docs_invoice ON documents(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_docs_doc_type ON documents(doc_type_id);
+CREATE INDEX IF NOT EXISTS idx_shipping_order ON shipping_schedules(order_id);
+CREATE INDEX IF NOT EXISTS idx_shipping_invoice ON shipping_schedules(invoice_id);
+CREATE INDEX IF NOT EXISTS idx_shipping_company ON shipping_schedules(company_id);
+CREATE INDEX IF NOT EXISTS idx_sample_shipments_company ON sample_shipments(company_id);
+CREATE INDEX IF NOT EXISTS idx_sample_shipments_product ON sample_shipments(product_id);
+CREATE INDEX IF NOT EXISTS idx_sample_shipments_document ON sample_shipments(document_id);
+CREATE INDEX IF NOT EXISTS idx_quotation_items_quotation ON quotation_items(quotation_id);
+CREATE INDEX IF NOT EXISTS idx_quotation_items_product ON quotation_items(product_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_companies_owner_updated ON companies(owner_email, updated_at);
 CREATE INDEX IF NOT EXISTS idx_contacts_owner_updated ON contacts(owner_email, updated_at);
