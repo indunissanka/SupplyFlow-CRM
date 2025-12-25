@@ -556,10 +556,16 @@ app.get("/api/:table", async (c) => {
     return c.json({ error: "Unknown table" }, 404);
   }
   const ownerEmail = c.get("ownerEmail");
+  const limitParam = c.req.query("limit");
+  const offsetParam = c.req.query("offset");
+  const limitRaw = limitParam ? Number.parseInt(limitParam, 10) : 50;
+  const offsetRaw = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
+  const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
   if (table === "orders" || table === "invoices" || table === "shipping_schedules") {
     await syncShippingMilestones(c.env.DB, ownerEmail);
   }
-  const rows = await fetchRows(c.env.DB, table, ownerEmail);
+  const rows = await fetchRows(c.env.DB, table, ownerEmail, limit, offset);
   return c.json({ rows });
 });
 
@@ -1760,11 +1766,11 @@ async function getStats(db: D1Database, ownerEmail: string) {
   return result;
 }
 
-async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
+async function fetchRows(db: D1Database, table: string, ownerEmail: string, limit: number, offset: number) {
   const orderColumn = table === "tags" || table === "doc_types" ? "created_at" : "updated_at";
   const baseColumns = tableColumns[table] ?? ["*"];
-  let query = `SELECT ${baseColumns.join(", ")} FROM ${table} WHERE owner_email = ? ORDER BY ${orderColumn} DESC LIMIT 50`;
-  let params: unknown[] = [ownerEmail];
+  let query = `SELECT ${baseColumns.join(", ")} FROM ${table} WHERE owner_email = ? ORDER BY ${orderColumn} DESC LIMIT ? OFFSET ?`;
+  let params: unknown[] = [ownerEmail, limit, offset];
 
   switch (table) {
     case "contacts":
@@ -1772,8 +1778,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                FROM contacts c 
                LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
                WHERE c.owner_email = ?
-               ORDER BY c.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail];
+               ORDER BY c.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, limit, offset];
       break;
     case "orders":
       query = `SELECT ${selectColumns("o", tableColumns.orders)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
@@ -1785,8 +1791,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
                WHERE o.owner_email = ?
                GROUP BY o.id
-               ORDER BY o.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY o.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "quotations":
       query = `SELECT ${selectColumns("q", tableColumns.quotations)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
@@ -1798,8 +1804,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
                WHERE q.owner_email = ?
                GROUP BY q.id
-               ORDER BY q.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY q.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "invoices":
       query = `SELECT ${selectColumns("i", tableColumns.invoices)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name
@@ -1807,8 +1813,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN companies co ON co.id = i.company_id AND co.owner_email = ?
                LEFT JOIN contacts ct ON ct.id = i.contact_id AND ct.owner_email = ?
                WHERE i.owner_email = ?
-               ORDER BY i.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY i.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "documents":
       query = `SELECT ${selectColumns("d", tableColumns.documents)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
@@ -1822,8 +1828,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
                WHERE d.owner_email = ?
                GROUP BY d.id
-               ORDER BY d.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY d.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "shipping_schedules":
       query = `SELECT ${selectColumns("ss", tableColumns.shipping_schedules)}, o.reference as order_reference, i.reference as invoice_reference, co.name as company_name
@@ -1832,8 +1838,8 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN invoices i ON i.id = ss.invoice_id AND i.owner_email = ?
                LEFT JOIN companies co ON co.id = ss.company_id AND co.owner_email = ?
                WHERE ss.owner_email = ?
-               ORDER BY ss.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY ss.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "sample_shipments":
       query = `SELECT ${selectColumns("ss", tableColumns.sample_shipments)}, co.name as company_name, p.name as product_name, d.title as document_title
@@ -1842,16 +1848,16 @@ async function fetchRows(db: D1Database, table: string, ownerEmail: string) {
                LEFT JOIN products p ON p.id = ss.product_id AND p.owner_email = ?
                LEFT JOIN documents d ON d.id = ss.document_id AND d.owner_email = ?
                WHERE ss.owner_email = ?
-               ORDER BY ss.${orderColumn} DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail];
+               ORDER BY ss.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, limit, offset];
       break;
     case "quotation_items":
       query = `SELECT ${selectColumns("qi", tableColumns.quotation_items)}, p.name as product_name
               FROM quotation_items qi
               LEFT JOIN products p ON p.id = qi.product_id AND p.owner_email = ?
               WHERE qi.owner_email = ?
-              ORDER BY qi.created_at DESC LIMIT 50`;
-      params = [ownerEmail, ownerEmail];
+              ORDER BY qi.created_at DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ownerEmail, limit, offset];
       break;
   }
 
