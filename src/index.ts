@@ -25,6 +25,22 @@ const allowedTables = [
   "quotation_items"
 ];
 
+const cacheableTables = new Set<string>([
+  "companies",
+  "contacts",
+  "products",
+  "quotations",
+  "documents",
+  "sample_shipments",
+  "tasks",
+  "notes",
+  "tags",
+  "doc_types",
+  "quotation_items"
+]);
+
+const CACHE_TTL_SECONDS = 60;
+
 const ownerEmailTables = [
   "companies",
   "contacts",
@@ -296,6 +312,23 @@ const parseFilters = (table: string, searchParams: URLSearchParams) => {
       return { column: field, value: trimmed };
     })
     .filter((entry): entry is { column: string; value: string | number } => entry !== null);
+};
+
+const buildFilterKey = (filters: Array<{ column: string; value: string | number }>) => {
+  if (!filters.length) return "none";
+  const parts = filters.map((filter) => `${filter.column}=${filter.value}`).sort();
+  return encodeURIComponent(parts.join("&"));
+};
+
+const buildCacheKey = (
+  ownerEmail: string,
+  table: string,
+  filterKey: string,
+  limit: number,
+  offset: number
+) => {
+  const owner = encodeURIComponent(ownerEmail);
+  return `https://cache.local/api/${table}?owner=${owner}&filters=${filterKey}&limit=${limit}&offset=${offset}`;
 };
 
 const buildWhereClause = (
@@ -635,6 +668,7 @@ app.get("/api/:table", async (c) => {
   const filters = parseFilters(table, searchParams);
   const limitParam = c.req.query("limit");
   const offsetParam = c.req.query("offset");
+  const cacheBypass = c.req.query("cache") === "0";
   const limitRaw = limitParam ? Number.parseInt(limitParam, 10) : 50;
   const offsetRaw = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
@@ -642,6 +676,26 @@ app.get("/api/:table", async (c) => {
   if (table === "orders" || table === "invoices" || table === "shipping_schedules") {
     await syncShippingMilestones(c.env.DB, ownerEmail);
   }
+
+  if (!cacheBypass && cacheableTables.has(table)) {
+    const filterKey = buildFilterKey(filters);
+    const cacheKey = new Request(buildCacheKey(ownerEmail, table, filterKey, limit, offset));
+    const cached = await caches.default.match(cacheKey);
+    if (cached) {
+      return cached;
+    }
+    const rows = await fetchRows(c.env.DB, table, ownerEmail, filters, limit, offset);
+    const body = JSON.stringify({ rows });
+    const response = new Response(body, {
+      headers: {
+        "content-type": "application/json",
+        "cache-control": `max-age=${CACHE_TTL_SECONDS}`
+      }
+    });
+    await caches.default.put(cacheKey, response.clone());
+    return response;
+  }
+
   const rows = await fetchRows(c.env.DB, table, ownerEmail, filters, limit, offset);
   return c.json({ rows });
 });
