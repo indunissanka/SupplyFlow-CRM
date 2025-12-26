@@ -2161,7 +2161,9 @@ async function renderDocuments() {
   sectionTitle.textContent = "Documents";
   await loadTableFromApi("documents", (row) => row, fallback.documents);
   await loadLookupTable("tags", fallback.tags);
-  const docs = tableRecords.documents || [];
+  const docs = (tableRecords.documents || []).filter(
+    (doc) => normalizeEmail(doc.owner_email || "") === normalizeEmail(currentUserEmail)
+  );
   const companies = await fetchCompaniesList();
   const invoices = await fetchInvoicesList();
 
