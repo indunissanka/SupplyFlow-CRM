@@ -3822,18 +3822,16 @@ async function loadTableFromApi(table, mapper, fallbackRows, options = {}) {
         pages += 1;
       }
       if (bypass) cacheBypassTables.delete(table);
-      if (collected.length) {
-        tableRecords[table] = collected;
-        return collected.map(mapper);
-      }
+      tableRecords[table] = collected;
+      return collected.length ? collected.map(mapper) : [];
     } else {
       const res = await apiFetch(buildUrl(0));
       if (bypass) cacheBypassTables.delete(table);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.rows) && data.rows.length) {
+        if (Array.isArray(data.rows)) {
           tableRecords[table] = data.rows;
-          return data.rows.map(mapper);
+          return data.rows.length ? data.rows.map(mapper) : [];
         }
       }
     }
