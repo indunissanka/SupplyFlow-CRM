@@ -2668,6 +2668,7 @@ function renderSettings() {
     const demoEmailNormalized = normalizeEmail(demoEmail);
     const accountIndex = privilegedUsers.findIndex((user) => user.email === normalizedEmail);
     const isDemoAccount = normalizedEmail === demoEmailNormalized;
+    const demoPassword = window.localStorage.getItem(demoPasswordKey) || demoCredentials.password;
 
     if (wantsEmail && newEmail && newEmail !== normalizedEmail) {
       if (privilegedUsers.some((user) => user.email === newEmail && user.email !== normalizedEmail)) {
@@ -2676,12 +2677,9 @@ function renderSettings() {
       }
     }
 
-    if (accountIndex >= 0) {
-      const account = privilegedUsers[accountIndex];
-      if (account.password !== current) {
-        showToast("Current password is incorrect");
-        return;
-      }
+    const promoteDemoAccount = async (existingIndex) => {
+      const finalEmail = newEmail && newEmail !== normalizedEmail ? newEmail : normalizedEmail;
+      const finalPassword = wantsPassword ? next : demoPassword;
       if (newEmail && newEmail !== normalizedEmail) {
         try {
           const response = await apiFetch("/api/account/update", {
@@ -2696,46 +2694,10 @@ function renderSettings() {
           console.warn("Demo email sync failed", error);
         }
       }
-      const updated = {
-        ...account,
-        email: newEmail && newEmail !== normalizedEmail ? newEmail : account.email,
-        password: wantsPassword ? next : account.password
-      };
-      privilegedUsers[accountIndex] = updated;
-      persistUserAccounts(privilegedUsers);
-      renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
-      if (newEmail && newEmail !== normalizedEmail) {
-        currentUserEmail = newEmail;
-        window.localStorage.setItem(authEmailKey, currentUserEmail);
-        if (userDisplay) userDisplay.textContent = currentUserEmail;
-      }
-      showToast("Account updated");
-      passwordForm.reset();
-      return;
-    }
-
-    const demoPassword = window.localStorage.getItem(demoPasswordKey) || demoCredentials.password;
-    if (isDemoAccount) {
-      if (current !== demoPassword) {
-        showToast("Current password is incorrect");
-        return;
-      }
-      const finalEmail = newEmail && newEmail !== normalizedEmail ? newEmail : normalizedEmail;
-      const finalPassword = wantsPassword ? next : demoPassword;
-      if (newEmail && newEmail !== normalizedEmail) {
-        const response = await apiFetch("/api/account/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: newEmail })
-        });
-        if (!response.ok) {
-          showToast("Unable to update email");
-          return;
-        }
-      }
       const accessList = accessOptions.map((option) => option.id);
+      const existingUser = existingIndex >= 0 ? privilegedUsers[existingIndex] : null;
       const adminUser = {
-        name: "Admin",
+        name: existingUser?.name || "Admin",
         email: finalEmail,
         role: adminRole,
         access: formatAccessText(accessList),
@@ -2743,7 +2705,11 @@ function renderSettings() {
         password: finalPassword,
         enabled: true
       };
-      privilegedUsers = [adminUser, ...privilegedUsers];
+      if (existingIndex >= 0) {
+        privilegedUsers[existingIndex] = adminUser;
+      } else {
+        privilegedUsers = [adminUser, ...privilegedUsers];
+      }
       persistUserAccounts(privilegedUsers);
       renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
       currentRole = adminRole;
@@ -2757,6 +2723,58 @@ function renderSettings() {
       if (userDisplay) userDisplay.textContent = currentUserEmail;
       showToast("Account updated");
       passwordForm.reset();
+    };
+
+    if (accountIndex >= 0) {
+      const account = privilegedUsers[accountIndex];
+      if (account.password === current) {
+        if (newEmail && newEmail !== normalizedEmail) {
+          try {
+            const response = await apiFetch("/api/account/update", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: newEmail })
+            });
+            if (!response.ok) {
+              showToast("Unable to update email");
+              return;
+            }
+          } catch (error) {
+            showToast("Unable to update email");
+            return;
+          }
+        }
+        const updated = {
+          ...account,
+          email: newEmail && newEmail !== normalizedEmail ? newEmail : account.email,
+          password: wantsPassword ? next : account.password
+        };
+        privilegedUsers[accountIndex] = updated;
+        persistUserAccounts(privilegedUsers);
+        renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
+        if (newEmail && newEmail !== normalizedEmail) {
+          currentUserEmail = newEmail;
+          window.localStorage.setItem(authEmailKey, currentUserEmail);
+          if (userDisplay) userDisplay.textContent = currentUserEmail;
+        }
+        showToast("Account updated");
+        passwordForm.reset();
+        return;
+      }
+      if (isDemoAccount && current === demoPassword) {
+        await promoteDemoAccount(accountIndex);
+        return;
+      }
+      showToast("Current password is incorrect");
+      return;
+    }
+
+    if (isDemoAccount) {
+      if (current !== demoPassword) {
+        showToast("Current password is incorrect");
+        return;
+      }
+      await promoteDemoAccount(-1);
       return;
     }
 
