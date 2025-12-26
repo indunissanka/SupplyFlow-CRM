@@ -44,6 +44,24 @@ const CACHE_TTL_SECONDS = 60;
 const TAGGED_LIST_TABLES = ["orders", "quotations", "documents"];
 const DOC_TYPE_LIST_TABLES = ["doc_types", "documents"];
 const CACHEABLE_TABLES_LIST = Array.from(cacheableTables.values());
+const adminRole = "Admin";
+const salesRole = "Salesperson";
+const defaultAccessList = [
+  "tags",
+  "companies",
+  "contacts",
+  "products",
+  "pricing",
+  "orders",
+  "quotations",
+  "invoices",
+  "documents",
+  "shipping",
+  "sample_shipments",
+  "tasks",
+  "notes",
+  "settings"
+];
 
 const ownerEmailTables = [
   "companies",
@@ -578,6 +596,19 @@ const schemaStatements = [
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(tag_id, entity_type, entity_id)
   )`,
+  `CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE,
+    name TEXT,
+    role TEXT DEFAULT 'Admin',
+    access TEXT,
+    access_list TEXT,
+    password_hash TEXT NOT NULL,
+    password_salt TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
   "CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)",
   "CREATE INDEX IF NOT EXISTS idx_orders_company ON orders(company_id)",
   "CREATE INDEX IF NOT EXISTS idx_orders_contact ON orders(contact_id)",
@@ -625,7 +656,8 @@ const schemaStatements = [
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_reference_owner ON quotations(reference, owner_email)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_reference_owner ON invoices(reference, owner_email)",
   "CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_owner ON tags(name, owner_email)",
-  "CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_types_name_owner ON doc_types(name, owner_email)"
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_types_name_owner ON doc_types(name, owner_email)",
+  "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email)"
 ];
 
 const schemaIndexStatements = schemaStatements.filter((statement) =>
@@ -649,7 +681,7 @@ app.use("/api/*", cors());
 app.use("/api/*", async (c, next) => {
   await ensureSchema(c.env.DB);
   const path = new URL(c.req.url).pathname;
-  if (path === "/api/health") {
+  if (path === "/api/health" || path === "/api/auth/login") {
     await next();
     return;
   }
@@ -667,6 +699,298 @@ app.get("/api/health", (c) =>
     timestamp: new Date().toISOString()
   })
 );
+
+app.post("/api/auth/login", async (c) => {
+  const body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>().catch(() => ({}));
+  const email = normalizeEmail(body.email || "");
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!email || !password) {
+    return c.json({ error: "Email and password required" }, 400);
+  }
+
+  let user = await getUserByEmail(c.env.DB, email);
+  if (!user) {
+    const total = await countUsers(c.env.DB);
+    if (total === 0) {
+      const salt = randomSalt();
+      const hash = await hashPassword(password, salt);
+      const accessList = normalizeAccessList(body.accessList ?? body.access);
+      const finalAccessList = accessList.length ? accessList : [...defaultAccessList];
+      const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : "Admin";
+      await c.env.DB.prepare(
+        `INSERT INTO users (email, name, role, access, access_list, password_hash, password_salt, enabled)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+      ).bind(
+        email,
+        name,
+        adminRole,
+        body.access ?? "",
+        JSON.stringify(finalAccessList),
+        hash,
+        salt
+      ).run();
+      user = await getUserByEmail(c.env.DB, email);
+      if (!user) {
+        return c.json({ error: "Unable to create admin account" }, 500);
+      }
+      return c.json({ ok: true, bootstrap: true, user: buildUserResponse(user) });
+    }
+    return c.json({ error: "Invalid credentials" }, 401);
+  }
+
+  if (user.enabled === 0) {
+    return c.json({ error: "This account is disabled. Contact an admin." }, 403);
+  }
+  const salt = user.password_salt || "";
+  const hash = user.password_hash || "";
+  const valid = salt && hash ? await verifyPassword(password, salt, hash) : false;
+  if (!valid) {
+    return c.json({ error: "Invalid credentials" }, 401);
+  }
+  return c.json({ ok: true, user: buildUserResponse(user) });
+});
+
+app.get("/api/auth/users", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const requester = await requireUser(c.env.DB, ownerEmail);
+  if (!requester) {
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  const { results } = await c.env.DB.prepare(
+    "SELECT id, email, name, role, access, access_list, enabled FROM users ORDER BY role = 'Admin' DESC, name, email"
+  ).all<UserRow>();
+  const users = (results ?? []).map((row) => buildUserResponse(row));
+  return c.json({ users });
+});
+
+app.post("/api/auth/users", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+    return c.json({ error: "Admin access required" }, 403);
+  }
+  const body = await c.req.json<{
+    name?: string;
+    email?: string;
+    role?: string;
+    accessList?: string[];
+    access?: string;
+    password?: string;
+  }>().catch(() => ({}));
+  const email = normalizeEmail(body.email || "");
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!email || !password) {
+    return c.json({ error: "Email and password required" }, 400);
+  }
+  if (password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+  if (await getUserByEmail(c.env.DB, email)) {
+    return c.json({ error: "A user with that email already exists" }, 409);
+  }
+
+  const salt = randomSalt();
+  const hash = await hashPassword(password, salt);
+  const role = body.role || salesRole;
+  const accessList = normalizeAccessList(body.accessList ?? body.access);
+  const finalAccessList = accessList.length ? accessList : role === adminRole ? [...defaultAccessList] : [];
+  const name = typeof body.name === "string" && body.name.trim() ? body.name.trim() : email.split("@")[0];
+  await c.env.DB.prepare(
+    `INSERT INTO users (email, name, role, access, access_list, password_hash, password_salt, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`
+  ).bind(
+    email,
+    name,
+    role,
+    body.access ?? "",
+    JSON.stringify(finalAccessList),
+    hash,
+    salt
+  ).run();
+
+  const user = await getUserByEmail(c.env.DB, email);
+  return c.json({ user: user ? buildUserResponse(user) : null });
+});
+
+app.put("/api/auth/users/:id", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+    return c.json({ error: "Admin access required" }, 403);
+  }
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid user id" }, 400);
+  }
+  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  const updates: string[] = [];
+  const values: unknown[] = [];
+  if (typeof body.name === "string") {
+    updates.push("name = ?");
+    values.push(body.name.trim());
+  }
+  if (typeof body.role === "string") {
+    updates.push("role = ?");
+    values.push(body.role.trim());
+  }
+  if (typeof body.access === "string") {
+    updates.push("access = ?");
+    values.push(body.access.trim());
+  }
+  if (body.accessList !== undefined) {
+    const accessList = normalizeAccessList(body.accessList);
+    updates.push("access_list = ?");
+    values.push(JSON.stringify(accessList));
+  }
+  if (body.enabled !== undefined) {
+    updates.push("enabled = ?");
+    values.push(body.enabled === false ? 0 : 1);
+  }
+  if (!updates.length) {
+    return c.json({ error: "No fields to update" }, 400);
+  }
+
+  const current = await c.env.DB.prepare("SELECT id, role, enabled FROM users WHERE id = ?").bind(id).first<UserRow>();
+  if (!current) {
+    return c.json({ error: "User not found" }, 404);
+  }
+
+  if (current.role === adminRole) {
+    const disabling = body.enabled === false;
+    const demoting = typeof body.role === "string" && body.role.trim() !== adminRole;
+    if (disabling || demoting) {
+      const row = await c.env.DB
+        .prepare("SELECT COUNT(*) as count FROM users WHERE role = ? AND enabled = 1")
+        .bind(adminRole)
+        .first<{ count: number }>();
+      if ((row?.count ?? 0) <= 1) {
+        return c.json({ error: "At least one admin must remain active" }, 400);
+      }
+    }
+  }
+
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  await c.env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).bind(...values, id).run();
+  const user = await c.env.DB.prepare("SELECT id, email, name, role, access, access_list, enabled FROM users WHERE id = ?").bind(id).first<UserRow>();
+  return c.json({ user: user ? buildUserResponse(user) : null });
+});
+
+app.post("/api/auth/users/:id/password", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+    return c.json({ error: "Admin access required" }, 403);
+  }
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid user id" }, 400);
+  }
+  const body = await c.req.json<{ password?: string }>().catch(() => ({}));
+  const password = typeof body.password === "string" ? body.password : "";
+  if (!password) {
+    return c.json({ error: "Password required" }, 400);
+  }
+  if (password.length < 8) {
+    return c.json({ error: "Password must be at least 8 characters" }, 400);
+  }
+  const salt = randomSalt();
+  const hash = await hashPassword(password, salt);
+  await c.env.DB
+    .prepare("UPDATE users SET password_hash = ?, password_salt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(hash, salt, id)
+    .run();
+  return c.json({ ok: true });
+});
+
+app.delete("/api/auth/users/:id", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+    return c.json({ error: "Admin access required" }, 403);
+  }
+  const id = Number(c.req.param("id"));
+  if (!Number.isFinite(id) || id <= 0) {
+    return c.json({ error: "Invalid user id" }, 400);
+  }
+  const target = await c.env.DB.prepare("SELECT id, role FROM users WHERE id = ?").bind(id).first<UserRow>();
+  if (!target) {
+    return c.json({ error: "User not found" }, 404);
+  }
+  if (target.role === adminRole) {
+    const row = await c.env.DB
+      .prepare("SELECT COUNT(*) as count FROM users WHERE role = ? AND enabled = 1")
+      .bind(adminRole)
+      .first<{ count: number }>();
+    if ((row?.count ?? 0) <= 1) {
+      return c.json({ error: "At least one admin must remain active" }, 400);
+    }
+  }
+  await c.env.DB.prepare("DELETE FROM users WHERE id = ?").bind(id).run();
+  return c.json({ ok: true });
+});
+
+app.post("/api/auth/password", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const body = await c.req.json<{
+    currentPassword?: string;
+    newPassword?: string;
+    newEmail?: string;
+  }>().catch(() => ({}));
+  const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
+  if (!currentPassword) {
+    return c.json({ error: "Current password required" }, 400);
+  }
+  const user = await getUserByEmail(c.env.DB, ownerEmail);
+  if (!user) {
+    return c.json({ error: "Account not found" }, 404);
+  }
+  const salt = user.password_salt || "";
+  const hash = user.password_hash || "";
+  const valid = salt && hash ? await verifyPassword(currentPassword, salt, hash) : false;
+  if (!valid) {
+    return c.json({ error: "Current password is incorrect" }, 401);
+  }
+
+  const updates: string[] = [];
+  const values: unknown[] = [];
+  let nextEmail = ownerEmail;
+
+  if (body.newPassword) {
+    if (body.newPassword.length < 8) {
+      return c.json({ error: "New password must be at least 8 characters" }, 400);
+    }
+    const newSalt = randomSalt();
+    const newHash = await hashPassword(body.newPassword, newSalt);
+    updates.push("password_hash = ?");
+    values.push(newHash);
+    updates.push("password_salt = ?");
+    values.push(newSalt);
+  }
+
+  if (body.newEmail) {
+    const normalizedNew = normalizeEmail(body.newEmail);
+    if (!normalizedNew.includes("@")) {
+      return c.json({ error: "Invalid email" }, 400);
+    }
+    if (normalizedNew !== ownerEmail) {
+      const available = await isEmailAvailable(c.env.DB, normalizedNew);
+      if (!available) {
+        return c.json({ error: "Email already in use" }, 409);
+      }
+      await updateOwnerEmailTables(c.env.DB, ownerEmail, normalizedNew);
+      await c.env.DB
+        .prepare("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?")
+        .bind(normalizedNew, ownerEmail)
+        .run();
+      await bumpCacheVersions(c.env, normalizedNew, CACHEABLE_TABLES_LIST);
+      nextEmail = normalizedNew;
+    }
+  }
+
+  if (!updates.length) {
+    return c.json({ error: "No updates provided" }, 400);
+  }
+
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  await c.env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE email = ?`).bind(...values, ownerEmail).run();
+  return c.json({ ok: true, email: nextEmail });
+});
 
 app.get("/api/dashboard", async (c) => {
   const ownerEmail = c.get("ownerEmail");
@@ -735,20 +1059,16 @@ app.post("/api/account/update", async (c) => {
     return c.json({ error: "Invalid email" }, 400);
   }
 
-  for (const table of ownerEmailTables) {
-    const existing = await c.env.DB
-      .prepare(`SELECT 1 FROM ${table} WHERE owner_email = ? LIMIT 1`)
-      .bind(nextEmail)
-      .first();
-    if (existing) {
-      return c.json({ error: "Email already in use" }, 409);
-    }
+  const available = await isEmailAvailable(c.env.DB, nextEmail);
+  if (!available) {
+    return c.json({ error: "Email already in use" }, 409);
   }
 
-  const updates = ownerEmailTables.map((table) =>
-    c.env.DB.prepare(`UPDATE ${table} SET owner_email = ? WHERE owner_email = ?`).bind(nextEmail, ownerEmail)
-  );
-  await runBatches(c.env.DB, updates);
+  await updateOwnerEmailTables(c.env.DB, ownerEmail, nextEmail);
+  await c.env.DB
+    .prepare("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP WHERE email = ?")
+    .bind(nextEmail, ownerEmail)
+    .run();
   await bumpCacheVersions(c.env, nextEmail, CACHEABLE_TABLES_LIST);
 
   return c.json({ ok: true, email: nextEmail });
@@ -2188,6 +2508,126 @@ function normalizeInvoiceIds(raw: unknown): string | null {
   const str = String(raw).trim();
   return str ? str : null;
 }
+
+type UserRow = {
+  id: number;
+  email: string;
+  name?: string | null;
+  role?: string | null;
+  access?: string | null;
+  access_list?: string | null;
+  password_hash?: string | null;
+  password_salt?: string | null;
+  enabled?: number | null;
+};
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase();
+
+const parseAccessListRaw = (raw: unknown): string[] => {
+  if (!raw) return [];
+  if (Array.isArray(raw)) {
+    return raw.map((item) => String(item)).filter(Boolean);
+  }
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((item) => String(item)).filter(Boolean);
+      }
+    } catch {
+      return raw
+        .split(/[^a-z0-9_]+/i)
+        .map((token) => token.trim().toLowerCase())
+        .filter(Boolean);
+    }
+  }
+  return [];
+};
+
+const normalizeAccessList = (raw: unknown): string[] => {
+  const list = parseAccessListRaw(raw);
+  const unique = new Set<string>();
+  list.forEach((item) => {
+    if (item) unique.add(item);
+  });
+  return Array.from(unique.values());
+};
+
+const encoder = new TextEncoder();
+
+const randomSalt = () => {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const hashPassword = async (password: string, salt: string) => {
+  const data = encoder.encode(`${salt}:${password}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+};
+
+const verifyPassword = async (password: string, salt: string, hash: string) =>
+  hashPassword(password, salt).then((computed) => computed === hash);
+
+const buildUserResponse = (row: UserRow) => {
+  const accessList = normalizeAccessList(row.access_list ?? row.access);
+  const normalizedAccessList = accessList.length ? accessList : row.role === adminRole ? [...defaultAccessList] : [];
+  return {
+    id: row.id,
+    email: normalizeEmail(row.email || ""),
+    name: row.name || "",
+    role: row.role || adminRole,
+    access: row.access || "",
+    accessList: normalizedAccessList,
+    enabled: row.enabled !== 0
+  };
+};
+
+const getUserByEmail = async (db: D1Database, email: string) =>
+  db
+    .prepare(
+      "SELECT id, email, name, role, access, access_list, password_hash, password_salt, enabled FROM users WHERE email = ? LIMIT 1"
+    )
+    .bind(email)
+    .first<UserRow>();
+
+const countUsers = async (db: D1Database) => {
+  const row = await db.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
+  return row?.count ?? 0;
+};
+
+const requireUser = async (db: D1Database, email: string) => {
+  const user = await getUserByEmail(db, email);
+  if (!user || user.enabled === 0) return null;
+  return user;
+};
+
+const requireAdmin = async (db: D1Database, email: string) => {
+  const user = await requireUser(db, email);
+  if (!user || user.role !== adminRole) return null;
+  return user;
+};
+
+const isEmailAvailable = async (db: D1Database, nextEmail: string) => {
+  for (const table of ownerEmailTables) {
+    const existing = await db.prepare(`SELECT 1 FROM ${table} WHERE owner_email = ? LIMIT 1`).bind(nextEmail).first();
+    if (existing) return false;
+  }
+  const user = await getUserByEmail(db, nextEmail);
+  if (user) return false;
+  return true;
+};
+
+const updateOwnerEmailTables = async (db: D1Database, fromEmail: string, toEmail: string) => {
+  const updates = ownerEmailTables.map((table) =>
+    db.prepare(`UPDATE ${table} SET owner_email = ? WHERE owner_email = ?`).bind(toEmail, fromEmail)
+  );
+  await runBatches(db, updates);
+};
 
 function normalizeCompanyName(value: unknown): string {
   if (value === undefined || value === null) return "";

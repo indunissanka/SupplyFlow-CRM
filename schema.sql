@@ -189,6 +189,20 @@ CREATE TABLE IF NOT EXISTS tag_links (
   UNIQUE(tag_id, entity_type, entity_id)
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  name TEXT,
+  role TEXT DEFAULT 'Admin',
+  access TEXT,
+  access_list TEXT,
+  password_hash TEXT NOT NULL,
+  password_salt TEXT NOT NULL,
+  enabled INTEGER DEFAULT 1,
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS quotation_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_email TEXT NOT NULL,
@@ -262,3 +276,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_quotations_reference_owner ON quotations(r
 CREATE UNIQUE INDEX IF NOT EXISTS idx_invoices_reference_owner ON invoices(reference, owner_email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_tags_name_owner ON tags(name, owner_email);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_types_name_owner ON doc_types(name, owner_email);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);

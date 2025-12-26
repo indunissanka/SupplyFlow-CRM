@@ -1,4 +1,7 @@
+import hashlib
+import json
 import os
+import secrets
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -115,6 +118,25 @@ ENTITY_TYPES: Dict[str, str] = {
     "tasks": "task",
     "notes": "note",
 }
+
+ADMIN_ROLE = "Admin"
+SALES_ROLE = "Salesperson"
+DEFAULT_ACCESS_LIST = [
+    "tags",
+    "companies",
+    "contacts",
+    "products",
+    "pricing",
+    "orders",
+    "quotations",
+    "invoices",
+    "documents",
+    "shipping",
+    "sample_shipments",
+    "tasks",
+    "notes",
+    "settings",
+]
 
 SHIPPING_STATUS_RANK = {
     "Factory exit": 1,

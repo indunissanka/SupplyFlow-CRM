@@ -163,24 +163,36 @@ if (salesLogoutButton) {
 }
 
 if (loginForm) {
-  loginForm.addEventListener("submit", (event) => {
+  loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(loginForm);
     const email = (formData.get("email") || "").toString().trim().toLowerCase();
     const password = (formData.get("password") || "").toString().trim();
-    const selectedRole = (formData.get("workspaceRole") || "").toString() || adminRole;
     const normalizedEmail = normalizeEmail(email);
-    const accountPool = loadUserAccounts();
-    const matchedUser = accountPool.find((user) => user.email === normalizedEmail);
-    if (matchedUser && matchedUser.password === password) {
-      if (matchedUser.enabled === false) {
+    if (!normalizedEmail || !password) {
+      if (loginError) {
+        loginError.textContent = "Email and password are required.";
+      }
+      return;
+    }
+    try {
+      const res = await apiFetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email: normalizedEmail, password })
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        const message = payload?.error || "Invalid credentials. Try your admin account.";
         if (loginError) {
-          loginError.textContent = "This account is disabled. Contact an admin.";
+          loginError.textContent = message;
         }
         return;
       }
-      currentRole = matchedUser.role || adminRole;
-      currentUserEmail = normalizedEmail;
+      const data = await res.json().catch(() => ({}));
+      const user = normalizeUserRecord(data.user || { email: normalizedEmail, role: adminRole });
+      currentRole = user.role || adminRole;
+      currentUserEmail = user.email || normalizedEmail;
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
       safeLocalStorageSet(authTokenKey, "true");
@@ -190,32 +202,11 @@ if (loginForm) {
       if (loginError) {
         loginError.textContent = "";
       }
-      return;
-    }
-
-    if (safeLocalStorageGet(demoDisabledKey) !== "true") {
-      const { demoEmail, demoPassword } = getDemoCredentials();
-      const matchesStoredDemo = normalizedEmail === normalizeEmail(demoEmail) && password === demoPassword;
-      const matchesDefaultDemo =
-        normalizedEmail === normalizeEmail(demoCredentials.email) && password === demoCredentials.password;
-      if (matchesStoredDemo || matchesDefaultDemo) {
-        currentRole = selectedRole;
-        currentUserEmail = normalizedEmail;
-        safeLocalStorageSet(authEmailKey, currentUserEmail);
-        safeLocalStorageSet(authRoleKey, currentRole);
-        safeLocalStorageSet(authTokenKey, "true");
-        showAppShell();
-        setActiveNav("dashboard");
-        renderSection("dashboard");
-        if (loginError) {
-          loginError.textContent = "";
-        }
-        return;
+    } catch (error) {
+      console.error("Login failed", error);
+      if (loginError) {
+        loginError.textContent = "Unable to reach authentication service.";
       }
-    }
-
-    if (loginError) {
-      loginError.textContent = "Invalid credentials. Try your admin account.";
     }
   });
 }
@@ -287,7 +278,7 @@ const statDefaults = {
   tasksOpen: 0
 };
 
-let privilegedUsers = loadUserAccounts();
+let privilegedUsers = [];
 
 const timezoneOptions = [
   { value: "Asia/Taipei", label: "Taipei · Asia/Taipei (CST)" },
@@ -438,12 +429,18 @@ function formatAccessText(accessList) {
 
 function normalizeUserRecord(user) {
   const email = normalizeEmail(user.email || "");
-  const accessList = Array.isArray(user.accessList) ? user.accessList : parseAccessList(user.access || "");
-  const accessText = accessList.length ? formatAccessText(accessList) : user.access || "Custom access";
+  const accessList = Array.isArray(user.accessList)
+    ? user.accessList
+    : Array.isArray(user.access_list)
+      ? user.access_list
+      : parseAccessList(user.access || "");
+  const normalizedAccessList =
+    accessList.length || user.role !== adminRole ? accessList : accessOptions.map((option) => option.id);
+  const accessText = normalizedAccessList.length ? formatAccessText(normalizedAccessList) : user.access || "Custom access";
   return {
     ...user,
     email,
-    accessList,
+    accessList: normalizedAccessList,
     access: accessText,
     enabled: user.enabled !== false
   };
@@ -470,6 +467,78 @@ function persistUserAccounts(users) {
   } catch (error) {
     console.warn("Unable to persist user accounts", error);
   }
+}
+
+async function readApiError(res, fallbackMessage) {
+  try {
+    const payload = await res.json();
+    if (payload && payload.error) return payload.error;
+  } catch {
+    // ignore
+  }
+  try {
+    const text = await res.text();
+    if (text) return text;
+  } catch {
+    // ignore
+  }
+  return fallbackMessage;
+}
+
+async function fetchUsersFromApi() {
+  const res = await apiFetch("/api/auth/users");
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to load users"));
+  }
+  const data = await res.json().catch(() => ({}));
+  const users = Array.isArray(data.users) ? data.users : [];
+  return users.map((user) => normalizeUserRecord(user));
+}
+
+async function createUserOnServer(payload) {
+  const res = await apiFetch("/api/auth/users", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to create user"));
+  }
+  const data = await res.json().catch(() => ({}));
+  return data.user ? normalizeUserRecord(data.user) : null;
+}
+
+async function updateUserOnServer(id, payload) {
+  const res = await apiFetch(`/api/auth/users/${id}`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to update user"));
+  }
+  const data = await res.json().catch(() => ({}));
+  return data.user ? normalizeUserRecord(data.user) : null;
+}
+
+async function updateUserPasswordOnServer(id, password) {
+  const res = await apiFetch(`/api/auth/users/${id}/password`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ password })
+  });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to reset password"));
+  }
+  return true;
+}
+
+async function deleteUserOnServer(id) {
+  const res = await apiFetch(`/api/auth/users/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to delete user"));
+  }
+  return true;
 }
 
 const baseFetch = window.fetch.bind(window);
@@ -586,6 +655,7 @@ function renderPrivilegeItem(user) {
   const safeRole = escapeHtml(user.role || "");
   const safeEmail = user.email ? escapeHtml(user.email) : "";
   const emailAttr = safeEmail ? ` data-email="${safeEmail}"` : "";
+  const idAttr = user.id ? ` data-id="${user.id}"` : "";
   const canEdit = currentRole === adminRole;
   const canRemove = user.role !== adminRole;
   const accessList = Array.isArray(user.accessList) ? user.accessList : parseAccessList(user.access || "");
@@ -606,7 +676,7 @@ function renderPrivilegeItem(user) {
         return `<span class="access-tag">${label}</span>`;
       }).join("")}</div>`;
   return `
-    <div class="privilege-item${enabled ? "" : " disabled"}"${emailAttr}>
+    <div class="privilege-item${enabled ? "" : " disabled"}"${emailAttr}${idAttr}>
       <div>
         <p class="privilege-name">${safeName}</p>
         <p class="privilege-role">${safeRole}</p>
@@ -2717,9 +2787,14 @@ async function renderTags() {
   });
 }
 
-function renderSettings() {
-  privilegedUsers = loadUserAccounts();
+async function renderSettings() {
   const canManageUsers = currentRole === adminRole;
+  try {
+    privilegedUsers = await fetchUsersFromApi();
+  } catch (error) {
+    privilegedUsers = [];
+    showToast(error instanceof Error ? error.message : "Unable to load users");
+  }
   sectionTitle.textContent = "Settings";
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -3006,122 +3081,41 @@ function renderSettings() {
       return;
     }
 
-    const normalizedEmail = normalizeEmail(currentUserEmail);
-    const demoEmail = window.localStorage.getItem(demoEmailKey) || demoCredentials.email;
-    const demoEmailNormalized = normalizeEmail(demoEmail);
-    const accountIndex = privilegedUsers.findIndex((user) => user.email === normalizedEmail);
-    const isDemoAccount = normalizedEmail === demoEmailNormalized;
-    const demoPassword = window.localStorage.getItem(demoPasswordKey) || demoCredentials.password;
-
-    if (wantsEmail && newEmail && newEmail !== normalizedEmail) {
-      if (privilegedUsers.some((user) => user.email === newEmail && user.email !== normalizedEmail)) {
-        showToast("That email is already in use");
+    try {
+      const res = await apiFetch("/api/auth/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentPassword: current,
+          newPassword: wantsPassword ? next : undefined,
+          newEmail: wantsEmail ? newEmail : undefined
+        })
+      });
+      if (!res.ok) {
+        showToast(await readApiError(res, "Unable to update password"));
         return;
       }
-    }
-
-    const promoteDemoAccount = async (existingIndex) => {
-      const finalEmail = newEmail && newEmail !== normalizedEmail ? newEmail : normalizedEmail;
-      const finalPassword = wantsPassword ? next : demoPassword;
-      if (newEmail && newEmail !== normalizedEmail) {
+      const payload = await res.json().catch(() => ({}));
+      const updatedEmail = payload.email || (newEmail || currentUserEmail);
+      if (wantsEmail && updatedEmail && updatedEmail !== currentUserEmail) {
+        currentUserEmail = updatedEmail;
+        window.localStorage.setItem(authEmailKey, currentUserEmail);
+        if (userDisplay) userDisplay.textContent = currentUserEmail;
+      }
+      if (currentRole === adminRole) {
         try {
-          const response = await apiFetch("/api/account/update", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: newEmail })
-          });
-          if (!response.ok) {
-            console.warn("Demo email sync failed", response.status);
-          }
-        } catch (error) {
-          console.warn("Demo email sync failed", error);
+          privilegedUsers = await fetchUsersFromApi();
+          renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
+        } catch (err) {
+          console.warn("Unable to refresh users list", err);
         }
       }
-      const accessList = accessOptions.map((option) => option.id);
-      const existingUser = existingIndex >= 0 ? privilegedUsers[existingIndex] : null;
-      const adminUser = {
-        name: existingUser?.name || "Admin",
-        email: finalEmail,
-        role: adminRole,
-        access: formatAccessText(accessList),
-        accessList,
-        password: finalPassword,
-        enabled: true
-      };
-      if (existingIndex >= 0) {
-        privilegedUsers[existingIndex] = adminUser;
-      } else {
-        privilegedUsers = [adminUser, ...privilegedUsers];
-      }
-      persistUserAccounts(privilegedUsers);
-      renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
-      currentRole = adminRole;
-      currentUserEmail = finalEmail;
-      safeLocalStorageSet(authEmailKey, currentUserEmail);
-      safeLocalStorageSet(authRoleKey, currentRole);
-      safeLocalStorageRemove(demoEmailKey);
-      safeLocalStorageRemove(demoPasswordKey);
-      safeLocalStorageSet(demoDisabledKey, "true");
-      applyRoleRestrictions();
-      if (userDisplay) userDisplay.textContent = currentUserEmail;
       showToast("Account updated");
       passwordForm.reset();
-    };
-
-    if (accountIndex >= 0) {
-      const account = privilegedUsers[accountIndex];
-      if (account.password === current) {
-        if (newEmail && newEmail !== normalizedEmail) {
-          try {
-            const response = await apiFetch("/api/account/update", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ email: newEmail })
-            });
-            if (!response.ok) {
-              showToast("Unable to update email");
-              return;
-            }
-          } catch (error) {
-            showToast("Unable to update email");
-            return;
-          }
-        }
-        const updated = {
-          ...account,
-          email: newEmail && newEmail !== normalizedEmail ? newEmail : account.email,
-          password: wantsPassword ? next : account.password
-        };
-        privilegedUsers[accountIndex] = updated;
-        persistUserAccounts(privilegedUsers);
-        renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
-        if (newEmail && newEmail !== normalizedEmail) {
-          currentUserEmail = newEmail;
-          window.localStorage.setItem(authEmailKey, currentUserEmail);
-          if (userDisplay) userDisplay.textContent = currentUserEmail;
-        }
-        showToast("Account updated");
-        passwordForm.reset();
-        return;
-      }
-      if (isDemoAccount && current === demoPassword) {
-        await promoteDemoAccount(accountIndex);
-        return;
-      }
-      showToast("Current password is incorrect");
-      return;
+    } catch (error) {
+      console.error(error);
+      showToast("Unable to update password");
     }
-
-    if (isDemoAccount) {
-      if (current !== demoPassword) {
-        showToast("Current password is incorrect");
-        return;
-      }
-      await promoteDemoAccount(-1);
-      return;
-    }
-
-    showToast("Account not found. Contact an admin.");
   });
 
   cancelButton?.addEventListener("click", () => passwordForm?.reset());
@@ -3138,7 +3132,7 @@ function renderSettings() {
       });
   }
 
-  privilegeList?.addEventListener("click", (event) => {
+  privilegeList?.addEventListener("click", async (event) => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.action;
@@ -3147,14 +3141,17 @@ function renderSettings() {
     if (!item) return;
     const nameElement = item.querySelector(".privilege-name");
     const userName = nameElement?.textContent?.trim() || "User";
+    const userId = item.dataset.id ? Number(item.dataset.id) : NaN;
+    const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
+    const user = Number.isFinite(userId)
+      ? privilegedUsers.find((entry) => entry.id === userId)
+      : privilegedUsers.find((entry) => entry.email === email);
 
     if (action === "edit-user") {
       if (currentRole !== adminRole) {
         showToast("Only admins can edit users");
         return;
       }
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-      const user = privilegedUsers.find((entry) => entry.email === email);
       if (!user) return;
       const safeName = escapeHtml(user.name || "");
       const safeRole = escapeHtml(user.role || "");
@@ -3179,7 +3176,6 @@ function renderSettings() {
     }
 
     if (action === "save-user") {
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
       const nameInput = item.querySelector("input[name='name']");
       const roleInput = item.querySelector("input[name='role']");
       if (!(nameInput instanceof HTMLInputElement) || !(roleInput instanceof HTMLInputElement)) return;
@@ -3189,16 +3185,18 @@ function renderSettings() {
         showToast("Name and role are required");
         return;
       }
-      const index = privilegedUsers.findIndex((entry) => entry.email === email);
-      if (index < 0) return;
-      privilegedUsers[index] = {
-        ...privilegedUsers[index],
-        name,
-        role
-      };
-      persistUserAccounts(privilegedUsers);
-      renderPrivilegeList(privilegeList);
-      showToast("User updated");
+      if (!user || !Number.isFinite(userId)) return;
+      try {
+        const updated = await updateUserOnServer(userId, { name, role });
+        if (updated) {
+          privilegedUsers = privilegedUsers.map((entry) => (entry.id === updated.id ? updated : entry));
+          renderPrivilegeList(privilegeList);
+        }
+        showToast("User updated");
+      } catch (error) {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to update user");
+      }
       return;
     }
 
@@ -3208,13 +3206,20 @@ function renderSettings() {
     }
 
     if (action === "remove-user") {
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-      if (email) {
-        privilegedUsers = privilegedUsers.filter((user) => user.email !== email);
-        persistUserAccounts(privilegedUsers);
+      if (currentRole !== adminRole) {
+        showToast("Only admins can remove users");
+        return;
       }
-      item.remove();
-      showToast(`${userName} removed from privileged list`);
+      if (!Number.isFinite(userId)) return;
+      try {
+        await deleteUserOnServer(userId);
+        privilegedUsers = privilegedUsers.filter((entry) => entry.id !== userId);
+        renderPrivilegeList(privilegeList);
+        showToast(`${userName} removed from privileged list`);
+      } catch (error) {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to remove user");
+      }
       return;
     }
 
@@ -3223,13 +3228,17 @@ function renderSettings() {
         showToast("Only admins can update access");
         return;
       }
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-      const index = privilegedUsers.findIndex((entry) => entry.email === email);
-      if (index < 0) return;
-      const current = privilegedUsers[index];
-      privilegedUsers[index] = { ...current, enabled: !current.enabled };
-      persistUserAccounts(privilegedUsers);
-      renderPrivilegeList(privilegeList);
+      if (!user || !Number.isFinite(userId)) return;
+      try {
+        const updated = await updateUserOnServer(userId, { enabled: !user.enabled });
+        if (updated) {
+          privilegedUsers = privilegedUsers.map((entry) => (entry.id === updated.id ? updated : entry));
+          renderPrivilegeList(privilegeList);
+        }
+      } catch (error) {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to update user");
+      }
       return;
     }
 
@@ -3240,35 +3249,38 @@ function renderSettings() {
       }
       const accessId = target.dataset.access;
       if (!accessId) return;
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-      const index = privilegedUsers.findIndex((entry) => entry.email === email);
-      if (index < 0) return;
-      const current = privilegedUsers[index];
-      const list = Array.isArray(current.accessList) ? [...current.accessList] : parseAccessList(current.access || "");
+      if (!user || !Number.isFinite(userId)) return;
+      const list = Array.isArray(user.accessList) ? [...user.accessList] : parseAccessList(user.access || "");
       const next = list.includes(accessId)
         ? list.filter((id) => id !== accessId)
         : [...list, accessId];
-      privilegedUsers[index] = {
-        ...current,
-        accessList: next,
-        access: formatAccessText(next)
-      };
-      persistUserAccounts(privilegedUsers);
-      renderPrivilegeList(privilegeList);
+      try {
+        const updated = await updateUserOnServer(userId, { accessList: next, access: formatAccessText(next) });
+        if (updated) {
+          privilegedUsers = privilegedUsers.map((entry) => (entry.id === updated.id ? updated : entry));
+          renderPrivilegeList(privilegeList);
+        }
+      } catch (error) {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to update access");
+      }
       return;
     }
 
     if (action === "reset-user") {
       const tempPassword = generateTempPassword();
-      const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-      if (email) {
-        const index = privilegedUsers.findIndex((user) => user.email === email);
-        if (index >= 0) {
-          privilegedUsers[index] = { ...privilegedUsers[index], password: tempPassword };
-          persistUserAccounts(privilegedUsers);
-        }
+      if (currentRole !== adminRole) {
+        showToast("Only admins can reset passwords");
+        return;
       }
-      showToast(`${userName} password reset: ${tempPassword}`);
+      if (!Number.isFinite(userId)) return;
+      try {
+        await updateUserPasswordOnServer(userId, tempPassword);
+        showToast(`${userName} password reset: ${tempPassword}`);
+      } catch (error) {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to reset password");
+      }
       return;
     }
   });
@@ -3309,23 +3321,26 @@ function renderSettings() {
 
     const accessList = parseAccessList(access);
     const accessText = accessList.length ? formatAccessText(accessList) : access || "Custom access";
-    const newUser = {
+    createUserOnServer({
       name,
       email: normalizedEmail,
       role,
       access: accessText,
       accessList,
-      password,
-      enabled: true
-    };
-    privilegedUsers = [newUser, ...privilegedUsers];
-    persistUserAccounts(privilegedUsers);
-
-    renderPrivilegeList(privilegeList);
-
-    showToast(`${name} added with elevated access and initial password set`);
-
-    addUserForm.reset();
+      password
+    })
+      .then((created) => {
+        if (created) {
+          privilegedUsers = [created, ...privilegedUsers];
+        }
+        renderPrivilegeList(privilegeList);
+        showToast(`${name} added with elevated access and initial password set`);
+        addUserForm.reset();
+      })
+      .catch((error) => {
+        console.error(error);
+        showToast(error instanceof Error ? error.message : "Unable to add user");
+      });
   });
 
   const initialPasswordField = addUserForm?.querySelector("input[name='initialPassword']");
