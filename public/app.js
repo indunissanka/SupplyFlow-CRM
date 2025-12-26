@@ -145,6 +145,7 @@ function initAuthentication() {
       return;
     }
     showAppShell();
+    syncSiteConfigFromServer();
     return;
   }
   showLoginScreen();
@@ -199,6 +200,7 @@ if (loginForm) {
       showAppShell();
       setActiveNav("dashboard");
       renderSection("dashboard");
+      syncSiteConfigFromServer();
       if (loginError) {
         loginError.textContent = "";
       }
@@ -327,6 +329,23 @@ const defaultSiteConfig = {
   showFooter: true
 };
 
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "on", "yes"].includes(normalized)) return true;
+    if (["false", "0", "off", "no"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeSiteConfigState(config) {
+  const merged = { ...defaultSiteConfig, ...config };
+  merged.showFooter = normalizeBoolean(config?.showFooter, merged.showFooter);
+  return merged;
+}
+
 function loadSiteConfigState() {
   if (typeof window === "undefined") {
     return { ...defaultSiteConfig };
@@ -337,7 +356,7 @@ function loadSiteConfigState() {
       return { ...defaultSiteConfig };
     }
     const parsed = JSON.parse(stored);
-    return { ...defaultSiteConfig, ...parsed };
+    return normalizeSiteConfigState(parsed);
   } catch (error) {
     console.warn("Unable to read saved site config", error);
     return { ...defaultSiteConfig };
@@ -353,7 +372,53 @@ function persistSiteConfigState(state) {
   }
 }
 
+async function saveSiteConfigToServer(state) {
+  const res = await apiFetch("/api/settings/site-config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...state,
+      showFooter: !!state.showFooter
+    })
+  });
+  if (!res.ok) {
+    throw new Error("Unable to save site config");
+  }
+  return res.json().catch(() => ({}));
+}
+
 let siteConfigState = loadSiteConfigState();
+
+async function fetchSiteConfigFromServer() {
+  const res = await apiFetch("/api/settings/site-config");
+  if (!res.ok) {
+    return null;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!data?.config || typeof data.config !== "object") {
+    return null;
+  }
+  if (!Object.keys(data.config).length) {
+    return null;
+  }
+  return normalizeSiteConfigState(data.config);
+}
+
+async function syncSiteConfigFromServer() {
+  if (!currentUserEmail) return;
+  try {
+    const serverConfig = await fetchSiteConfigFromServer();
+    if (!serverConfig) return;
+    siteConfigState = serverConfig;
+    persistSiteConfigState(siteConfigState);
+    applySiteConfig();
+    if (currentSection === "settings") {
+      renderSection("settings");
+    }
+  } catch (error) {
+    console.warn("Unable to sync site config", error);
+  }
+}
 
 function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
@@ -3411,7 +3476,7 @@ async function renderSettings() {
   updateCustomRoleVisibility();
 
   const siteConfigForm = document.getElementById("site-config-form");
-  siteConfigForm?.addEventListener("submit", (event) => {
+  siteConfigForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(siteConfigForm);
     const newTheme = data.get("theme")?.toString().trim() || siteConfigState.theme;
@@ -3431,7 +3496,13 @@ async function renderSettings() {
     siteConfigState = updatedConfig;
     persistSiteConfigState(siteConfigState);
     applySiteConfig();
-    showToast("Site configuration saved");
+    try {
+      await saveSiteConfigToServer(siteConfigState);
+      showToast("Site configuration saved");
+    } catch (error) {
+      console.warn("Unable to sync site config", error);
+      showToast("Saved locally. Unable to sync settings.");
+    }
   });
 }
 

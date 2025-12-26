@@ -78,7 +78,8 @@ const ownerEmailTables = [
   "notes",
   "tags",
   "doc_types",
-  "tag_links"
+  "tag_links",
+  "site_config"
 ];
 
 const updatableFields: Record<string, string[]> = {
@@ -373,6 +374,139 @@ const buildWhereClause = (
   return { clause: parts.join(" AND "), params };
 };
 
+type SiteConfigPayload = {
+  siteName?: string;
+  baseCompany?: string;
+  region?: string;
+  timezone?: string;
+  theme?: string;
+  activeTheme?: string;
+  invoiceName?: string;
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  showFooter?: boolean | number | string;
+};
+
+const normalizeConfigText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+const coerceBoolean = (value: unknown, fallback = true) => {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "on", "yes"].includes(normalized)) return true;
+    if (["false", "0", "off", "no"].includes(normalized)) return false;
+  }
+  return fallback;
+};
+
+async function getSiteConfig(db: D1Database, ownerEmail: string) {
+  const row = await db
+    .prepare(
+      `SELECT site_name, base_company, region, timezone, theme, active_theme,
+              invoice_name, invoice_address, invoice_phone, show_footer
+       FROM site_config
+       WHERE owner_email = ?`
+    )
+    .bind(ownerEmail)
+    .first<{
+      site_name: string | null;
+      base_company: string | null;
+      region: string | null;
+      timezone: string | null;
+      theme: string | null;
+      active_theme: string | null;
+      invoice_name: string | null;
+      invoice_address: string | null;
+      invoice_phone: string | null;
+      show_footer: number | null;
+    }>();
+
+  if (!row) return null;
+  return {
+    siteName: row.site_name ?? "",
+    baseCompany: row.base_company ?? "",
+    region: row.region ?? "",
+    timezone: row.timezone ?? "",
+    theme: row.theme ?? "",
+    activeTheme: row.active_theme ?? "",
+    invoiceName: row.invoice_name ?? "",
+    invoiceAddress: row.invoice_address ?? "",
+    invoicePhone: row.invoice_phone ?? "",
+    showFooter: row.show_footer === null ? undefined : row.show_footer === 1
+  };
+}
+
+async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: SiteConfigPayload) {
+  const siteName = normalizeConfigText(payload.siteName);
+  const baseCompany = normalizeConfigText(payload.baseCompany);
+  const region = normalizeConfigText(payload.region);
+  const timezone = normalizeConfigText(payload.timezone);
+  const theme = normalizeConfigText(payload.theme);
+  const activeTheme = normalizeConfigText(payload.activeTheme);
+  const invoiceName = normalizeConfigText(payload.invoiceName);
+  const invoiceAddress = normalizeConfigText(payload.invoiceAddress);
+  const invoicePhone = normalizeConfigText(payload.invoicePhone);
+  const showFooter = coerceBoolean(payload.showFooter, true);
+
+  await db
+    .prepare(
+      `INSERT INTO site_config (
+        owner_email,
+        site_name,
+        base_company,
+        region,
+        timezone,
+        theme,
+        active_theme,
+        invoice_name,
+        invoice_address,
+        invoice_phone,
+        show_footer,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(owner_email) DO UPDATE SET
+        site_name = excluded.site_name,
+        base_company = excluded.base_company,
+        region = excluded.region,
+        timezone = excluded.timezone,
+        theme = excluded.theme,
+        active_theme = excluded.active_theme,
+        invoice_name = excluded.invoice_name,
+        invoice_address = excluded.invoice_address,
+        invoice_phone = excluded.invoice_phone,
+        show_footer = excluded.show_footer,
+        updated_at = CURRENT_TIMESTAMP`
+    )
+    .bind(
+      ownerEmail,
+      siteName,
+      baseCompany,
+      region,
+      timezone,
+      theme,
+      activeTheme,
+      invoiceName,
+      invoiceAddress,
+      invoicePhone,
+      showFooter ? 1 : 0
+    )
+    .run();
+
+  return {
+    siteName,
+    baseCompany,
+    region,
+    timezone,
+    theme,
+    activeTheme,
+    invoiceName,
+    invoiceAddress,
+    invoicePhone,
+    showFooter
+  };
+}
+
 const runBatches = async (db: D1Database, statements: D1PreparedStatement[], batchSize = 50) => {
   for (let i = 0; i < statements.length; i += batchSize) {
     const chunk = statements.slice(i, i + batchSize);
@@ -607,6 +741,20 @@ const schemaStatements = [
     password_salt TEXT NOT NULL,
     enabled INTEGER DEFAULT 1,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS site_config (
+    owner_email TEXT PRIMARY KEY,
+    site_name TEXT,
+    base_company TEXT,
+    region TEXT,
+    timezone TEXT,
+    theme TEXT,
+    active_theme TEXT,
+    invoice_name TEXT,
+    invoice_address TEXT,
+    invoice_phone TEXT,
+    show_footer INTEGER DEFAULT 1,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
   "CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)",
@@ -990,6 +1138,19 @@ app.post("/api/auth/password", async (c) => {
   updates.push("updated_at = CURRENT_TIMESTAMP");
   await c.env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE email = ?`).bind(...values, ownerEmail).run();
   return c.json({ ok: true, email: nextEmail });
+});
+
+app.get("/api/settings/site-config", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const config = await getSiteConfig(c.env.DB, ownerEmail);
+  return c.json({ config: config ?? {} });
+});
+
+app.put("/api/settings/site-config", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const payload = await c.req.json<SiteConfigPayload>().catch(() => ({}));
+  const config = await upsertSiteConfig(c.env.DB, ownerEmail, payload);
+  return c.json({ ok: true, config });
 });
 
 app.get("/api/dashboard", async (c) => {
