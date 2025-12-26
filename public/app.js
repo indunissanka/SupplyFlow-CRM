@@ -52,6 +52,7 @@ let currentRole = adminRole;
 let currentUserEmail = "";
 let currentAccessList = [];
 let salesContentItems = [];
+let navItems = [];
 
 const loginScreen = document.querySelector(".login-screen");
 const appShell = document.querySelector(".app-shell");
@@ -274,7 +275,7 @@ function applyRoleRestrictions() {
   applyAccessRestrictions();
 }
 
-let navItems = Array.from(document.querySelectorAll(".nav-item"));
+navItems = Array.from(document.querySelectorAll(".nav-item"));
 console.log('app.js loaded, navItems count:', navItems.length);
 const sectionContent = document.getElementById("section-content");
 const sectionTitle = document.getElementById("section-title");
