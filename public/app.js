@@ -2364,6 +2364,10 @@ async function renderDocuments() {
         const downloadAction = downloadUrl
           ? `<button class="btn ghost" type="button" data-doc-download="${idx}">Download</button>`
           : `<button class="btn ghost" type="button" disabled>Download</button>`;
+        const canDelete = Number.isFinite(Number(doc.id));
+        const deleteAction = canDelete
+          ? `<button class="btn danger ghost" data-action="delete" data-entity="documents" data-row-index="${idx}">Delete</button>`
+          : `<button class="btn danger ghost" type="button" disabled>Delete</button>`;
         return `
           <tr>
             <td class="doc-select-cell">
@@ -2379,6 +2383,7 @@ async function renderDocuments() {
               <button class="btn ghost" data-action="preview" data-entity="documents" data-row-index="${idx}">Preview</button>
               <button class="btn ghost" data-action="edit" data-entity="documents" data-row-index="${idx}">Edit</button>
               ${downloadAction}
+              ${deleteAction}
             </td>
           </tr>
         `;
