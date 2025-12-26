@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS companies (
   phone TEXT,
   address TEXT,
   owner TEXT,
+  industry TEXT,
   status TEXT DEFAULT 'Active',
   created_at TEXT DEFAULT CURRENT_TIMESTAMP,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP

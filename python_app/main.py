@@ -51,7 +51,7 @@ OWNER_EMAIL_TABLES = [
 ]
 
 UPDATABLE_FIELDS: Dict[str, List[str]] = {
-    "companies": ["name", "website", "email", "phone", "owner", "status", "address", "updated_at", "company_code"],
+    "companies": ["name", "website", "email", "phone", "owner", "industry", "status", "address", "updated_at", "company_code"],
     "contacts": ["company_id", "first_name", "last_name", "email", "phone", "role", "status"],
     "products": ["name", "sku", "category", "price", "currency", "status", "description"],
     "orders": ["company_id", "contact_id", "quotation_id", "invoice_ids", "status", "total_amount", "currency", "reference"],
@@ -253,6 +253,10 @@ async def ensure_schema(d1: D1Client) -> None:
         statements.append(extra)
     for statement in statements:
         await d1.execute(statement)
+    company_cols, _ = await d1.query("PRAGMA table_info(companies)")
+    company_names = {row.get("name") for row in company_cols if row.get("name")}
+    if company_names and "industry" not in company_names:
+        await d1.execute("ALTER TABLE companies ADD COLUMN industry TEXT")
     schema_initialized = True
 
 
@@ -308,6 +312,11 @@ def escape_csv(value: Any) -> str:
     if any(ch in text for ch in [",", "\"", "\n"]):
         return '"' + text.replace('"', '""') + '"'
     return text
+
+
+async def has_column(d1: D1Client, table: str, column: str) -> bool:
+    rows, _ = await d1.query(f"PRAGMA table_info({table})")
+    return any(row.get("name") == column for row in rows)
 
 
 def generate_ref(prefix: str) -> str:
@@ -492,6 +501,21 @@ async def api_delete(
         ])
     if table == "orders":
         await d1.execute("DELETE FROM shipping_schedules WHERE order_id = ? AND owner_email = ?", [item_id, owner_email])
+    if table == "companies":
+        for target in [
+            "contacts",
+            "orders",
+            "quotations",
+            "invoices",
+            "documents",
+            "shipping_schedules",
+            "sample_shipments",
+        ]:
+            if await has_column(d1, target, "company_id"):
+                await d1.execute(
+                    f"UPDATE {target} SET company_id = NULL WHERE company_id = ? AND owner_email = ?",
+                    [item_id, owner_email],
+                )
     await d1.execute(f"DELETE FROM {table} WHERE id = ? AND owner_email = ?", [item_id, owner_email])
     return {"ok": True}
 
@@ -537,6 +561,7 @@ async def api_companies(payload: Dict[str, Any], owner_email: str = Depends(requ
         payload.get("email"),
         payload.get("phone"),
         payload.get("owner"),
+        payload.get("industry"),
         payload.get("status") or "Active",
         payload.get("address"),
         owner_email,
@@ -544,8 +569,8 @@ async def api_companies(payload: Dict[str, Any], owner_email: str = Depends(requ
     try:
         meta = await d1.execute(
             """
-            INSERT INTO companies (id, name, company_code, website, email, phone, owner, status, address, owner_email)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO companies (id, name, company_code, website, email, phone, owner, industry, status, address, owner_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             params,
         )
@@ -569,8 +594,8 @@ async def api_companies_bulk(payload: List[Dict[str, Any]], owner_email: str = D
         code = (company.get("company_code") or "").strip() or None
         inserts.append((
             """
-            INSERT INTO companies (name, company_code, website, email, phone, owner, status, address, owner_email)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO companies (name, company_code, website, email, phone, owner, industry, status, address, owner_email)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 name,
@@ -579,6 +604,7 @@ async def api_companies_bulk(payload: List[Dict[str, Any]], owner_email: str = D
                 company.get("email"),
                 company.get("phone"),
                 company.get("owner"),
+                company.get("industry"),
                 company.get("status") or "Active",
                 company.get("address"),
                 owner_email,
@@ -592,14 +618,14 @@ async def api_companies_bulk(payload: List[Dict[str, Any]], owner_email: str = D
 async def api_companies_csv(owner_email: str = Depends(require_owner_email), d1: D1Client = Depends(get_d1)) -> Response:
     rows, _ = await d1.query(
         """
-        SELECT name, company_code, website, email, phone, owner, status, address
+        SELECT name, company_code, website, email, phone, owner, industry, status, address
         FROM companies
         WHERE owner_email = ?
         ORDER BY name
         """,
         [owner_email],
     )
-    header = ["name", "company_code", "website", "email", "phone", "owner", "status", "address"]
+    header = ["name", "company_code", "website", "email", "phone", "owner", "industry", "status", "address"]
     lines = [",".join(header)]
     for row in rows:
         lines.append(",".join(escape_csv(row.get(key)) for key in header))

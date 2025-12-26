@@ -64,7 +64,7 @@ const ownerEmailTables = [
 ];
 
 const updatableFields: Record<string, string[]> = {
-  companies: ["name", "website", "email", "phone", "owner", "status", "address", "updated_at", "company_code"],
+  companies: ["name", "website", "email", "phone", "owner", "industry", "status", "address", "updated_at", "company_code"],
   contacts: ["company_id", "first_name", "last_name", "email", "phone", "role", "status"],
   products: ["name", "sku", "category", "price", "currency", "status", "description"],
   orders: ["company_id", "contact_id", "quotation_id", "invoice_ids", "status", "total_amount", "currency", "reference"],
@@ -116,6 +116,7 @@ const tableColumns: Record<string, string[]> = {
     "phone",
     "address",
     "owner",
+    "industry",
     "status",
     "created_at",
     "updated_at"
@@ -393,6 +394,7 @@ const schemaStatements = [
     phone TEXT,
     address TEXT,
     owner TEXT,
+    industry TEXT,
     status TEXT DEFAULT 'Active',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -824,6 +826,30 @@ app.delete("/api/:table/:id", async (c) => {
   if (table === "orders") {
     await c.env.DB.prepare("DELETE FROM shipping_schedules WHERE order_id = ? AND owner_email = ?").bind(id, ownerEmail).run();
   }
+  if (table === "companies") {
+    const targets = [
+      "contacts",
+      "orders",
+      "quotations",
+      "invoices",
+      "documents",
+      "shipping_schedules",
+      "sample_shipments"
+    ];
+    const detach = [];
+    for (const target of targets) {
+      if (await hasColumn(c.env.DB, target, "company_id")) {
+        detach.push(
+          c.env.DB
+            .prepare(`UPDATE ${target} SET company_id = NULL WHERE company_id = ? AND owner_email = ?`)
+            .bind(id, ownerEmail)
+        );
+      }
+    }
+    if (detach.length) {
+      await runBatches(c.env.DB, detach);
+    }
+  }
 
   await c.env.DB.prepare(`DELETE FROM ${table} WHERE id = ? AND owner_email = ?`).bind(id, ownerEmail).run();
   await bumpCacheVersion(c.env, ownerEmail, table);
@@ -886,6 +912,7 @@ app.post("/api/companies", async (c) => {
     email?: string;
     phone?: string;
     owner?: string;
+    industry?: string;
     status?: string;
     tags?: Array<number | string>;
   }>();
@@ -900,8 +927,8 @@ app.post("/api/companies", async (c) => {
   const manualId = Number.isFinite(body.id ?? NaN) ? body.id : null;
   try {
     const result = await c.env.DB.prepare(
-      `INSERT INTO companies (id, name, company_code, website, email, phone, owner, status, address, owner_email)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO companies (id, name, company_code, website, email, phone, owner, industry, status, address, owner_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
       .bind(
         manualId,
@@ -911,6 +938,7 @@ app.post("/api/companies", async (c) => {
         body.email ?? null,
         body.phone ?? null,
         body.owner ?? null,
+        body.industry ?? null,
         body.status ?? "Active",
         body.address ?? null,
         ownerEmail
@@ -938,6 +966,7 @@ app.post("/api/companies/bulk", async (c) => {
       email?: string;
       phone?: string;
       owner?: string;
+      industry?: string;
       status?: string;
       address?: string;
     }>
@@ -954,9 +983,10 @@ app.post("/api/companies/bulk", async (c) => {
         throw new Error("Name is required for all companies");
       }
       const code = typeof company.company_code === "string" ? company.company_code.trim() : null;
+      const industry = typeof company.industry === "string" ? company.industry.trim() : null;
       return c.env.DB.prepare(
-        `INSERT INTO companies (name, company_code, website, email, phone, owner, status, address, owner_email)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO companies (name, company_code, website, email, phone, owner, industry, status, address, owner_email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         name,
         code ?? null,
@@ -964,6 +994,7 @@ app.post("/api/companies/bulk", async (c) => {
         company.email ?? null,
         company.phone ?? null,
         company.owner ?? null,
+        industry ?? null,
         company.status ?? "Active",
         company.address ?? null,
         ownerEmail
@@ -983,13 +1014,13 @@ app.post("/api/companies/bulk", async (c) => {
 app.get("/api/companies/csv", async (c) => {
   const ownerEmail = c.get("ownerEmail");
   const { results } = await c.env.DB.prepare(
-    `SELECT name, company_code, website, email, phone, owner, status, address
+    `SELECT name, company_code, website, email, phone, owner, industry, status, address
      FROM companies
      WHERE owner_email = ?
      ORDER BY name`
   ).bind(ownerEmail).all();
 
-  const header = ["name", "company_code", "website", "email", "phone", "owner", "status", "address"];
+  const header = ["name", "company_code", "website", "email", "phone", "owner", "industry", "status", "address"];
   const rows = (results ?? []).map((r) => header.map((key) => escapeCsv((r as any)[key])).join(","));
   const csv = [header.join(","), ...rows].join("\n");
   return new Response(csv, {
@@ -1776,6 +1807,9 @@ async function ensureSchema(db: D1Database) {
   if (companyNames.size && !companyNames.has("address")) {
     await db.prepare("ALTER TABLE companies ADD COLUMN address TEXT").run();
   }
+  if (companyNames.size && !companyNames.has("industry")) {
+    await db.prepare("ALTER TABLE companies ADD COLUMN industry TEXT").run();
+  }
 
   const shipColumns = await db.prepare("PRAGMA table_info(shipping_schedules)").all<{ name: string }>();
   const shipNames = new Set(shipColumns.results?.map((c) => c.name));
@@ -2209,6 +2243,14 @@ function escapeCsv(value: unknown) {
 function generateRef(prefix: string) {
   const stamp = Date.now().toString().slice(-6);
   return `${prefix}-${stamp}`;
+}
+
+async function hasColumn(db: D1Database, table: string, column: string) {
+  const { results } = await db
+    .prepare(`SELECT 1 FROM pragma_table_info('${table}') WHERE name = ? LIMIT 1`)
+    .bind(column)
+    .all<{ 1: number }>();
+  return Boolean(results && results.length);
 }
 
 async function serveAsset(c: Context<{ Bindings: Env }>) {

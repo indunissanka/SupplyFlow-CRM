@@ -259,6 +259,7 @@ console.log('app.js loaded, navItems count:', navItems.length);
 const sectionContent = document.getElementById("section-content");
 const sectionTitle = document.getElementById("section-title");
 let currentSection = "dashboard";
+const cacheBypassTables = new Set();
 
 const fallback = {
   companies: [],
@@ -663,6 +664,7 @@ const formConfigs = {
       { name: "email", label: "Email", type: "email" },
       { name: "phone", label: "Phone" },
       { name: "owner", label: "Owner" },
+      { name: "industry", label: "Industry", placeholder: "e.g. Manufacturing" },
       { name: "status", label: "Status", type: "select", options: ["Active", "Prospect", "Churn Risk"] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] }
     ],
@@ -675,6 +677,7 @@ const formConfigs = {
         email: values.email,
         phone: values.phone,
         owner: values.owner,
+        industry: values.industry,
         status: values.status,
         tags: values.tags
       };
@@ -1251,7 +1254,16 @@ async function renderCompanies() {
   sectionTitle.textContent = "Companies";
   const rows = await loadTableFromApi(
     "companies",
-    (r) => [r.company_code || "-", r.name, r.website || "-", r.email || "-", r.phone || "-", r.owner || "-", r.status || "-"],
+    (r) => [
+      r.company_code || "-",
+      r.name,
+      r.industry || "-",
+      r.website || "-",
+      r.email || "-",
+      r.phone || "-",
+      r.owner || "-",
+      r.status || "-"
+    ],
     fallback.companies
   );
 
@@ -1324,7 +1336,7 @@ async function renderCompanies() {
         </button>
       </div>
     </div>
-      ${renderPaginatedTable(["Code", "Name", "Website", "Email", "Phone", "Owner", "Status"], rows, "companies")}
+      ${renderPaginatedTable(["Code", "Name", "Industry", "Website", "Email", "Phone", "Owner", "Status"], rows, "companies")}
     </div>
   `;
 
@@ -3574,7 +3586,10 @@ async function fetchRecords(table, fallbackRows) {
 
 async function loadTableFromApi(table, mapper, fallbackRows) {
   try {
-    const res = await apiFetch(`/api/${table}`);
+    const bypass = cacheBypassTables.has(table);
+    const url = bypass ? `/api/${table}?cache=0` : `/api/${table}`;
+    if (bypass) cacheBypassTables.delete(table);
+    const res = await apiFetch(url);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.rows) && data.rows.length) {
@@ -4347,6 +4362,7 @@ async function updateRecord(table, id, payload) {
     const text = await res.text();
     throw new Error(text || "Update failed");
   }
+  cacheBypassTables.add(table);
   return res.json().catch(() => ({}));
 }
 
@@ -4357,6 +4373,7 @@ async function deleteRecord(table, id) {
     const text = await res.text();
     throw new Error(text || "Delete failed");
   }
+  cacheBypassTables.add(table);
   return res.json().catch(() => ({}));
 }
 
@@ -5522,6 +5539,7 @@ function formatPreviewLabel(key, record) {
     email: "Email Address",
     phone: "Phone Number",
     owner: "Account Owner",
+    industry: "Industry",
     address: "Address",
     receiving_address: "Receiving Address",
     
@@ -7371,6 +7389,7 @@ function parseCompaniesCsv(text) {
     email: header.indexOf("email"),
     phone: header.indexOf("phone"),
     owner: header.indexOf("owner"),
+    industry: header.indexOf("industry"),
     status: header.indexOf("status")
   };
   return lines.slice(1).map((line) => {
@@ -7381,6 +7400,7 @@ function parseCompaniesCsv(text) {
       email: cols[idx.email] || "",
       phone: cols[idx.phone] || "",
       owner: cols[idx.owner] || "",
+      industry: cols[idx.industry] || "",
       status: cols[idx.status] || "Active"
     };
   }).filter((c) => c.name);
