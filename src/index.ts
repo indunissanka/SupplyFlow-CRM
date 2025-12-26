@@ -850,6 +850,22 @@ app.delete("/api/:table/:id", async (c) => {
       await runBatches(c.env.DB, detach);
     }
   }
+  if (table === "products") {
+    const targets = ["quotation_items", "sample_shipments"];
+    const detach = [];
+    for (const target of targets) {
+      if (await hasColumn(c.env.DB, target, "product_id")) {
+        detach.push(
+          c.env.DB
+            .prepare(`UPDATE ${target} SET product_id = NULL WHERE product_id = ? AND owner_email = ?`)
+            .bind(id, ownerEmail)
+        );
+      }
+    }
+    if (detach.length) {
+      await runBatches(c.env.DB, detach);
+    }
+  }
 
   await c.env.DB.prepare(`DELETE FROM ${table} WHERE id = ? AND owner_email = ?`).bind(id, ownerEmail).run();
   await bumpCacheVersion(c.env, ownerEmail, table);
@@ -860,6 +876,7 @@ app.post("/api/contacts", async (c) => {
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
+    company_name?: string;
     first_name: string;
     last_name: string;
     email?: string;
@@ -870,12 +887,25 @@ app.post("/api/contacts", async (c) => {
   }>();
 
   const tags = normalizeTags(body.tags);
+  let companyId = body.company_id ?? null;
+  if (!companyId && body.company_name) {
+    const normalizedName = normalizeCompanyName(body.company_name);
+    if (normalizedName) {
+      const match = await c.env.DB
+        .prepare("SELECT id FROM companies WHERE owner_email = ? AND LOWER(name) = ? LIMIT 1")
+        .bind(ownerEmail, normalizedName)
+        .first<{ id: number }>();
+      if (match?.id) {
+        companyId = match.id;
+      }
+    }
+  }
   const result = await c.env.DB.prepare(
     `INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
-      body.company_id ?? null,
+      companyId,
       body.first_name,
       body.last_name,
       body.email ?? null,
@@ -1072,6 +1102,7 @@ app.post("/api/contacts/bulk", async (c) => {
   const body = await c.req.json<
     Array<{
       company_id?: number;
+      company_name?: string;
       first_name: string;
       last_name: string;
       email?: string;
@@ -1085,12 +1116,24 @@ app.post("/api/contacts/bulk", async (c) => {
     return c.json({ error: "No contacts provided" }, 400);
   }
 
-    const inserts = body.map((contact) =>
-      c.env.DB.prepare(
+  let companyLookup: Map<string, number> | null = null;
+  if (body.some((contact) => !contact.company_id && contact.company_name)) {
+    companyLookup = await buildCompanyLookup(c.env.DB, ownerEmail);
+  }
+
+  const inserts = body.map((contact) => {
+    const normalizedName = contact.company_name ? normalizeCompanyName(contact.company_name) : "";
+    const resolvedCompanyId =
+      contact.company_id ??
+      (normalizedName && companyLookup ? companyLookup.get(normalizedName) : null) ??
+      null;
+    return c.env.DB
+      .prepare(
         `INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        contact.company_id ?? null,
+      )
+      .bind(
+        resolvedCompanyId,
         contact.first_name,
         contact.last_name,
         contact.email ?? null,
@@ -1098,8 +1141,8 @@ app.post("/api/contacts/bulk", async (c) => {
         contact.role ?? null,
         contact.status ?? "Engaged",
         ownerEmail
-      )
-    );
+      );
+  });
 
   await runBatches(c.env.DB, inserts);
   await bumpCacheVersion(c.env, ownerEmail, "contacts");
@@ -1109,13 +1152,14 @@ app.post("/api/contacts/bulk", async (c) => {
 app.get("/api/contacts/csv", async (c) => {
   const ownerEmail = c.get("ownerEmail");
   const { results } = await c.env.DB.prepare(
-    `SELECT company_id, first_name, last_name, email, phone, role, status
-     FROM contacts
-     WHERE owner_email = ?
+    `SELECT c.company_id, co.name as company_name, c.first_name, c.last_name, c.email, c.phone, c.role, c.status
+     FROM contacts c
+     LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
+     WHERE c.owner_email = ?
      ORDER BY last_name, first_name`
-  ).bind(ownerEmail).all();
+  ).bind(ownerEmail, ownerEmail).all();
 
-  const header = ["company_id", "first_name", "last_name", "email", "phone", "role", "status"];
+  const header = ["company_name", "company_id", "first_name", "last_name", "email", "phone", "role", "status"];
   const rows = (results ?? []).map((r) => header.map((key) => escapeCsv((r as any)[key])).join(","));
   const csv = [header.join(","), ...rows].join("\n");
   return new Response(csv, {
@@ -1144,21 +1188,23 @@ app.post("/api/products/bulk", async (c) => {
     return c.json({ error: "No products provided" }, 400);
   }
 
-  const inserts = body.map((p) =>
-    c.env.DB.prepare(
-      `INSERT INTO products (name, sku, category, price, currency, status, description, owner_email)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      p.name,
-      p.sku ?? null,
-      p.category ?? null,
-      p.price ?? 0,
-      p.currency ?? "USD",
-      p.status ?? "Active",
-      p.description ?? null,
-      ownerEmail
-    )
-  );
+  const inserts = body
+    .filter((p) => typeof p.name === "string" && p.name.trim())
+    .map((p) =>
+      c.env.DB.prepare(
+        `INSERT OR IGNORE INTO products (name, sku, category, price, currency, status, description, owner_email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).bind(
+        p.name.trim(),
+        p.sku ?? null,
+        p.category ?? null,
+        p.price ?? 0,
+        p.currency ?? "USD",
+        p.status ?? "Active",
+        p.description ?? null,
+        ownerEmail
+      )
+    );
 
   await runBatches(c.env.DB, inserts);
   await bumpCacheVersion(c.env, ownerEmail, "products");
@@ -2141,6 +2187,24 @@ function normalizeInvoiceIds(raw: unknown): string | null {
   }
   const str = String(raw).trim();
   return str ? str : null;
+}
+
+function normalizeCompanyName(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  return String(value).trim().toLowerCase();
+}
+
+async function buildCompanyLookup(db: D1Database, ownerEmail: string): Promise<Map<string, number>> {
+  const { results } = await db.prepare("SELECT id, name FROM companies WHERE owner_email = ?").bind(ownerEmail).all();
+  const lookup = new Map<string, number>();
+  (results ?? []).forEach((row) => {
+    const name = normalizeCompanyName((row as { name?: string }).name);
+    const id = Number((row as { id?: number }).id);
+    if (name && Number.isFinite(id)) {
+      lookup.set(name, id);
+    }
+  });
+  return lookup;
 }
 
 async function attachTags(db: D1Database, ownerEmail: string, entityType: string, entityId: number | null, tags: number[]) {

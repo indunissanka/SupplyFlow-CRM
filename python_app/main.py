@@ -281,6 +281,41 @@ def normalize_tags(raw: Any) -> List[int]:
     return tags
 
 
+def normalize_company_name(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+async def resolve_company_id(d1: D1Client, owner_email: str, company_id: Optional[Any], company_name: Optional[Any]) -> Optional[int]:
+    if company_id:
+        try:
+            return int(company_id)
+        except (TypeError, ValueError):
+            return None
+    name = normalize_company_name(company_name)
+    if not name:
+        return None
+    row = await d1.first("SELECT id FROM companies WHERE owner_email = ? AND LOWER(name) = ? LIMIT 1", [owner_email, name])
+    if row and row.get("id") is not None:
+        try:
+            return int(row.get("id"))
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+async def build_company_lookup(d1: D1Client, owner_email: str) -> Dict[str, int]:
+    rows, _ = await d1.query("SELECT id, name FROM companies WHERE owner_email = ?", [owner_email])
+    lookup: Dict[str, int] = {}
+    for row in rows:
+        name = normalize_company_name(row.get("name"))
+        if name and row.get("id") is not None:
+            try:
+                lookup[name] = int(row.get("id"))
+            except (TypeError, ValueError):
+                continue
+    return lookup
+
+
 def normalize_invoice_ids(raw: Any) -> Optional[str]:
     if raw is None:
         return None
@@ -516,6 +551,13 @@ async def api_delete(
                     f"UPDATE {target} SET company_id = NULL WHERE company_id = ? AND owner_email = ?",
                     [item_id, owner_email],
                 )
+    if table == "products":
+        for target in ["quotation_items", "sample_shipments"]:
+            if await has_column(d1, target, "product_id"):
+                await d1.execute(
+                    f"UPDATE {target} SET product_id = NULL WHERE product_id = ? AND owner_email = ?",
+                    [item_id, owner_email],
+                )
     await d1.execute(f"DELETE FROM {table} WHERE id = ? AND owner_email = ?", [item_id, owner_email])
     return {"ok": True}
 
@@ -523,13 +565,14 @@ async def api_delete(
 @app.post("/api/contacts")
 async def api_contacts(payload: Dict[str, Any], owner_email: str = Depends(require_owner_email), d1: D1Client = Depends(get_d1)) -> Dict[str, Any]:
     tags = normalize_tags(payload.get("tags"))
+    company_id = await resolve_company_id(d1, owner_email, payload.get("company_id"), payload.get("company_name"))
     meta = await d1.execute(
         """
         INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
-            payload.get("company_id"),
+            company_id,
             payload.get("first_name"),
             payload.get("last_name"),
             payload.get("email"),
@@ -639,15 +682,21 @@ async def api_companies_csv(owner_email: str = Depends(require_owner_email), d1:
 async def api_contacts_bulk(payload: List[Dict[str, Any]], owner_email: str = Depends(require_owner_email), d1: D1Client = Depends(get_d1)) -> Dict[str, Any]:
     if not payload:
         raise HTTPException(status_code=400, detail="No contacts provided")
+    company_lookup: Dict[str, int] = {}
+    if any(not contact.get("company_id") and contact.get("company_name") for contact in payload):
+        company_lookup = await build_company_lookup(d1, owner_email)
     inserts = []
     for contact in payload:
+        company_id = contact.get("company_id")
+        if not company_id and contact.get("company_name"):
+            company_id = company_lookup.get(normalize_company_name(contact.get("company_name")))
         inserts.append((
             """
             INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                contact.get("company_id"),
+                company_id,
                 contact.get("first_name"),
                 contact.get("last_name"),
                 contact.get("email"),
@@ -665,14 +714,15 @@ async def api_contacts_bulk(payload: List[Dict[str, Any]], owner_email: str = De
 async def api_contacts_csv(owner_email: str = Depends(require_owner_email), d1: D1Client = Depends(get_d1)) -> Response:
     rows, _ = await d1.query(
         """
-        SELECT company_id, first_name, last_name, email, phone, role, status
-        FROM contacts
-        WHERE owner_email = ?
-        ORDER BY last_name, first_name
+        SELECT c.company_id, co.name as company_name, c.first_name, c.last_name, c.email, c.phone, c.role, c.status
+        FROM contacts c
+        LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
+        WHERE c.owner_email = ?
+        ORDER BY c.last_name, c.first_name
         """,
-        [owner_email],
+        [owner_email, owner_email],
     )
-    header = ["company_id", "first_name", "last_name", "email", "phone", "role", "status"]
+    header = ["company_name", "company_id", "first_name", "last_name", "email", "phone", "role", "status"]
     lines = [",".join(header)]
     for row in rows:
         lines.append(",".join(escape_csv(row.get(key)) for key in header))
@@ -713,13 +763,16 @@ async def api_products_bulk(payload: List[Dict[str, Any]], owner_email: str = De
         raise HTTPException(status_code=400, detail="No products provided")
     inserts = []
     for product in payload:
+        name = (product.get("name") or "").strip()
+        if not name:
+            continue
         inserts.append((
             """
-            INSERT INTO products (name, sku, category, price, currency, status, description, owner_email)
+            INSERT OR IGNORE INTO products (name, sku, category, price, currency, status, description, owner_email)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
-                product.get("name"),
+                name,
                 product.get("sku"),
                 product.get("category"),
                 product.get("price") or 0,

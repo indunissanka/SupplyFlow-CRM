@@ -1353,11 +1353,13 @@ async function renderCompanies() {
 
 async function renderContacts() {
   sectionTitle.textContent = "Contacts";
+  const companies = await fetchCompaniesList();
+  const companyLookup = new Map(companies.map((company) => [String(company.id), company.name]));
   const rows = await loadTableFromApi(
     "contacts",
     (r) => [
       `${r.first_name} ${r.last_name}`,
-      r.company_name || "-",
+      r.company_name || r.company || companyLookup.get(String(r.company_id)) || "-",
       r.role || "-",
       r.email || "-",
       r.phone || "-",
@@ -1429,7 +1431,8 @@ async function renderProducts() {
       r.currency || "USD",
       r.status || "-"
     ],
-    fallback.products
+    fallback.products,
+    { fetchAll: true }
   );
 
   sectionContent.innerHTML = `
@@ -1509,7 +1512,8 @@ async function renderProducts() {
       renderSection("products");
     } catch (err) {
       console.error(err);
-      showToast("Import failed");
+      const message = err instanceof Error && err.message ? err.message : "Import failed";
+      showToast(message);
     } finally {
       if (uploadInput) uploadInput.value = "";
     }
@@ -3584,17 +3588,60 @@ async function fetchRecords(table, fallbackRows) {
   return fallbackRows || [];
 }
 
-async function loadTableFromApi(table, mapper, fallbackRows) {
+async function loadTableFromApi(table, mapper, fallbackRows, options = {}) {
+  const { fetchAll = false, limit = 200, maxPages = 20 } = options || {};
   try {
     const bypass = cacheBypassTables.has(table);
-    const url = bypass ? `/api/${table}?cache=0` : `/api/${table}`;
-    if (bypass) cacheBypassTables.delete(table);
-    const res = await apiFetch(url);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.rows) && data.rows.length) {
-        tableRecords[table] = data.rows;
-        return data.rows.map(mapper);
+    const buildUrl = (offset) => {
+      const params = new URLSearchParams();
+      if (bypass) params.set("cache", "0");
+      if (fetchAll || limit) params.set("limit", String(limit));
+      if (offset) params.set("offset", String(offset));
+      const qs = params.toString();
+      return qs ? `/api/${table}?${qs}` : `/api/${table}`;
+    };
+
+    if (fetchAll) {
+      const collected = [];
+      const seenIds = new Set();
+      let offset = 0;
+      let pages = 0;
+      while (pages < maxPages) {
+        const res = await apiFetch(buildUrl(offset));
+        if (!res.ok) break;
+        const data = await res.json();
+        if (!Array.isArray(data.rows) || !data.rows.length) break;
+        let rows = data.rows;
+        if (offset > 0) {
+          rows = rows.filter((row) => {
+            const key = row?.id != null ? String(row.id) : "";
+            if (!key || seenIds.has(key)) return false;
+            return true;
+          });
+          if (!rows.length) break;
+        }
+        rows.forEach((row) => {
+          if (row?.id != null) seenIds.add(String(row.id));
+        });
+        collected.push(...rows);
+        if (data.rows.length < limit) break;
+        offset += limit;
+        pages += 1;
+      }
+      if (bypass) cacheBypassTables.delete(table);
+      if (collected.length) {
+        tableRecords[table] = collected;
+        return collected.map(mapper);
+      }
+    } else {
+      const res = await apiFetch(buildUrl(0));
+      if (bypass) cacheBypassTables.delete(table);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.rows) && data.rows.length) {
+          tableRecords[table] = data.rows;
+          return data.rows.map(mapper);
+        }
       }
     }
   } catch (err) {
@@ -4292,8 +4339,8 @@ function openEditModal(tableKey, record) {
 
   const form = overlay.querySelector("form");
 
-  if (initialValues && form) {
-    Object.entries(initialValues).forEach(([name, val]) => {
+  if (record && form) {
+    Object.entries(record).forEach(([name, val]) => {
       const field = form.querySelector(`[name="${name}"]`);
       if (!field || field.type === "file") return;
       if (field.tagName === "SELECT") {
@@ -4346,7 +4393,8 @@ function openDeleteConfirm(tableKey, record) {
       renderSection(currentSection);
     } catch (err) {
       console.error(err);
-      showToast("Delete failed");
+      const message = err instanceof Error && err.message ? err.message : "Delete failed";
+      showToast(message);
     }
   });
 }
@@ -7301,6 +7349,14 @@ function parsePercent(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseCurrency(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  const cleaned = String(value).trim().replace(/[^0-9.-]+/g, "");
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function resolveTagList(rawTags) {
   if (!rawTags) return [];
   const tagPool = Array.isArray(tableRecords.tags) ? tableRecords.tags : [];
@@ -7326,29 +7382,96 @@ function slugify(str) {
     .slice(0, 80) || "document";
 }
 
+function detectDelimiter(line) {
+  const commas = (line.match(/,/g) || []).length;
+  const tabs = (line.match(/\t/g) || []).length;
+  if (tabs > 0 && tabs >= commas) return "\t";
+  if (commas > 0) return ",";
+  if (/\s{2,}/.test(line)) return "whitespace";
+  return ",";
+}
+
+function splitDelimitedLine(line, delimiter) {
+  if (delimiter === "whitespace") {
+    return line.split(/\s{2,}/);
+  }
+  if (delimiter !== ",") {
+    const result = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (ch === delimiter && !inQuotes) {
+        result.push(current);
+        current = "";
+        continue;
+      }
+      current += ch;
+    }
+    result.push(current);
+    return result;
+  }
+  return splitCsvLine(line);
+}
+
 function parseProductsCsv(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return [];
-  const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
-  const idx = {
-    name: header.indexOf("name"),
-    sku: header.indexOf("sku"),
-    category: header.indexOf("category"),
-    price: header.indexOf("price"),
-    currency: header.indexOf("currency"),
-    status: header.indexOf("status"),
-    description: header.indexOf("description")
+  const delimiter = detectDelimiter(lines[0]);
+  const rawHeader = splitDelimitedLine(lines[0], delimiter);
+  const header = rawHeader.map((h) =>
+    h.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_")
+  );
+  const headerIndex = (names) => {
+    for (const name of names) {
+      const idx = header.indexOf(name);
+      if (idx !== -1) return idx;
+    }
+    return -1;
   };
-  return lines.slice(1).map((line) => {
-    const cols = splitCsvLine(line);
+  const idx = {
+    name: headerIndex(["name", "product", "product_name", "item", "item_name"]),
+    sku: headerIndex(["sku", "product_sku", "item_sku"]),
+    category: headerIndex(["category", "type"]),
+    price: headerIndex(["price", "unit_price", "unit_cost", "cost", "amount"]),
+    currency: headerIndex(["currency", "curr"]),
+    status: headerIndex(["status", "state"]),
+    description: headerIndex(["description", "details", "notes", "note"])
+  };
+  const hasHeader = Object.values(idx).some((value) => value >= 0);
+  const fallbackIdx = {
+    name: 0,
+    sku: 1,
+    category: 2,
+    price: 3,
+    currency: 4,
+    status: 5,
+    description: 6
+  };
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+  return dataLines.map((line) => {
+    const cols = splitDelimitedLine(line, delimiter);
+    const getCol = (key) => {
+      const index = hasHeader ? idx[key] : fallbackIdx[key];
+      return index >= 0 ? cols[index] || "" : "";
+    };
     return {
-      name: cols[idx.name] || "",
-      sku: cols[idx.sku] || "",
-      category: cols[idx.category] || "",
-      price: num(cols[idx.price]),
-      currency: cols[idx.currency] || "USD",
-      status: cols[idx.status] || "Active",
-      description: cols[idx.description] || ""
+      name: getCol("name"),
+      sku: getCol("sku"),
+      category: getCol("category"),
+      price: parseCurrency(getCol("price")),
+      currency: getCol("currency") || "USD",
+      status: getCol("status") || "Active",
+      description: getCol("description")
     };
   }).filter((p) => p.name);
 }
@@ -7411,6 +7534,7 @@ function parseContactsCsv(text) {
   if (!lines.length) return [];
   const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
   const idx = {
+    company_name: header.indexOf("company_name"),
     company_id: header.indexOf("company_id"),
     first_name: header.indexOf("first_name"),
     last_name: header.indexOf("last_name"),
@@ -7422,6 +7546,7 @@ function parseContactsCsv(text) {
   return lines.slice(1).map((line) => {
     const cols = splitCsvLine(line);
     return {
+      company_name: cols[idx.company_name] || "",
       company_id: num(cols[idx.company_id]),
       first_name: cols[idx.first_name] || "",
       last_name: cols[idx.last_name] || "",
