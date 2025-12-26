@@ -816,6 +816,19 @@ tr:hover td {
   align-items: center;
 }
 
+.table-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.table-pagination .page-indicator {
+  font-size: 13px;
+  color: var(--muted);
+}
+
 .doc-icon {
   width: 40px;
   height: 40px;

@@ -1438,6 +1438,7 @@ app.post("/api/tasks", async (c) => {
 
   const id = result.meta.last_row_id;
   await attachTags(c.env.DB, ownerEmail, "task", id, tags);
+  await bumpCacheVersion(c.env, ownerEmail, "tasks");
 
   return c.json({ id });
 });
@@ -1463,6 +1464,7 @@ app.post("/api/notes", async (c) => {
 
   const id = result.meta.last_row_id;
   await attachTags(c.env.DB, ownerEmail, "note", id, tags);
+  await bumpCacheVersion(c.env, ownerEmail, "notes");
 
   return c.json({ id });
 });

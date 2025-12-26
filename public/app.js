@@ -28,6 +28,7 @@ const accessOptions = [
   { id: "companies", label: "Companies", aliases: ["company", "companies"] },
   { id: "contacts", label: "Contacts", aliases: ["contact", "contacts"] },
   { id: "products", label: "Products", aliases: ["product", "products"] },
+  { id: "pricing", label: "Pricing", aliases: ["pricing", "plan", "plans"] },
   { id: "orders", label: "Orders", aliases: ["order", "orders"] },
   { id: "quotations", label: "Quotations", aliases: ["quotation", "quotations", "quote", "quotes"] },
   { id: "invoices", label: "Invoices", aliases: ["invoice", "invoices"] },
@@ -634,6 +635,7 @@ const sectionRenderers = {
   companies: renderCompanies,
   contacts: renderContacts,
   products: renderProducts,
+  pricing: renderPricing,
   orders: renderOrders,
   quotations: renderQuotations,
   invoices: renderInvoices,
@@ -1322,7 +1324,7 @@ async function renderCompanies() {
         </button>
       </div>
     </div>
-      ${renderTable(["Code", "Name", "Website", "Email", "Phone", "Owner", "Status"], rows, "companies")}
+      ${renderPaginatedTable(["Code", "Name", "Website", "Email", "Phone", "Owner", "Status"], rows, "companies")}
     </div>
   `;
 
@@ -1388,7 +1390,7 @@ async function renderContacts() {
         <h3 class="panel-title">People Directory</h3>
         <div class="stat-label">Filter by role, company, or status.</div>
       </div>
-      ${renderTable(["Name", "Company", "Role", "Email", "Phone", "Status"], rows, "contacts")}
+      ${renderPaginatedTable(["Name", "Company", "Role", "Email", "Phone", "Status"], rows, "contacts")}
     </div>
   `;
 
@@ -1471,7 +1473,7 @@ async function renderProducts() {
         <h3 class="panel-title">Catalog</h3>
         <div class="stat-label">Pricing synced to quotations and invoices.</div>
       </div>
-      ${renderTable(["Name", "SKU", "Category", "Price", "Currency", "Status"], rows, "products")}
+      ${renderPaginatedTable(["Name", "SKU", "Category", "Price", "Currency", "Status"], rows, "products")}
     </div>
   `;
 
@@ -1519,6 +1521,251 @@ async function renderProducts() {
   });
 }
 
+async function renderPricing() {
+  sectionTitle.textContent = "Pricing";
+  sectionContent.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="eyebrow">Quotations</div>
+        <h2 class="page-title">Pricing</h2>
+        <div class="page-meta">Line items pulled from live quotations.</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h3 class="panel-title">Quotation line items</h3>
+        <div class="stat-label">Grouped by quote with company and date context.</div>
+      </div>
+      <div class="doc-filter-bar">
+        <label class="document-filter-field">
+          <span>Company</span>
+          <select id="pricing-filter-company">
+            <option value="">All companies</option>
+          </select>
+        </label>
+        <label class="document-filter-field">
+          <span>Item</span>
+          <select id="pricing-filter-item">
+            <option value="">All items</option>
+          </select>
+        </label>
+        <label class="document-search-field">
+          <span>Date from</span>
+          <input id="pricing-filter-date-from" type="date" />
+        </label>
+        <label class="document-search-field">
+          <span>Date to</span>
+          <input id="pricing-filter-date-to" type="date" />
+        </label>
+      </div>
+      <div id="pricing-table-slot" class="table-wrapper">
+        <div class="empty">Loading quotation line items...</div>
+      </div>
+    </div>
+  `;
+
+  const formatPricingDate = (value) => {
+    if (!value) return "-";
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleDateString();
+    }
+    return sanitizeText(value);
+  };
+  const formatPricingDateKey = (value) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return "";
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+
+  let quotations = [];
+  try {
+    const res = await apiFetch("/api/quotations");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.rows)) {
+        quotations = data.rows;
+        tableRecords.quotations = data.rows;
+      }
+    }
+  } catch (err) {
+    console.debug("Unable to load quotations for pricing", err);
+  }
+
+  const items = await loadQuotationItems();
+  if (!Array.isArray(items) || !items.length) {
+    const emptyPanel = sectionContent.querySelector(".panel");
+    if (emptyPanel) {
+      emptyPanel.innerHTML = `<div class="empty">No quotation line items yet.</div>`;
+    }
+    return;
+  }
+
+  const quoteLookup = new Map(quotations.map((quote) => [String(quote.id), quote]));
+  let companyLookup = null;
+  if (quotations.some((quote) => !quote.company_name && quote.company_id)) {
+    const companies = await fetchCompaniesList();
+    companyLookup = new Map(companies.map((company) => [String(company.id), company.name]));
+  }
+
+  const rows = items.map((item) => {
+    const quote = quoteLookup.get(String(item.quotation_id)) || {};
+    const reference = quote.reference || quote.title || (item.quotation_id ? `Quotation #${item.quotation_id}` : "-");
+    const companyName =
+      quote.company_name || (companyLookup ? companyLookup.get(String(quote.company_id)) : null) || "-";
+    const quoteDateRaw = quote.created_at || quote.updated_at || quote.valid_until || item.created_at;
+    const quoteDate = formatPricingDate(quoteDateRaw);
+    const quoteDateKey = formatPricingDateKey(quoteDateRaw);
+    const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
+    const currency = (quote.currency || "USD").toUpperCase();
+    const qty = 1;
+    const unit = Number(item.unit_price) || 0;
+    const drums = Number(item.drums_price) || 0;
+    const bank = Number(item.bank_charge_price) || 0;
+    const shipping = Number(item.shipping_price) || 0;
+    const commission = Number(item.customer_commission) || 0;
+    const lineTotal = qty * (unit + drums + bank + shipping + commission);
+    return {
+      companyKey: String(companyName || "").toLowerCase(),
+      itemKey: String(productName || "").toLowerCase(),
+      dateKey: quoteDateKey,
+      cells: [
+        sanitizeText(reference),
+        sanitizeText(companyName),
+        quoteDate,
+        sanitizeText(productName),
+        qty,
+        formatCurrency(unit, currency),
+        formatCurrency(drums, currency),
+        formatCurrency(bank, currency),
+        formatCurrency(shipping, currency),
+        formatCurrency(commission, currency),
+        formatCurrency(lineTotal, currency)
+      ]
+    };
+  });
+
+  const columns = [
+    "Quote",
+    "Company",
+    "Date",
+    "Item",
+    "Qty",
+    "Unit",
+    "Drums",
+    "Bank charge",
+    "Shipping",
+    "Commission",
+    "Line total"
+  ];
+  const tableSlot = sectionContent.querySelector("#pricing-table-slot");
+  const companyInput = sectionContent.querySelector("#pricing-filter-company");
+  const itemInput = sectionContent.querySelector("#pricing-filter-item");
+  const dateFromInput = sectionContent.querySelector("#pricing-filter-date-from");
+  const dateToInput = sectionContent.querySelector("#pricing-filter-date-to");
+  if (!tableSlot) return;
+
+  const sortedCompanies = Array.from(
+    new Map(
+      rows
+        .map((row) => row.cells[1])
+        .filter((name) => name && name !== "-")
+        .map((name) => [String(name), String(name)])
+    ).values()
+  ).sort((a, b) => a.localeCompare(b));
+  const sortedItems = Array.from(
+    new Map(
+      rows
+        .map((row) => row.cells[3])
+        .filter((name) => name && name !== "-")
+        .map((name) => [String(name), String(name)])
+    ).values()
+  ).sort((a, b) => a.localeCompare(b));
+  if (companyInput instanceof HTMLSelectElement) {
+    companyInput.innerHTML =
+      `<option value="">All companies</option>` +
+      sortedCompanies.map((name) => `<option value="${sanitizeText(name)}">${sanitizeText(name)}</option>`).join("");
+  }
+  if (itemInput instanceof HTMLSelectElement) {
+    itemInput.innerHTML =
+      `<option value="">All items</option>` +
+      sortedItems.map((name) => `<option value="${sanitizeText(name)}">${sanitizeText(name)}</option>`).join("");
+  }
+
+  const rowsPerPage = 10;
+  let currentPage = 1;
+  let filteredRows = rows;
+
+  const renderPagination = (totalPages) => {
+    if (totalPages <= 1) return "";
+    return `
+      <div class="table-pagination">
+        <button class="btn ghost small" data-page="prev" ${currentPage === 1 ? "disabled" : ""}>Prev</button>
+        <span class="page-indicator">Page ${currentPage} of ${totalPages}</span>
+        <button class="btn ghost small" data-page="next" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
+      </div>
+    `;
+  };
+
+  const renderTablePage = (pageRows) => {
+    tableSlot.innerHTML = renderTable(
+      columns,
+      pageRows.map((row) => row.cells),
+      "quotation_items",
+      false
+    );
+  };
+
+  const applyFilters = () => {
+    const companyQuery = (companyInput?.value || "").trim().toLowerCase();
+    const itemQuery = (itemInput?.value || "").trim().toLowerCase();
+    const dateFrom = (dateFromInput?.value || "").trim();
+    const dateTo = (dateToInput?.value || "").trim();
+    filteredRows = rows.filter((row) => {
+      if (companyQuery && row.companyKey !== companyQuery) return false;
+      if (itemQuery && row.itemKey !== itemQuery) return false;
+      if (dateFrom && row.dateKey && row.dateKey < dateFrom) return false;
+      if (dateTo && row.dateKey && row.dateKey > dateTo) return false;
+      if ((dateFrom || dateTo) && !row.dateKey) return false;
+      return true;
+    });
+    currentPage = 1;
+    if (!filteredRows.length) {
+      tableSlot.innerHTML = `<div class="empty">No matching line items.</div>`;
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
+    const start = (currentPage - 1) * rowsPerPage;
+    const pageRows = filteredRows.slice(start, start + rowsPerPage);
+    renderTablePage(pageRows);
+    tableSlot.insertAdjacentHTML("beforeend", renderPagination(totalPages));
+    const pager = tableSlot.querySelector(".table-pagination");
+    pager?.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const action = target.dataset.page;
+      if (!action) return;
+      const total = Math.max(1, Math.ceil(filteredRows.length / rowsPerPage));
+      if (action === "prev" && currentPage > 1) currentPage -= 1;
+      if (action === "next" && currentPage < total) currentPage += 1;
+      const offset = (currentPage - 1) * rowsPerPage;
+      const pageSlice = filteredRows.slice(offset, offset + rowsPerPage);
+      renderTablePage(pageSlice);
+      tableSlot.insertAdjacentHTML("beforeend", renderPagination(total));
+    });
+  };
+
+  companyInput?.addEventListener("change", applyFilters);
+  itemInput?.addEventListener("change", applyFilters);
+  dateFromInput?.addEventListener("input", applyFilters);
+  dateToInput?.addEventListener("input", applyFilters);
+  applyFilters();
+}
+
 async function renderOrders() {
   sectionTitle.textContent = "Orders";
   const rows = await loadTableFromApi(
@@ -1561,7 +1808,7 @@ async function renderOrders() {
         <h3 class="panel-title">Order Board</h3>
         <div class="stat-label">Statuses sync to shipping schedules automatically.</div>
       </div>
-      ${renderTable(["Order #", "Company", "Contact", "Status", "Total", "Updated"], rows, "orders")}
+      ${renderPaginatedTable(["Order #", "Company", "Contact", "Status", "Total", "Updated"], rows, "orders")}
     </div>
   `;
 }
@@ -1607,7 +1854,7 @@ async function renderQuotations() {
         <h3 class="panel-title">Quotes</h3>
         <div class="stat-label">Convert to orders with one click.</div>
       </div>
-      ${renderTable(["Quote #", "Title", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
+      ${renderPaginatedTable(["Quote #", "Title", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
     </div>
   `;
 }
@@ -1656,7 +1903,7 @@ async function renderInvoices() {
         <h3 class="panel-title">Receivables</h3>
         <div class="stat-label">Overdue invoices surface alerts.</div>
       </div>
-      ${renderTable(["Invoice #", "Company", "Total", "Due Date", "Status", "Owner"], rows, "invoices")}
+      ${renderPaginatedTable(["Invoice #", "Company", "Total", "Due Date", "Status", "Owner"], rows, "invoices")}
     </div>
   `;
 }
@@ -1766,6 +2013,7 @@ async function renderDocuments() {
           <tbody data-doc-table-body></tbody>
         </table>
       </div>
+      <div class="table-pagination" data-doc-pagination></div>
     </div>
   `;
 
@@ -1779,8 +2027,11 @@ async function renderDocuments() {
   const filterMeta = sectionContent.querySelector("#document-filter-meta");
   const tableBody = sectionContent.querySelector("[data-doc-table-body]");
   const downloadButton = sectionContent.querySelector("#btn-download-docs");
+  const paginationSlot = sectionContent.querySelector("[data-doc-pagination]");
 
   const docItems = docs.map((doc, idx) => ({ doc, idx }));
+  const pageSize = 10;
+  let currentPage = 1;
   const selectedDocKeys = new Set();
   const docLookup = new Map();
 
@@ -1928,7 +2179,21 @@ async function renderDocuments() {
     downloadDocument(doc, rowIndex + 1);
   });
 
-  const applyFilters = () => {
+  const renderDocPagination = (totalPages, page) => {
+    if (!paginationSlot) return;
+    if (totalPages <= 1) {
+      paginationSlot.innerHTML = "";
+      return;
+    }
+    paginationSlot.innerHTML = `
+      <button class="btn ghost small" data-doc-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+      <span class="page-indicator">Page ${page} of ${totalPages}</span>
+      <button class="btn ghost small" data-doc-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+    `;
+  };
+
+  const applyFilters = (resetPage = true) => {
+    if (resetPage) currentPage = 1;
     const query = searchInput?.value.trim().toLowerCase() || "";
     const selectedCompany = companySelect?.value || "";
     const selectedInvoice = invoiceSelect?.value || "";
@@ -1966,12 +2231,18 @@ async function renderDocuments() {
       return sortOrder === "asc" ? diff : -diff;
     });
 
-    renderDocRows(sorted);
-    visibleItems = sorted;
-    updateSelectAllState(sorted);
-    wireRowSelections(sorted);
+    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const pageItems = sorted.slice(start, start + pageSize);
+
+    renderDocRows(pageItems);
+    visibleItems = pageItems;
+    updateSelectAllState(pageItems);
+    wireRowSelections(pageItems);
+    renderDocPagination(totalPages, currentPage);
     if (filterMeta) {
-      filterMeta.textContent = `Showing ${sorted.length} of ${docs.length} documents`;
+      filterMeta.textContent = `Showing ${pageItems.length} of ${sorted.length} documents`;
     }
     return sorted;
   };
@@ -2042,6 +2313,17 @@ async function renderDocuments() {
   sortSelect?.addEventListener("change", applyFilters);
   filterButton?.addEventListener("click", applyFilters);
   downloadButton?.addEventListener("click", downloadSelected);
+  paginationSlot?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.dataset.docPage;
+    if (!action) return;
+    const filtered = applyFilters(false) || [];
+    const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+    if (action === "prev" && currentPage > 1) currentPage -= 1;
+    if (action === "next" && currentPage < totalPages) currentPage += 1;
+    applyFilters(false);
+  });
   selectAllControl?.addEventListener("change", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLInputElement)) return;
@@ -2112,7 +2394,7 @@ async function renderShipping() {
         <h3 class="panel-title">Timeline</h3>
         <div class="stat-label">Auto-sync from orders.</div>
       </div>
-      ${renderTable(["Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
+      ${renderPaginatedTable(["Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
     </div>
   `;
 }
@@ -2153,7 +2435,7 @@ async function renderSampleShipments() {
         <h3 class="panel-title">Recent Samples</h3>
         <div class="stat-label">Includes receiving contact, product, and courier info.</div>
       </div>
-      ${renderTable(["Company", "Receiving Address", "Tel", "Product", "Qty", "Waybill #", "Courier", "Status"], rows, "sample_shipments")}
+      ${renderPaginatedTable(["Company", "Receiving Address", "Tel", "Product", "Qty", "Waybill #", "Courier", "Status"], rows, "sample_shipments")}
     </div>
   `;
 }
@@ -2191,7 +2473,7 @@ async function renderTasks() {
         <h3 class="panel-title">Task List</h3>
         <div class="stat-label">Sortable by due date.</div>
       </div>
-      ${renderTable(["Task", "Owner", "Due", "Status", "Related To"], rows, "tasks")}
+      ${renderPaginatedTable(["Task", "Owner", "Due", "Status", "Related To"], rows, "tasks")}
     </div>
   `;
 }
@@ -2208,23 +2490,6 @@ async function renderNotes() {
     ],
     fallback.notes
   );
-
-  const noteCards = rows
-    .map(
-      (note, idx) => `
-        <div class="note-card">
-          <div class="note-title">${note[0]}</div>
-          <div class="note-meta">${note[3]} - ${note[1]}</div>
-          <div class="stat-label">Related: ${note[2]}</div>
-          <div class="note-actions">
-            <button class="btn ghost" data-action="preview" data-entity="notes" data-row-index="${idx}">Preview</button>
-            <button class="btn ghost" data-action="edit" data-entity="notes" data-row-index="${idx}">Edit</button>
-            <button class="btn danger ghost" data-action="delete" data-entity="notes" data-row-index="${idx}">Delete</button>
-          </div>
-        </div>
-      `
-    )
-    .join("");
 
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -2244,9 +2509,71 @@ async function renderNotes() {
       <div class="panel-header">
         <h3 class="panel-title">Latest</h3>
       </div>
-      <div class="note-grid">${noteCards}</div>
+      <div class="note-grid"></div>
+      <div class="table-pagination" data-notes-pagination></div>
     </div>
   `;
+
+  const pageSize = 10;
+  let currentPage = 1;
+  const noteGrid = sectionContent.querySelector(".note-grid");
+  const paginationSlot = sectionContent.querySelector("[data-notes-pagination]");
+
+  const renderNotesPagination = (totalPages, page) => {
+    if (!paginationSlot) return;
+    if (totalPages <= 1) {
+      paginationSlot.innerHTML = "";
+      return;
+    }
+    paginationSlot.innerHTML = `
+      <button class="btn ghost small" data-note-page="prev" ${page === 1 ? "disabled" : ""}>Prev</button>
+      <span class="page-indicator">Page ${page} of ${totalPages}</span>
+      <button class="btn ghost small" data-note-page="next" ${page === totalPages ? "disabled" : ""}>Next</button>
+    `;
+  };
+
+  const renderNotesPage = () => {
+    if (!noteGrid) return;
+    if (!rows.length) {
+      noteGrid.innerHTML = `<div class="empty">No notes yet.</div>`;
+      renderNotesPagination(0, 0);
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (currentPage > totalPages) currentPage = totalPages;
+    const start = (currentPage - 1) * pageSize;
+    const pageRows = rows.slice(start, start + pageSize);
+    noteGrid.innerHTML = pageRows
+      .map(
+        (note, idx) => `
+          <div class="note-card">
+            <div class="note-title">${note[0]}</div>
+            <div class="note-meta">${note[3]} - ${note[1]}</div>
+            <div class="stat-label">Related: ${note[2]}</div>
+            <div class="note-actions">
+              <button class="btn ghost" data-action="preview" data-entity="notes" data-row-index="${idx + start}">Preview</button>
+              <button class="btn ghost" data-action="edit" data-entity="notes" data-row-index="${idx + start}">Edit</button>
+              <button class="btn danger ghost" data-action="delete" data-entity="notes" data-row-index="${idx + start}">Delete</button>
+            </div>
+          </div>
+        `
+      )
+      .join("");
+    renderNotesPagination(totalPages, currentPage);
+  };
+
+  paginationSlot?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const action = target.dataset.notePage;
+    if (!action) return;
+    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (action === "prev" && currentPage > 1) currentPage -= 1;
+    if (action === "next" && currentPage < totalPages) currentPage += 1;
+    renderNotesPage();
+  });
+
+  renderNotesPage();
 }
 
 async function renderTags() {
@@ -3501,7 +3828,7 @@ function refreshBankChargeSelects(root = document) {
   selects.forEach((sel) => populateBankChargeSelect(sel));
 }
 
-function renderTable(columns, rows, tableKey = "", includeActions = true) {
+function renderTable(columns, rows, tableKey = "", includeActions = true, rowIndexOffset = 0) {
   if (!rows.length) {
     return `<div class="empty">No records yet. Connect D1 to start storing data.</div>`;
   }
@@ -3511,7 +3838,7 @@ function renderTable(columns, rows, tableKey = "", includeActions = true) {
   const body = rows
     .map(
       (row, idx) => {
-        return `<tr data-row-index="${idx}">${row.map((cell) => `<td>${cell}</td>`).join("")}${
+        return `<tr data-row-index="${idx + rowIndexOffset}">${row.map((cell) => `<td>${cell}</td>`).join("")}${
           includeActions
             ? `<td class="actions-col"><button class="btn ghost" data-action="preview">Preview</button><button class="btn ghost" data-action="edit">Edit</button><button class="btn danger ghost" data-action="delete">Delete</button></td>`
             : ""
@@ -3529,8 +3856,74 @@ function renderTable(columns, rows, tableKey = "", includeActions = true) {
   `;
 }
 
+const paginationState = new Map();
+
+function renderPaginatedTable(columns, rows, tableKey = "", includeActions = true, pageSize = 10) {
+  if (!rows.length) {
+    return renderTable(columns, rows, tableKey, includeActions);
+  }
+  const state = {
+    columns,
+    rows,
+    tableKey,
+    includeActions,
+    pageSize,
+    currentPage: 1
+  };
+  paginationState.set(tableKey, state);
+  return buildPaginatedTableMarkup(state);
+}
+
+function renderPaginationControls(totalPages, currentPage) {
+  if (totalPages <= 1) return "";
+  return `
+    <div class="table-pagination">
+      <button class="btn ghost small" data-page="prev" ${currentPage === 1 ? "disabled" : ""}>Prev</button>
+      <span class="page-indicator">Page ${currentPage} of ${totalPages}</span>
+      <button class="btn ghost small" data-page="next" ${currentPage === totalPages ? "disabled" : ""}>Next</button>
+    </div>
+  `;
+}
+
+function buildPaginatedTableInner(state) {
+  const totalPages = Math.max(1, Math.ceil(state.rows.length / state.pageSize));
+  const page = Math.min(state.currentPage, totalPages);
+  const start = (page - 1) * state.pageSize;
+  const pageRows = state.rows.slice(start, start + state.pageSize);
+  const tableHtml = renderTable(state.columns, pageRows, state.tableKey, state.includeActions, start);
+  return `${tableHtml}${renderPaginationControls(totalPages, page)}`;
+}
+
+function buildPaginatedTableMarkup(state) {
+  return `
+    <div class="paginated-table" data-pagination-table="${state.tableKey}">
+      ${buildPaginatedTableInner(state)}
+    </div>
+  `;
+}
+
+async function hydrateRelatedCompany(record) {
+  if (!record) return record;
+  if (record.company_name) return record;
+  const relatedType = record.related_type || record.entity_type;
+  const relatedId = record.related_id ?? record.entity_id;
+  if (relatedType !== "company" || !relatedId) return record;
+  let companies = Array.isArray(tableRecords.companies) ? tableRecords.companies : null;
+  if (!companies || !companies.length) {
+    companies = await fetchCompaniesList();
+  }
+  const match = (companies || []).find((company) => String(company.id) === String(relatedId));
+  if (match?.name) {
+    record.company_name = match.name;
+  }
+  return record;
+}
+
 async function openPreviewModal(tableKey, record) {
   await ensureLookupTablesReady();
+  if (tableKey === "tasks" || tableKey === "notes") {
+    record = await hydrateRelatedCompany(record);
+  }
   if (tableKey === "invoices") {
     record = await hydrateInvoiceAttachment(record);
   }
@@ -4031,7 +4424,22 @@ function renderRecordPreview(tableKey, record) {
       title = record.title || `Task #${record.id}`;
       subtitle = record.assignee ? `Assignee: ${record.assignee}` : "";
       if (record.related_type && record.related_id) {
-        relatedInfo = `Related: ${record.related_type} #${record.related_id}`;
+        if (record.related_type === "company" && record.company_name) {
+          relatedInfo = `Company: ${record.company_name}`;
+        } else {
+          relatedInfo = `Related: ${record.related_type} #${record.related_id}`;
+        }
+      }
+      break;
+    case "notes":
+      title = record.body || `Note #${record.id}`;
+      subtitle = record.author ? `Author: ${record.author}` : "";
+      if (record.entity_type && record.entity_id) {
+        if (record.entity_type === "company" && record.company_name) {
+          relatedInfo = `Company: ${record.company_name}`;
+        } else {
+          relatedInfo = `Related: ${record.entity_type} #${record.entity_id}`;
+        }
       }
       break;
     case "sample_shipments":
@@ -5090,7 +5498,16 @@ function formatPreviewValue(val, key, record) {
   
   // Handle related entity display
   if (key === "related_id" && record.related_type && val) {
+    if (record.related_type === "company" && record.company_name) {
+      return record.company_name;
+    }
     return `${record.related_type.charAt(0).toUpperCase() + record.related_type.slice(1)} #${val}`;
+  }
+  if (key === "entity_id" && record.entity_type && val) {
+    if (record.entity_type === "company" && record.company_name) {
+      return record.company_name;
+    }
+    return `${record.entity_type.charAt(0).toUpperCase() + record.entity_type.slice(1)} #${val}`;
   }
   
   return String(val);
@@ -5137,6 +5554,8 @@ function formatPreviewLabel(key, record) {
     due_date: "Due Date",
     related_type: "Related Type",
     related_id: "Related ID",
+    entity_type: "Related Type",
+    entity_id: "Related ID",
     
     // Logistics
     waybill_number: "Waybill Number",
@@ -5149,6 +5568,13 @@ function formatPreviewLabel(key, record) {
     created_at: "Created",
     updated_at: "Last Updated"
   };
+
+  if (key === "related_id" && record.related_type === "company") {
+    return "Company";
+  }
+  if (key === "entity_id" && record.entity_type === "company") {
+    return "Company";
+  }
   
   return labelMap[key] || capitalize(key.replace(/_/g, " "));
 }
@@ -5201,6 +5627,23 @@ function attachFormHandlers() {
     btn.onclick = () => openForm(btn.dataset.form);
   });
 }
+
+sectionContent.addEventListener("click", (e) => {
+  const pageBtn = e.target.closest("[data-page]");
+  if (!pageBtn) return;
+  const wrapper = pageBtn.closest("[data-pagination-table]");
+  const tableKey = wrapper?.dataset.paginationTable || "";
+  const state = paginationState.get(tableKey);
+  if (!state || !wrapper) return;
+  const totalPages = Math.max(1, Math.ceil(state.rows.length / state.pageSize));
+  if (pageBtn.dataset.page === "prev" && state.currentPage > 1) {
+    state.currentPage -= 1;
+  }
+  if (pageBtn.dataset.page === "next" && state.currentPage < totalPages) {
+    state.currentPage += 1;
+  }
+  wrapper.innerHTML = buildPaginatedTableInner(state);
+});
 
 sectionContent.addEventListener("click", (e) => {
   const actionBtn = e.target.closest("[data-action]");
