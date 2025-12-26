@@ -247,10 +247,9 @@ function tryLoginFromQuery() {
 tryLoginFromQuery();
 
 function applyRoleRestrictions() {
-  const isSales = currentRole === salesRole;
-  document.body?.classList.toggle("salesperson-mode", isSales);
+  document.body?.classList.remove("salesperson-mode");
   if (salesWorkspace) {
-    salesWorkspace.classList.toggle("hidden", !isSales);
+    salesWorkspace.classList.add("hidden");
   }
 }
 
