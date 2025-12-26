@@ -2683,14 +2683,17 @@ function renderSettings() {
         return;
       }
       if (newEmail && newEmail !== normalizedEmail) {
-        const response = await apiFetch("/api/account/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: newEmail })
-        });
-        if (!response.ok) {
-          showToast("Unable to update email");
-          return;
+        try {
+          const response = await apiFetch("/api/account/update", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: newEmail })
+          });
+          if (!response.ok) {
+            console.warn("Demo email sync failed", response.status);
+          }
+        } catch (error) {
+          console.warn("Demo email sync failed", error);
         }
       }
       const updated = {
