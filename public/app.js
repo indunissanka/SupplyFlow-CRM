@@ -9,6 +9,7 @@ const authEmailKey = "crm:email";
 const userStoreKey = "crm:users";
 const demoPasswordKey = "crm:demo-password";
 const demoEmailKey = "crm:demo-email";
+const demoDisabledKey = "crm:demo-disabled";
 const adminRole = "Admin";
 const salesRole = "Salesperson";
 const demoCredentials = {
@@ -191,23 +192,25 @@ if (loginForm) {
       return;
     }
 
-    const { demoEmail, demoPassword } = getDemoCredentials();
-    const matchesStoredDemo = normalizedEmail === normalizeEmail(demoEmail) && password === demoPassword;
-    const matchesDefaultDemo =
-      normalizedEmail === normalizeEmail(demoCredentials.email) && password === demoCredentials.password;
-    if (matchesStoredDemo || matchesDefaultDemo) {
-      currentRole = selectedRole;
-      currentUserEmail = normalizedEmail;
-      safeLocalStorageSet(authEmailKey, currentUserEmail);
-      safeLocalStorageSet(authRoleKey, currentRole);
-      safeLocalStorageSet(authTokenKey, "true");
-      showAppShell();
-      setActiveNav("dashboard");
-      renderSection("dashboard");
-      if (loginError) {
-        loginError.textContent = "";
+    if (safeLocalStorageGet(demoDisabledKey) !== "true") {
+      const { demoEmail, demoPassword } = getDemoCredentials();
+      const matchesStoredDemo = normalizedEmail === normalizeEmail(demoEmail) && password === demoPassword;
+      const matchesDefaultDemo =
+        normalizedEmail === normalizeEmail(demoCredentials.email) && password === demoCredentials.password;
+      if (matchesStoredDemo || matchesDefaultDemo) {
+        currentRole = selectedRole;
+        currentUserEmail = normalizedEmail;
+        safeLocalStorageSet(authEmailKey, currentUserEmail);
+        safeLocalStorageSet(authRoleKey, currentRole);
+        safeLocalStorageSet(authTokenKey, "true");
+        showAppShell();
+        setActiveNav("dashboard");
+        renderSection("dashboard");
+        if (loginError) {
+          loginError.textContent = "";
+        }
+        return;
       }
-      return;
     }
 
     if (loginError) {
@@ -2714,6 +2717,8 @@ function renderSettings() {
         showToast("Current password is incorrect");
         return;
       }
+      const finalEmail = newEmail && newEmail !== normalizedEmail ? newEmail : normalizedEmail;
+      const finalPassword = wantsPassword ? next : demoPassword;
       if (newEmail && newEmail !== normalizedEmail) {
         const response = await apiFetch("/api/account/update", {
           method: "POST",
@@ -2724,14 +2729,29 @@ function renderSettings() {
           showToast("Unable to update email");
           return;
         }
-        window.localStorage.setItem(demoEmailKey, newEmail);
-        currentUserEmail = newEmail;
-        window.localStorage.setItem(authEmailKey, currentUserEmail);
-        if (userDisplay) userDisplay.textContent = currentUserEmail;
       }
-      if (wantsPassword) {
-        window.localStorage.setItem(demoPasswordKey, next);
-      }
+      const accessList = accessOptions.map((option) => option.id);
+      const adminUser = {
+        name: "Admin",
+        email: finalEmail,
+        role: adminRole,
+        access: formatAccessText(accessList),
+        accessList,
+        password: finalPassword,
+        enabled: true
+      };
+      privilegedUsers = [adminUser, ...privilegedUsers];
+      persistUserAccounts(privilegedUsers);
+      renderPrivilegeList(document.querySelector(".privilege-panel .privilege-list"));
+      currentRole = adminRole;
+      currentUserEmail = finalEmail;
+      safeLocalStorageSet(authEmailKey, currentUserEmail);
+      safeLocalStorageSet(authRoleKey, currentRole);
+      safeLocalStorageRemove(demoEmailKey);
+      safeLocalStorageRemove(demoPasswordKey);
+      safeLocalStorageSet(demoDisabledKey, "true");
+      applyRoleRestrictions();
+      if (userDisplay) userDisplay.textContent = currentUserEmail;
       showToast("Account updated");
       passwordForm.reset();
       return;
