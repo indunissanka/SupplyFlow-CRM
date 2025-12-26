@@ -6,6 +6,7 @@ window.addEventListener('error', (event) => {
 const authTokenKey = "crm:authenticated";
 const authRoleKey = "crm:role";
 const authEmailKey = "crm:email";
+const authAccessKey = "crm:access";
 const userStoreKey = "crm:users";
 const demoPasswordKey = "crm:demo-password";
 const demoEmailKey = "crm:demo-email";
@@ -49,6 +50,7 @@ accessOptions.forEach((option) => {
 
 let currentRole = adminRole;
 let currentUserEmail = "";
+let currentAccessList = [];
 let salesContentItems = [];
 
 const loginScreen = document.querySelector(".login-screen");
@@ -84,6 +86,25 @@ function safeLocalStorageRemove(key) {
     window.localStorage.removeItem(key);
   } catch (error) {
     console.warn("Unable to remove from localStorage", key, error);
+  }
+}
+
+function safeLocalStorageJsonGet(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn("Unable to parse localStorage JSON", key, error);
+    return null;
+  }
+}
+
+function safeLocalStorageJsonSet(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn("Unable to write JSON to localStorage", key, error);
   }
 }
 
@@ -124,8 +145,10 @@ function handleLogout() {
   safeLocalStorageRemove(authTokenKey);
   safeLocalStorageRemove(authRoleKey);
   safeLocalStorageRemove(authEmailKey);
+  safeLocalStorageRemove(authAccessKey);
   currentRole = adminRole;
   currentUserEmail = "";
+  currentAccessList = [];
   showLoginScreen();
   loginForm?.reset();
   if (loginError) {
@@ -136,8 +159,10 @@ function handleLogout() {
 function initAuthentication() {
   const storedRole = safeLocalStorageGet(authRoleKey);
   const storedEmail = safeLocalStorageGet(authEmailKey);
+  const storedAccess = safeLocalStorageJsonGet(authAccessKey);
   currentRole = storedRole || adminRole;
   currentUserEmail = storedEmail || "";
+  currentAccessList = Array.isArray(storedAccess) ? storedAccess : [];
   salesContentItems = loadSalesContentState();
   if (safeLocalStorageGet(authTokenKey) === "true") {
     if (!currentUserEmail) {
@@ -194,8 +219,10 @@ if (loginForm) {
       const user = normalizeUserRecord(data.user || { email: normalizedEmail, role: adminRole });
       currentRole = user.role || adminRole;
       currentUserEmail = user.email || normalizedEmail;
+      currentAccessList = Array.isArray(user.accessList) ? user.accessList : [];
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
+      safeLocalStorageJsonSet(authAccessKey, currentAccessList);
       safeLocalStorageSet(authTokenKey, "true");
       showAppShell();
       setActiveNav("dashboard");
@@ -244,6 +271,7 @@ function applyRoleRestrictions() {
   if (salesWorkspace) {
     salesWorkspace.classList.add("hidden");
   }
+  applyAccessRestrictions();
 }
 
 let navItems = Array.from(document.querySelectorAll(".nav-item"));
@@ -533,6 +561,34 @@ function normalizeUserRecord(user) {
     access: accessText,
     enabled: user.enabled !== false
   };
+}
+
+function getAllowedAccessList() {
+  if (currentRole === adminRole) {
+    return accessOptions.map((option) => option.id);
+  }
+  return Array.isArray(currentAccessList) ? currentAccessList : [];
+}
+
+function canAccessSection(section) {
+  if (!section || section === "dashboard") return true;
+  const allowed = getAllowedAccessList();
+  return allowed.includes(section);
+}
+
+function applyAccessRestrictions() {
+  const allowed = new Set(getAllowedAccessList());
+  navItems.forEach((item) => {
+    const section = item.dataset.section;
+    if (!section || section === "dashboard") return;
+    const canAccess = allowed.has(section);
+    item.classList.toggle("hidden", !canAccess);
+    if (!canAccess) {
+      item.setAttribute("aria-disabled", "true");
+    } else {
+      item.removeAttribute("aria-disabled");
+    }
+  });
 }
 
 function loadUserAccounts() {
@@ -1254,10 +1310,15 @@ function initNavigation() {
   // Re-query nav items after DOM is ready
   navItems = Array.from(document.querySelectorAll(".nav-item"));
   console.log('navItems count after init:', navItems.length);
+  applyAccessRestrictions();
   navItems.forEach((item) => {
     item.addEventListener("click", () => {
       console.log('Nav item clicked', item.dataset.section);
       const section = item.dataset.section;
+      if (!canAccessSection(section)) {
+        showToast("Access restricted. Ask an admin for access.");
+        return;
+      }
       setActiveNav(section);
       renderSection(section);
     });
@@ -1283,6 +1344,16 @@ async function renderSection(section) {
   const renderer = sectionRenderers[section];
   if (!renderer) {
     sectionContent.innerHTML = `<div class="panel"><div class="empty">No view configured yet.</div></div>`;
+    lucide?.createIcons();
+    return;
+  }
+
+  if (!canAccessSection(section)) {
+    sectionContent.innerHTML = `
+      <div class="panel">
+        <div class="empty">Access restricted. Contact an admin to enable this section.</div>
+      </div>
+    `;
     lucide?.createIcons();
     return;
   }
