@@ -568,7 +568,10 @@ function getAllowedAccessList() {
   if (currentRole === adminRole) {
     return accessOptions.map((option) => option.id);
   }
-  return Array.isArray(currentAccessList) ? currentAccessList : [];
+  if (!Array.isArray(currentAccessList) || currentAccessList.length === 0) {
+    return accessOptions.map((option) => option.id);
+  }
+  return currentAccessList;
 }
 
 function canAccessSection(section) {
