@@ -900,9 +900,8 @@ app.post("/api/auth/login", async (c) => {
 
 app.get("/api/auth/users", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const requester = await requireUser(c.env.DB, ownerEmail);
-  if (!requester) {
-    return c.json({ error: "Unauthorized" }, 401);
+  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+    return c.json({ error: "Admin access required" }, 403);
   }
   const { results } = await c.env.DB.prepare(
     "SELECT id, email, name, role, access, access_list, enabled FROM users ORDER BY role = 'Admin' DESC, name, email"

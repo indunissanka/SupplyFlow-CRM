@@ -2953,11 +2953,15 @@ async function renderTags() {
 
 async function renderSettings() {
   const canManageUsers = currentRole === adminRole;
-  try {
-    privilegedUsers = await fetchUsersFromApi();
-  } catch (error) {
+  if (canManageUsers) {
+    try {
+      privilegedUsers = await fetchUsersFromApi();
+    } catch (error) {
+      privilegedUsers = [];
+      showToast(error instanceof Error ? error.message : "Unable to load users");
+    }
+  } else {
     privilegedUsers = [];
-    showToast(error instanceof Error ? error.message : "Unable to load users");
   }
   sectionTitle.textContent = "Settings";
   sectionContent.innerHTML = `
@@ -3004,9 +3008,9 @@ async function renderSettings() {
       <div class="tabs-container">
         <div class="tabs">
           <button class="tab active" data-tab="site-config">Site configuration</button>
-          <button class="tab${canManageUsers ? "" : " disabled"}" data-tab="add-user" data-disabled="${canManageUsers ? "false" : "true"}">Add user</button>
+          ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
-          <button class="tab" data-tab="users-privilege">Users with privilege</button>
+          ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
@@ -3070,11 +3074,12 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
         <div class="tab-content" id="add-user">
           <div class="panel add-user-panel">
             <div class="panel-header">
               <h3 class="panel-title">Add user</h3>
-              <div class="stat-label">${canManageUsers ? "Grant access and keep the roster up to date." : "Only admins can add new users."}</div>
+              <div class="stat-label">Grant access and keep the roster up to date.</div>
             </div>
             <form id="add-user-form" class="form-grid">
               <label>
@@ -3120,6 +3125,7 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ` : ""}
         <div class="tab-content" id="change-password">
           <div class="panel password-panel">
             <div class="panel-header">
@@ -3155,6 +3161,7 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
         <div class="tab-content" id="users-privilege">
           <div class="panel privilege-panel">
             <div class="panel-header">
@@ -3166,6 +3173,7 @@ async function renderSettings() {
             </div>
           </div>
         </div>
+        ` : ""}
       </div>
     </div>
   `;
@@ -3175,10 +3183,6 @@ async function renderSettings() {
   const tabContents = document.querySelectorAll(".tab-content");
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
-      if (tab.dataset.disabled === "true") {
-        showToast("Only admins can add users");
-        return;
-      }
       const tabId = tab.dataset.tab;
       tabs.forEach((t) => t.classList.remove("active"));
       tab.classList.add("active");
