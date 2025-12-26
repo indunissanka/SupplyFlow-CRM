@@ -296,9 +296,27 @@ const timezoneOptions = [
   { value: "Pacific/Auckland", label: "Auckland · Pacific/Auckland (NZST)" }
 ];
 
+function deriveSiteNameFromDom() {
+  if (typeof window === "undefined") return "";
+  const brandTitle = document.querySelector(".brand-title");
+  if (brandTitle?.textContent?.trim()) {
+    return brandTitle.textContent.trim();
+  }
+  const loginTitle = document.querySelector(".login-title");
+  if (loginTitle?.textContent) {
+    const cleaned = loginTitle.textContent.replace(/\s*Workspace\s*$/i, "").trim();
+    if (cleaned) return cleaned;
+  }
+  const titleEl = document.querySelector("title");
+  if (titleEl?.textContent?.trim()) {
+    return titleEl.textContent.trim();
+  }
+  return "";
+}
+
 const defaultSiteConfig = {
   activeTheme: "Professional",
-  siteName: "Sales Aid",
+  siteName: deriveSiteNameFromDom() || "Sales Aid",
   baseCompany: "",
   region: "Taipei (CST)",
   timezone: "Asia/Taipei",
@@ -341,6 +359,12 @@ function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
   if (brandTitle) {
     brandTitle.textContent = siteConfigState.siteName;
+  }
+  const loginTitle = document.querySelector(".login-title");
+  if (loginTitle) {
+    loginTitle.textContent = siteConfigState.siteName
+      ? `${siteConfigState.siteName} Workspace`
+      : "Workspace";
   }
   const chip = document.querySelector(".topbar .chip");
   if (chip) {
