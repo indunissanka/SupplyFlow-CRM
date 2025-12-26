@@ -586,6 +586,7 @@ function renderPrivilegeItem(user) {
   const safeEmail = user.email ? escapeHtml(user.email) : "";
   const emailAttr = safeEmail ? ` data-email="${safeEmail}"` : "";
   const canEdit = currentRole === adminRole;
+  const canRemove = user.role !== adminRole;
   const accessList = Array.isArray(user.accessList) ? user.accessList : parseAccessList(user.access || "");
   const accessText = formatAccessText(accessList);
   const enabled = user.enabled !== false;
@@ -617,7 +618,7 @@ function renderPrivilegeItem(user) {
         ${canEdit ? `<button type="button" class="toggle-pill ${statusClass}" data-action="toggle-user">${enabled ? "On" : "Off"}</button>` : `<span class="privilege-status ${statusClass}">${enabled ? "On" : "Off"}</span>`}
         ${canEdit ? `<button type="button" class="btn ghost small" data-action="edit-user">Edit</button>` : ""}
         <button type="button" class="btn ghost small" data-action="reset-user">Reset password</button>
-        <button type="button" class="btn ghost" data-action="remove-user">Remove</button>
+        ${canEdit && canRemove ? `<button type="button" class="btn ghost" data-action="remove-user">Remove</button>` : ""}
       </div>
     </div>
   `;
