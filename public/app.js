@@ -4458,11 +4458,10 @@ async function hydrateSampleTracking(overlay, record) {
   try {
     const data = await fetchShippoTracking(waybill, record?.courier);
     const rawStatusDetail = typeof data?.status_detail === "string" ? data.status_detail.trim() : "";
-    const statusLabel = rawStatusDetail || formatTrackingStatus(data?.status);
+    const statusLabel = formatTrackingStatus(data?.status);
     const tone = statusToneShipping(statusLabel);
     const carrier = data?.carrier || record?.courier || "";
     const updatedAt = data?.updated_at ? new Date(data.updated_at).toLocaleString() : "--";
-    const statusDetail = rawStatusDetail;
     const estDelivery = data?.est_delivery_date ? new Date(data.est_delivery_date).toLocaleDateString() : "";
 
     if (statusBadge) {
@@ -4479,9 +4478,6 @@ async function hydrateSampleTracking(overlay, record) {
       ["Status", statusLabel],
       ["Updated", updatedAt]
     ];
-    if (statusDetail && statusDetail.toLowerCase() !== statusLabel.toLowerCase()) {
-      summaryRows.splice(3, 0, ["Status Detail", statusDetail]);
-    }
     if (estDelivery) {
       summaryRows.push(["Est. Delivery", estDelivery]);
     }
@@ -4522,7 +4518,7 @@ async function hydrateSampleTracking(overlay, record) {
 
     record.tracking_status = statusLabel;
     record.tracking_carrier = carrier;
-    record.tracking_status_detail = statusDetail;
+    record.tracking_status_detail = rawStatusDetail;
     record.tracking_updated_at = data?.updated_at || null;
     record.tracking_details = events;
 
