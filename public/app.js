@@ -5726,8 +5726,6 @@ async function renderPdfPreview(container, pdfjs) {
         link.href = url;
       }
     }
-  } else if (tableKey === "sample_shipments") {
-    hydrateSampleTracking(overlay, record);
   }
 }
 
