@@ -110,7 +110,6 @@ const updatableFields: Record<string, string[]> = {
     "receiving_address",
     "phone",
     "quantity",
-    "tracking_number",
     "waybill_number",
     "courier",
     "status",
@@ -264,7 +263,6 @@ const tableColumns: Record<string, string[]> = {
     "receiving_address",
     "phone",
     "quantity",
-    "tracking_number",
     "waybill_number",
     "courier",
     "status",
@@ -676,7 +674,6 @@ const schemaStatements = [
     receiving_address TEXT,
     phone TEXT,
     quantity REAL DEFAULT 0,
-    tracking_number TEXT,
     waybill_number TEXT,
     courier TEXT,
     status TEXT DEFAULT 'Preparing',
@@ -1950,7 +1947,6 @@ app.post("/api/sample_shipments", async (c) => {
     receiving_address?: string;
     phone?: string;
     quantity?: number;
-    tracking_number?: string;
     waybill_number?: string;
     courier?: string;
     status?: string;
@@ -1959,8 +1955,8 @@ app.post("/api/sample_shipments", async (c) => {
 
   const result = await c.env.DB
     .prepare(
-      `INSERT INTO sample_shipments (company_id, product_id, document_id, receiving_address, phone, quantity, tracking_number, waybill_number, courier, status, notes, owner_email)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO sample_shipments (company_id, product_id, document_id, receiving_address, phone, quantity, waybill_number, courier, status, notes, owner_email)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       body.company_id ?? null,
@@ -1969,7 +1965,6 @@ app.post("/api/sample_shipments", async (c) => {
       body.receiving_address ?? null,
       body.phone ?? null,
       body.quantity ?? 0,
-      body.tracking_number ?? null,
       body.waybill_number ?? null,
       body.courier ?? null,
       body.status ?? "Preparing",
@@ -2367,7 +2362,6 @@ async function ensureSchema(db: D1Database) {
   const sampleNames = new Set(sampleColumns.results?.map((c) => c.name));
   if (sampleNames.size) {
     if (!sampleNames.has("document_id")) await db.prepare("ALTER TABLE sample_shipments ADD COLUMN document_id INTEGER").run();
-    if (!sampleNames.has("tracking_number")) await db.prepare("ALTER TABLE sample_shipments ADD COLUMN tracking_number TEXT").run();
   }
 
   const docColumns = await db.prepare("PRAGMA table_info(documents)").all<{ name: string }>();
