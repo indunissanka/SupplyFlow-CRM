@@ -2655,20 +2655,28 @@ async function renderShipping() {
   `;
 }
 
+function resolveSampleStatusLabel(record) {
+  if (!record) return "Preparing";
+  return record.tracking_status || record.status || "Preparing";
+}
+
 async function renderSampleShipments() {
   sectionTitle.textContent = "Samples";
   const rows = await loadTableFromApi(
     "sample_shipments",
-    (r) => [
-      r.company_name || "Unknown Company",
-      r.receiving_address || "-",
-      r.phone || "-",
-      r.product_name || "Unknown Product",
-      r.quantity ?? "-",
-      r.waybill_number || "-",
-      r.courier || "-",
-      badge(statusToneFront(r.status || ""), r.status || "Preparing")
-    ],
+    (r) => {
+      const statusLabel = resolveSampleStatusLabel(r);
+      return [
+        r.company_name || "Unknown Company",
+        r.receiving_address || "-",
+        r.phone || "-",
+        r.product_name || "Unknown Product",
+        r.quantity ?? "-",
+        r.waybill_number || "-",
+        r.courier || "-",
+        badge(statusToneShipping(statusLabel), statusLabel)
+      ];
+    },
     fallback.sample_shipments
   );
 
@@ -3755,6 +3763,24 @@ async function fetchDocumentById(id) {
   return docs.find((d) => d.id == id) || null;
 }
 
+async function fetchShippoTracking(waybill, courier) {
+  const code = (waybill || "").toString().trim();
+  if (!code) {
+    throw new Error("Missing waybill number");
+  }
+  const params = new URLSearchParams({ waybill: code });
+  const carrier = (courier || "").toString().trim();
+  if (carrier) {
+    params.set("courier", carrier);
+  }
+  const res = await apiFetch(`/api/tracking/shippo?${params.toString()}`);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "Tracking lookup failed");
+  }
+  return res.json();
+}
+
 
 
 async function fetchRecords(table, fallbackRows) {
@@ -4377,6 +4403,151 @@ async function openPreviewModal(tableKey, record) {
   }
 }
 
+function updateSampleStatusCell(record, statusLabel) {
+  if (!record || !statusLabel) return;
+  const rows = Array.isArray(tableRecords.sample_shipments) ? tableRecords.sample_shipments : [];
+  const rowIndex = rows.findIndex((row) => row && (row.id === record.id));
+  if (rowIndex < 0) return;
+  const state = paginationState.get("sample_shipments");
+  const columns = state?.columns || [];
+  const statusIndex = columns.indexOf("Status");
+  if (state?.rows?.[rowIndex] && statusIndex !== -1) {
+    state.rows[rowIndex][statusIndex] = badge(statusToneShipping(statusLabel), statusLabel);
+  }
+  const table = document.querySelector('table[data-table="sample_shipments"]');
+  const row = table?.querySelector(`tr[data-row-index="${rowIndex}"]`);
+  if (!row) return;
+  const cells = row.querySelectorAll("td");
+  const target = cells[statusIndex !== -1 ? statusIndex : cells.length - 1];
+  if (!target) return;
+  target.innerHTML = badge(statusToneShipping(statusLabel), statusLabel);
+}
+
+async function hydrateSampleTracking(overlay, record) {
+  const waybill = record?.waybill_number?.toString().trim();
+  if (!waybill) return;
+  const statusBadge = overlay.querySelector("[data-tracking-status]");
+  const carrierLabel = overlay.querySelector("[data-tracking-carrier]");
+  const summarySlot = overlay.querySelector("[data-tracking-summary]");
+  const eventsSlot = overlay.querySelector("[data-tracking-events]");
+
+  if (statusBadge) {
+    statusBadge.textContent = "Checking...";
+    statusBadge.className = "badge info";
+  }
+  if (summarySlot) {
+    summarySlot.innerHTML = `
+      <div class="preview-row">
+        <div class="preview-label">Waybill</div>
+        <div class="preview-value">${sanitizeText(waybill)}</div>
+      </div>
+      <div class="preview-row">
+        <div class="preview-label">Status</div>
+        <div class="preview-value"><span class="stat-label">Loading...</span></div>
+      </div>
+      <div class="preview-row">
+        <div class="preview-label">Updated</div>
+        <div class="preview-value">--</div>
+      </div>
+    `;
+  }
+  if (eventsSlot) {
+    eventsSlot.innerHTML = `<div class="stat-label">Fetching tracking updates from Shippo...</div>`;
+  }
+
+  try {
+    const data = await fetchShippoTracking(waybill, record?.courier);
+    const statusLabel = formatTrackingStatus(data?.status);
+    const tone = statusToneShipping(statusLabel);
+    const carrier = data?.carrier || record?.courier || "";
+    const updatedAt = data?.updated_at ? new Date(data.updated_at).toLocaleString() : "--";
+    const statusDetail = data?.status_detail || "";
+    const estDelivery = data?.est_delivery_date ? new Date(data.est_delivery_date).toLocaleDateString() : "";
+
+    if (statusBadge) {
+      statusBadge.textContent = statusLabel;
+      statusBadge.className = `badge ${tone}`;
+    }
+    if (carrierLabel) {
+      carrierLabel.textContent = carrier ? sanitizeText(carrier) : "";
+    }
+
+    const summaryRows = [
+      ["Waybill", waybill],
+      ["Carrier", carrier || "-"],
+      ["Status", statusLabel],
+      ["Status Detail", statusDetail || "-"],
+      ["Updated", updatedAt]
+    ];
+    if (estDelivery) {
+      summaryRows.push(["Est. Delivery", estDelivery]);
+    }
+    if (summarySlot) {
+      summarySlot.innerHTML = summaryRows
+        .map(
+          ([label, value]) => `
+            <div class="preview-row">
+              <div class="preview-label">${sanitizeText(label)}</div>
+              <div class="preview-value">${sanitizeText(value)}</div>
+            </div>
+          `
+        )
+        .join("");
+    }
+
+    const events = Array.isArray(data?.tracking_details) ? data.tracking_details : [];
+    if (eventsSlot) {
+      eventsSlot.innerHTML = events.length
+        ? events
+            .map((event) => {
+              const timestamp = event?.datetime ? new Date(event.datetime).toLocaleString() : "Unknown time";
+              const eventStatus = formatTrackingStatus(event?.status);
+              const message = event?.message ? event.message : "";
+              const location = formatTrackingLocation(event?.tracking_location);
+              const detailParts = [eventStatus, message].filter(Boolean).join(" - ");
+              const locationMarkup = location ? `<div class="stat-label">${sanitizeText(location)}</div>` : "";
+              return `
+                <div class="preview-row">
+                  <div class="preview-label">${sanitizeText(timestamp)}</div>
+                  <div class="preview-value">${sanitizeText(detailParts) || "Update"}${locationMarkup}</div>
+                </div>
+              `;
+            })
+            .join("")
+        : `<div class="stat-label">No tracking scans yet.</div>`;
+    }
+
+    record.tracking_status = statusLabel;
+    record.tracking_carrier = carrier;
+    record.tracking_status_detail = statusDetail;
+    record.tracking_updated_at = data?.updated_at || null;
+    record.tracking_details = events;
+
+    updateSampleStatusCell(record, statusLabel);
+  } catch (err) {
+    console.error("Tracking lookup failed", err);
+    if (statusBadge) {
+      statusBadge.textContent = "Unavailable";
+      statusBadge.className = "badge warning";
+    }
+    if (summarySlot) {
+      summarySlot.innerHTML = `
+        <div class="preview-row">
+          <div class="preview-label">Waybill</div>
+          <div class="preview-value">${sanitizeText(waybill)}</div>
+        </div>
+        <div class="preview-row">
+          <div class="preview-label">Status</div>
+          <div class="preview-value">Unable to fetch tracking data.</div>
+        </div>
+      `;
+    }
+    if (eventsSlot) {
+      eventsSlot.innerHTML = `<div class="stat-label">Tracking details unavailable.</div>`;
+    }
+  }
+}
+
 function renderInvoicePreview(record) {
   const currency = record.currency || "USD";
   const tone = statusToneFront(record.status || "Unpaid");
@@ -4831,7 +5002,7 @@ function renderDocumentPreview(record) {
 function renderSampleShipmentPreview(record) {
   const title = record.waybill_number || `Sample #${record.id || ""}`;
   const subtitle = record.courier ? `Courier: ${record.courier}` : "";
-  const statusBadge = record.status ? `<span class="badge ${statusToneFront(record.status)}">${record.status}</span>` : "";
+  const statusBadge = record.status ? `<span class="badge ${statusToneShipping(record.status)}">${record.status}</span>` : "";
   const updatedMeta = record.updated_at ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>` : "";
 
   const companyLabel = record.company_name || (record.company_id ? `Company #${record.company_id}` : "Company");
@@ -4873,7 +5044,46 @@ function renderSampleShipmentPreview(record) {
       ? `<div class="preview-actions"><button class="btn ghost" type="button" data-sample-doc="${record.document_id}">Open Document</button></div>`
       : "";
 
-  return `
+  const trackingCard = record.waybill_number
+    ? `
+      <div class="preview-card" data-tracking-card>
+        <div class="preview-header">
+          <div class="preview-title-section">
+            <div class="preview-title">Live Tracking</div>
+            <div class="preview-meta">
+              <span class="badge info" data-tracking-status>Checking...</span>
+              <span class="stat-label" data-tracking-carrier></span>
+            </div>
+          </div>
+        </div>
+        <div class="preview-grid" data-tracking-summary>
+          <div class="preview-row">
+            <div class="preview-label">Waybill</div>
+            <div class="preview-value">${sanitizeText(record.waybill_number)}</div>
+          </div>
+          <div class="preview-row">
+            <div class="preview-label">Status Detail</div>
+            <div class="preview-value"><span class="stat-label">Fetching updates...</span></div>
+          </div>
+          <div class="preview-row">
+            <div class="preview-label">Updated</div>
+            <div class="preview-value">--</div>
+          </div>
+        </div>
+        <div class="preview-header">
+          <div class="preview-title-section">
+            <div class="preview-title">Tracking Events</div>
+            <div class="preview-subtitle">Latest scans from the carrier</div>
+          </div>
+        </div>
+        <div class="preview-grid" data-tracking-events>
+          <div class="stat-label">Fetching tracking updates from Shippo...</div>
+        </div>
+      </div>
+    `
+    : "";
+
+  const mainCard = `
     <div class="preview-card">
       <div class="preview-header">
         <div class="preview-title-section">
@@ -4892,6 +5102,8 @@ function renderSampleShipmentPreview(record) {
       </div>
     </div>
   `;
+
+  return trackingCard ? `<div class="preview-stack">${mainCard}${trackingCard}</div>` : mainCard;
 }
 
 function renderDocumentViewer(fileUrl, mime, title, record) {
@@ -5515,6 +5727,8 @@ async function renderPdfPreview(container, pdfjs) {
         link.href = url;
       }
     }
+  } else if (tableKey === "sample_shipments") {
+    hydrateSampleTracking(overlay, record);
   }
 }
 
@@ -5884,6 +6098,34 @@ function statusToneFront(status) {
   if (s.includes("paid") || s.includes("completed") || s.includes("active")) return "success";
   if (s.includes("overdue") || s.includes("pending") || s.includes("draft")) return "warning";
   return "info";
+}
+
+function statusToneShipping(status) {
+  const s = (status || "").toLowerCase();
+  if (s.includes("delivered")) return "success";
+  if (s.includes("dispatched") || s.includes("shipped") || s.includes("out for delivery") || s.includes("in transit")) {
+    return "info";
+  }
+  if (s.includes("pre transit") || s.includes("pending") || s.includes("label") || s.includes("failure") || s.includes("return")) {
+    return "warning";
+  }
+  return "info";
+}
+
+function formatTrackingStatus(value) {
+  const raw = (value || "").toString().trim();
+  if (!raw) return "Unknown";
+  return raw
+    .replace(/_/g, " ")
+    .split(" ")
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : ""))
+    .join(" ");
+}
+
+function formatTrackingLocation(location) {
+  if (!location) return "";
+  const parts = [location.city, location.state, location.zip, location.country].filter(Boolean);
+  return parts.join(", ");
 }
 
 function attachFormHandlers() {

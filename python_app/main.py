@@ -146,6 +146,25 @@ SHIPPING_STATUS_RANK = {
     "Delivered": 5,
 }
 
+SHIPPO_CARRIER_MAP: Dict[str, str] = {
+    "dhl": "dhl_express",
+    "dhl express": "dhl_express",
+    "dhl ecommerce": "dhl_ecommerce",
+    "fedex": "fedex",
+    "fedex express": "fedex",
+    "ups": "ups",
+    "sf express": "sf_express",
+    "aramex": "aramex",
+    "royal mail": "royal_mail",
+}
+
+
+def resolve_shippo_carrier(value: str) -> Optional[str]:
+    normalized = (value or "").strip().lower()
+    if not normalized:
+        return None
+    return SHIPPO_CARRIER_MAP.get(normalized) or normalized
+
 EXTRA_SCHEMA = [
     """
 CREATE TABLE IF NOT EXISTS sample_shipments (
@@ -467,6 +486,52 @@ async def api_dashboard(owner_email: str = Depends(require_owner_email), d1: D1C
     pipeline = await get_pipeline(d1, owner_email)
     activity = await get_activity(d1, owner_email)
     return {"stats": stats, "pipeline": pipeline, "activity": activity}
+
+
+@app.get("/api/tracking/shippo")
+async def api_tracking_shippo(
+    waybill: str,
+    courier: str = "",
+    owner_email: str = Depends(require_owner_email),
+) -> Dict[str, Any]:
+    api_key = os.getenv("SHIPPO_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=501, detail="Shippo API key not configured")
+    if not waybill:
+        raise HTTPException(status_code=400, detail="Missing waybill number")
+    carrier = resolve_shippo_carrier(courier)
+    if not carrier:
+        raise HTTPException(status_code=400, detail="Carrier required for tracking")
+
+    async with httpx.AsyncClient(timeout=20) as client:
+        resp = await client.post(
+            "https://api.goshippo.com/tracks/",
+            json={"carrier": carrier, "tracking_number": waybill},
+            headers={"Authorization": f"ShippoToken {api_key}"},
+        )
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=502, detail="Tracking lookup failed")
+    data = resp.json()
+    tracking_status = data.get("tracking_status") or {}
+    tracking_history = data.get("tracking_history") or []
+    tracking_details = [
+        {
+            "status": detail.get("status"),
+            "message": detail.get("status_details"),
+            "datetime": detail.get("status_date"),
+            "tracking_location": detail.get("location"),
+        }
+        for detail in tracking_history
+    ]
+    return {
+        "carrier": data.get("carrier") or carrier,
+        "tracking_code": data.get("tracking_number") or waybill,
+        "status": tracking_status.get("status"),
+        "status_detail": tracking_status.get("status_details"),
+        "updated_at": tracking_status.get("status_date"),
+        "est_delivery_date": data.get("eta"),
+        "tracking_details": tracking_details,
+    }
 
 
 @app.get("/api/{table}")

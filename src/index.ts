@@ -7,6 +7,7 @@ type Env = {
   FILES: R2Bucket;
   ASSETS: Fetcher;
   CACHE: KVNamespace;
+  SHIPPO_API_KEY?: string;
 };
 
 const allowedTables = [
@@ -543,6 +544,24 @@ const shippingStatusRank: Record<string, number> = {
   "Cut Off": 3,
   "Shipped": 4,
   "Delivered": 5
+};
+
+const shippoCarrierMap: Record<string, string> = {
+  dhl: "dhl_express",
+  "dhl express": "dhl_express",
+  "dhl ecommerce": "dhl_ecommerce",
+  fedex: "fedex",
+  "fedex express": "fedex",
+  ups: "ups",
+  "sf express": "sf_express",
+  aramex: "aramex",
+  "royal mail": "royal_mail"
+};
+
+const resolveShippoCarrier = (value?: string | null) => {
+  const normalized = (value || "").trim().toLowerCase();
+  if (!normalized) return null;
+  return shippoCarrierMap[normalized] || normalized;
 };
 
 const schemaStatements = [
@@ -1171,6 +1190,60 @@ app.get("/api/dashboard", async (c) => {
   const activity = await getActivity(c.env.DB, ownerEmail);
 
   return c.json({ stats, pipeline, activity });
+});
+
+app.get("/api/tracking/shippo", async (c) => {
+  const apiKey = c.env.SHIPPO_API_KEY;
+  if (!apiKey) {
+    return c.json({ error: "Shippo API key not configured" }, 501);
+  }
+  const waybill = (c.req.query("waybill") || "").trim();
+  if (!waybill) {
+    return c.json({ error: "Missing waybill number" }, 400);
+  }
+  const courier = (c.req.query("courier") || "").trim();
+  const carrier = resolveShippoCarrier(courier);
+  if (!carrier) {
+    return c.json({ error: "Carrier required for tracking" }, 400);
+  }
+
+  const res = await fetch("https://api.goshippo.com/tracks/", {
+    method: "POST",
+    headers: {
+      authorization: `ShippoToken ${apiKey}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      carrier,
+      tracking_number: waybill
+    })
+  });
+
+  if (!res.ok) {
+    const details = await res.text();
+    console.error("Shippo tracking failed", res.status, details);
+    return c.json({ error: "Tracking lookup failed" }, 502);
+  }
+
+  const data = await res.json<any>();
+  const trackingStatus = data?.tracking_status ?? {};
+  const trackingHistory = Array.isArray(data?.tracking_history) ? data.tracking_history : [];
+  const trackingDetails = trackingHistory.map((detail: any) => ({
+    status: detail?.status ?? null,
+    message: detail?.status_details ?? null,
+    datetime: detail?.status_date ?? null,
+    tracking_location: detail?.location ?? null
+  }));
+
+  return c.json({
+    carrier: data?.carrier ?? carrier,
+    tracking_code: data?.tracking_number ?? waybill,
+    status: trackingStatus?.status ?? null,
+    status_detail: trackingStatus?.status_details ?? null,
+    updated_at: trackingStatus?.status_date ?? null,
+    est_delivery_date: data?.eta ?? null,
+    tracking_details: trackingDetails
+  });
 });
 
 app.get("/api/:table", async (c) => {
