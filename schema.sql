@@ -203,6 +203,21 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS site_config (
+  owner_email TEXT PRIMARY KEY,
+  site_name TEXT,
+  base_company TEXT,
+  region TEXT,
+  timezone TEXT,
+  theme TEXT,
+  active_theme TEXT,
+  invoice_name TEXT,
+  invoice_address TEXT,
+  invoice_phone TEXT,
+  show_footer INTEGER DEFAULT 1,
+  updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS quotation_items (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   owner_email TEXT NOT NULL,

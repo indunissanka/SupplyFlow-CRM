@@ -6,6 +6,7 @@ window.addEventListener('error', (event) => {
 const authTokenKey = "crm:authenticated";
 const authRoleKey = "crm:role";
 const authEmailKey = "crm:email";
+const authAccessKey = "crm:access";
 const userStoreKey = "crm:users";
 const demoPasswordKey = "crm:demo-password";
 const demoEmailKey = "crm:demo-email";
@@ -49,7 +50,9 @@ accessOptions.forEach((option) => {
 
 let currentRole = adminRole;
 let currentUserEmail = "";
+let currentAccessList = [];
 let salesContentItems = [];
+let navItems = [];
 
 const loginScreen = document.querySelector(".login-screen");
 const appShell = document.querySelector(".app-shell");
@@ -84,6 +87,25 @@ function safeLocalStorageRemove(key) {
     window.localStorage.removeItem(key);
   } catch (error) {
     console.warn("Unable to remove from localStorage", key, error);
+  }
+}
+
+function safeLocalStorageJsonGet(key) {
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.warn("Unable to parse localStorage JSON", key, error);
+    return null;
+  }
+}
+
+function safeLocalStorageJsonSet(key, value) {
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch (error) {
+    console.warn("Unable to write JSON to localStorage", key, error);
   }
 }
 
@@ -124,8 +146,10 @@ function handleLogout() {
   safeLocalStorageRemove(authTokenKey);
   safeLocalStorageRemove(authRoleKey);
   safeLocalStorageRemove(authEmailKey);
+  safeLocalStorageRemove(authAccessKey);
   currentRole = adminRole;
   currentUserEmail = "";
+  currentAccessList = [];
   showLoginScreen();
   loginForm?.reset();
   if (loginError) {
@@ -136,8 +160,10 @@ function handleLogout() {
 function initAuthentication() {
   const storedRole = safeLocalStorageGet(authRoleKey);
   const storedEmail = safeLocalStorageGet(authEmailKey);
+  const storedAccess = safeLocalStorageJsonGet(authAccessKey);
   currentRole = storedRole || adminRole;
   currentUserEmail = storedEmail || "";
+  currentAccessList = Array.isArray(storedAccess) ? storedAccess : [];
   salesContentItems = loadSalesContentState();
   if (safeLocalStorageGet(authTokenKey) === "true") {
     if (!currentUserEmail) {
@@ -145,6 +171,7 @@ function initAuthentication() {
       return;
     }
     showAppShell();
+    syncSiteConfigFromServer();
     return;
   }
   showLoginScreen();
@@ -193,12 +220,15 @@ if (loginForm) {
       const user = normalizeUserRecord(data.user || { email: normalizedEmail, role: adminRole });
       currentRole = user.role || adminRole;
       currentUserEmail = user.email || normalizedEmail;
+      currentAccessList = Array.isArray(user.accessList) ? user.accessList : [];
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
+      safeLocalStorageJsonSet(authAccessKey, currentAccessList);
       safeLocalStorageSet(authTokenKey, "true");
       showAppShell();
       setActiveNav("dashboard");
       renderSection("dashboard");
+      syncSiteConfigFromServer();
       if (loginError) {
         loginError.textContent = "";
       }
@@ -242,9 +272,10 @@ function applyRoleRestrictions() {
   if (salesWorkspace) {
     salesWorkspace.classList.add("hidden");
   }
+  applyAccessRestrictions();
 }
 
-let navItems = Array.from(document.querySelectorAll(".nav-item"));
+navItems = Array.from(document.querySelectorAll(".nav-item"));
 console.log('app.js loaded, navItems count:', navItems.length);
 const sectionContent = document.getElementById("section-content");
 const sectionTitle = document.getElementById("section-title");
@@ -296,9 +327,27 @@ const timezoneOptions = [
   { value: "Pacific/Auckland", label: "Auckland · Pacific/Auckland (NZST)" }
 ];
 
+function deriveSiteNameFromDom() {
+  if (typeof window === "undefined") return "";
+  const brandTitle = document.querySelector(".brand-title");
+  if (brandTitle?.textContent?.trim()) {
+    return brandTitle.textContent.trim();
+  }
+  const loginTitle = document.querySelector(".login-title");
+  if (loginTitle?.textContent) {
+    const cleaned = loginTitle.textContent.replace(/\s*Workspace\s*$/i, "").trim();
+    if (cleaned) return cleaned;
+  }
+  const titleEl = document.querySelector("title");
+  if (titleEl?.textContent?.trim()) {
+    return titleEl.textContent.trim();
+  }
+  return "";
+}
+
 const defaultSiteConfig = {
   activeTheme: "Professional",
-  siteName: "Sales Aid",
+  siteName: deriveSiteNameFromDom() || "Sales Aid",
   baseCompany: "",
   region: "Taipei (CST)",
   timezone: "Asia/Taipei",
@@ -308,6 +357,23 @@ const defaultSiteConfig = {
   invoicePhone: "",
   showFooter: true
 };
+
+function normalizeBoolean(value, fallback) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "on", "yes"].includes(normalized)) return true;
+    if (["false", "0", "off", "no"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function normalizeSiteConfigState(config) {
+  const merged = { ...defaultSiteConfig, ...config };
+  merged.showFooter = normalizeBoolean(config?.showFooter, merged.showFooter);
+  return merged;
+}
 
 function loadSiteConfigState() {
   if (typeof window === "undefined") {
@@ -319,7 +385,7 @@ function loadSiteConfigState() {
       return { ...defaultSiteConfig };
     }
     const parsed = JSON.parse(stored);
-    return { ...defaultSiteConfig, ...parsed };
+    return normalizeSiteConfigState(parsed);
   } catch (error) {
     console.warn("Unable to read saved site config", error);
     return { ...defaultSiteConfig };
@@ -335,12 +401,64 @@ function persistSiteConfigState(state) {
   }
 }
 
+async function saveSiteConfigToServer(state) {
+  const res = await apiFetch("/api/settings/site-config", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      ...state,
+      showFooter: !!state.showFooter
+    })
+  });
+  if (!res.ok) {
+    throw new Error("Unable to save site config");
+  }
+  return res.json().catch(() => ({}));
+}
+
 let siteConfigState = loadSiteConfigState();
+
+async function fetchSiteConfigFromServer() {
+  const res = await apiFetch("/api/settings/site-config");
+  if (!res.ok) {
+    return null;
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!data?.config || typeof data.config !== "object") {
+    return null;
+  }
+  if (!Object.keys(data.config).length) {
+    return null;
+  }
+  return normalizeSiteConfigState(data.config);
+}
+
+async function syncSiteConfigFromServer() {
+  if (!currentUserEmail) return;
+  try {
+    const serverConfig = await fetchSiteConfigFromServer();
+    if (!serverConfig) return;
+    siteConfigState = serverConfig;
+    persistSiteConfigState(siteConfigState);
+    applySiteConfig();
+    if (currentSection === "settings") {
+      renderSection("settings");
+    }
+  } catch (error) {
+    console.warn("Unable to sync site config", error);
+  }
+}
 
 function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
   if (brandTitle) {
     brandTitle.textContent = siteConfigState.siteName;
+  }
+  const loginTitle = document.querySelector(".login-title");
+  if (loginTitle) {
+    loginTitle.textContent = siteConfigState.siteName
+      ? `${siteConfigState.siteName} Workspace`
+      : "Workspace";
   }
   const chip = document.querySelector(".topbar .chip");
   if (chip) {
@@ -444,6 +562,37 @@ function normalizeUserRecord(user) {
     access: accessText,
     enabled: user.enabled !== false
   };
+}
+
+function getAllowedAccessList() {
+  if (currentRole === adminRole) {
+    return accessOptions.map((option) => option.id);
+  }
+  if (!Array.isArray(currentAccessList) || currentAccessList.length === 0) {
+    return accessOptions.map((option) => option.id);
+  }
+  return currentAccessList;
+}
+
+function canAccessSection(section) {
+  if (!section || section === "dashboard") return true;
+  const allowed = getAllowedAccessList();
+  return allowed.includes(section);
+}
+
+function applyAccessRestrictions() {
+  const allowed = new Set(getAllowedAccessList());
+  navItems.forEach((item) => {
+    const section = item.dataset.section;
+    if (!section || section === "dashboard") return;
+    const canAccess = allowed.has(section);
+    item.classList.toggle("hidden", !canAccess);
+    if (!canAccess) {
+      item.setAttribute("aria-disabled", "true");
+    } else {
+      item.removeAttribute("aria-disabled");
+    }
+  });
 }
 
 function loadUserAccounts() {
@@ -1165,10 +1314,15 @@ function initNavigation() {
   // Re-query nav items after DOM is ready
   navItems = Array.from(document.querySelectorAll(".nav-item"));
   console.log('navItems count after init:', navItems.length);
+  applyAccessRestrictions();
   navItems.forEach((item) => {
     item.addEventListener("click", () => {
       console.log('Nav item clicked', item.dataset.section);
       const section = item.dataset.section;
+      if (!canAccessSection(section)) {
+        showToast("Access restricted. Ask an admin for access.");
+        return;
+      }
       setActiveNav(section);
       renderSection(section);
     });
@@ -1194,6 +1348,16 @@ async function renderSection(section) {
   const renderer = sectionRenderers[section];
   if (!renderer) {
     sectionContent.innerHTML = `<div class="panel"><div class="empty">No view configured yet.</div></div>`;
+    lucide?.createIcons();
+    return;
+  }
+
+  if (!canAccessSection(section)) {
+    sectionContent.innerHTML = `
+      <div class="panel">
+        <div class="empty">Access restricted. Contact an admin to enable this section.</div>
+      </div>
+    `;
     lucide?.createIcons();
     return;
   }
@@ -1997,7 +2161,9 @@ async function renderDocuments() {
   sectionTitle.textContent = "Documents";
   await loadTableFromApi("documents", (row) => row, fallback.documents);
   await loadLookupTable("tags", fallback.tags);
-  const docs = tableRecords.documents || [];
+  const docs = (tableRecords.documents || []).filter(
+    (doc) => normalizeEmail(doc.owner_email || "") === normalizeEmail(currentUserEmail)
+  );
   const companies = await fetchCompaniesList();
   const invoices = await fetchInvoicesList();
 
@@ -2200,6 +2366,10 @@ async function renderDocuments() {
         const downloadAction = downloadUrl
           ? `<button class="btn ghost" type="button" data-doc-download="${idx}">Download</button>`
           : `<button class="btn ghost" type="button" disabled>Download</button>`;
+        const canDelete = Number.isFinite(Number(doc.id));
+        const deleteAction = canDelete
+          ? `<button class="btn danger ghost" data-action="delete" data-entity="documents" data-row-index="${idx}">Delete</button>`
+          : `<button class="btn danger ghost" type="button" disabled>Delete</button>`;
         return `
           <tr>
             <td class="doc-select-cell">
@@ -2215,6 +2385,7 @@ async function renderDocuments() {
               <button class="btn ghost" data-action="preview" data-entity="documents" data-row-index="${idx}">Preview</button>
               <button class="btn ghost" data-action="edit" data-entity="documents" data-row-index="${idx}">Edit</button>
               ${downloadAction}
+              ${deleteAction}
             </td>
           </tr>
         `;
@@ -2789,11 +2960,15 @@ async function renderTags() {
 
 async function renderSettings() {
   const canManageUsers = currentRole === adminRole;
-  try {
-    privilegedUsers = await fetchUsersFromApi();
-  } catch (error) {
+  if (canManageUsers) {
+    try {
+      privilegedUsers = await fetchUsersFromApi();
+    } catch (error) {
+      privilegedUsers = [];
+      showToast(error instanceof Error ? error.message : "Unable to load users");
+    }
+  } else {
     privilegedUsers = [];
-    showToast(error instanceof Error ? error.message : "Unable to load users");
   }
   sectionTitle.textContent = "Settings";
   sectionContent.innerHTML = `
@@ -2840,9 +3015,9 @@ async function renderSettings() {
       <div class="tabs-container">
         <div class="tabs">
           <button class="tab active" data-tab="site-config">Site configuration</button>
-          <button class="tab${canManageUsers ? "" : " disabled"}" data-tab="add-user" data-disabled="${canManageUsers ? "false" : "true"}">Add user</button>
+          ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
-          <button class="tab" data-tab="users-privilege">Users with privilege</button>
+          ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
@@ -2906,11 +3081,12 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
         <div class="tab-content" id="add-user">
           <div class="panel add-user-panel">
             <div class="panel-header">
               <h3 class="panel-title">Add user</h3>
-              <div class="stat-label">${canManageUsers ? "Grant access and keep the roster up to date." : "Only admins can add new users."}</div>
+              <div class="stat-label">Grant access and keep the roster up to date.</div>
             </div>
             <form id="add-user-form" class="form-grid">
               <label>
@@ -2956,6 +3132,7 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ` : ""}
         <div class="tab-content" id="change-password">
           <div class="panel password-panel">
             <div class="panel-header">
@@ -2991,6 +3168,7 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
         <div class="tab-content" id="users-privilege">
           <div class="panel privilege-panel">
             <div class="panel-header">
@@ -3002,6 +3180,7 @@ async function renderSettings() {
             </div>
           </div>
         </div>
+        ` : ""}
       </div>
     </div>
   `;
@@ -3011,10 +3190,6 @@ async function renderSettings() {
   const tabContents = document.querySelectorAll(".tab-content");
   tabs.forEach((tab) => {
     tab.addEventListener("click", () => {
-      if (tab.dataset.disabled === "true") {
-        showToast("Only admins can add users");
-        return;
-      }
       const tabId = tab.dataset.tab;
       tabs.forEach((t) => t.classList.remove("active"));
       tab.classList.add("active");
@@ -3387,7 +3562,7 @@ async function renderSettings() {
   updateCustomRoleVisibility();
 
   const siteConfigForm = document.getElementById("site-config-form");
-  siteConfigForm?.addEventListener("submit", (event) => {
+  siteConfigForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const data = new FormData(siteConfigForm);
     const newTheme = data.get("theme")?.toString().trim() || siteConfigState.theme;
@@ -3407,7 +3582,13 @@ async function renderSettings() {
     siteConfigState = updatedConfig;
     persistSiteConfigState(siteConfigState);
     applySiteConfig();
-    showToast("Site configuration saved");
+    try {
+      await saveSiteConfigToServer(siteConfigState);
+      showToast("Site configuration saved");
+    } catch (error) {
+      console.warn("Unable to sync site config", error);
+      showToast("Saved locally. Unable to sync settings.");
+    }
   });
 }
 
@@ -3643,18 +3824,16 @@ async function loadTableFromApi(table, mapper, fallbackRows, options = {}) {
         pages += 1;
       }
       if (bypass) cacheBypassTables.delete(table);
-      if (collected.length) {
-        tableRecords[table] = collected;
-        return collected.map(mapper);
-      }
+      tableRecords[table] = collected;
+      return collected.length ? collected.map(mapper) : [];
     } else {
       const res = await apiFetch(buildUrl(0));
       if (bypass) cacheBypassTables.delete(table);
       if (res.ok) {
         const data = await res.json();
-        if (Array.isArray(data.rows) && data.rows.length) {
+        if (Array.isArray(data.rows)) {
           tableRecords[table] = data.rows;
-          return data.rows.map(mapper);
+          return data.rows.length ? data.rows.map(mapper) : [];
         }
       }
     }
