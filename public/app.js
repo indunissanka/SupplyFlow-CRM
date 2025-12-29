@@ -4286,6 +4286,10 @@ function openEditModal(tableKey, record) {
     openForm("sample_shipments", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "companies") {
+    openForm("companies", { initialValues: record, mode: "edit" });
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const isQuotation = tableKey === "quotations";
@@ -4449,6 +4453,7 @@ function renderRecordPreview(tableKey, record) {
   }
 
   // Enhanced title generation based on entity type
+  const previewRecord = tableKey === "companies" ? { ...record, address: record.address ?? null } : record;
   let title = "";
   let subtitle = "";
   let relatedInfo = "";
@@ -4549,12 +4554,12 @@ function renderRecordPreview(tableKey, record) {
   if (tableKey === "invoices") {
     ["company_name", "contact_name", "customer_name"].forEach((k) => ignore.add(k));
   }
-  const orderedKeys = orderPreviewKeys(Object.keys(record).filter((k) => !ignore.has(k)));
+  const orderedKeys = orderPreviewKeys(Object.keys(previewRecord).filter((k) => !ignore.has(k)));
   const rows = orderedKeys
     .map(
       (key) => {
-        const value = formatPreviewValue(record[key], key, record);
-        const label = formatPreviewLabel(key, record);
+        const value = formatPreviewValue(previewRecord[key], key, previewRecord);
+        const label = formatPreviewLabel(key, previewRecord);
         return `
           <div class="preview-row">
             <div class="preview-label">${label}</div>
@@ -5808,6 +5813,49 @@ function openForm(key, options = {}) {
   overlay.querySelector(".btn-close")?.addEventListener("click", () => overlay.remove());
   overlay.querySelector("[data-close]")?.addEventListener("click", () => overlay.remove());
 
+  const applyMultiSelectValues = (selectEl, value) => {
+    if (!selectEl) return;
+    const selected = Array.isArray(value)
+      ? value.map((v) => String(v))
+      : typeof value === "string"
+        ? value.split(",").map((v) => v.trim()).filter(Boolean)
+        : [];
+    if (!selected.length) return;
+    Array.from(selectEl.options).forEach((opt) => {
+      opt.selected = selected.includes(opt.value);
+    });
+  };
+
+  const applyInitialValues = (values) => {
+    if (!values) return;
+    Object.entries(values).forEach(([name, val]) => {
+      const field = overlay.querySelector(`[name="${name}"]`);
+      if (!field) return;
+      if (val !== null && typeof val === "object" && !Array.isArray(val)) return;
+      if (field instanceof HTMLSelectElement) {
+        if (field.multiple) {
+          applyMultiSelectValues(field, val);
+        } else {
+          field.value = val ?? "";
+        }
+        return;
+      }
+      if (field instanceof HTMLInputElement) {
+        if (field.type === "checkbox") {
+          field.checked = Boolean(val);
+        } else {
+          field.value = val ?? "";
+        }
+        return;
+      }
+      if (field instanceof HTMLTextAreaElement) {
+        field.value = val ?? "";
+      }
+    });
+  };
+
+  applyInitialValues(initialValues);
+
   const tagSelects = overlay.querySelectorAll('select[name="tags"]');
   if (tagSelects.length) {
     fetchRecords("tags", fallback.tags).then((tags) => {
@@ -5815,6 +5863,9 @@ function openForm(key, options = {}) {
       tagSelects.forEach((sel) => {
         sel.setAttribute("multiple", "multiple");
         sel.innerHTML = options;
+        if (initialValues?.tags) {
+          applyMultiSelectValues(sel, initialValues.tags);
+        }
       });
     });
   }
