@@ -137,6 +137,7 @@ CREATE TABLE IF NOT EXISTS sample_shipments (
   receiving_address TEXT,
   phone TEXT,
   quantity REAL DEFAULT 0,
+  tracking_number TEXT,
   waybill_number TEXT,
   courier TEXT,
   status TEXT DEFAULT 'Preparing',

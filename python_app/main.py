@@ -94,6 +94,7 @@ UPDATABLE_FIELDS: Dict[str, List[str]] = {
         "receiving_address",
         "phone",
         "quantity",
+        "tracking_number",
         "waybill_number",
         "courier",
         "status",
@@ -157,6 +158,7 @@ CREATE TABLE IF NOT EXISTS sample_shipments (
   receiving_address TEXT,
   phone TEXT,
   quantity REAL DEFAULT 0,
+  tracking_number TEXT,
   waybill_number TEXT,
   courier TEXT,
   status TEXT DEFAULT 'Preparing',
@@ -952,8 +954,8 @@ async def api_sample_shipments(payload: Dict[str, Any], owner_email: str = Depen
     meta = await d1.execute(
         """
         INSERT INTO sample_shipments (
-            company_id, product_id, document_id, receiving_address, phone, quantity, waybill_number, courier, status, notes, owner_email
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            company_id, product_id, document_id, receiving_address, phone, quantity, tracking_number, waybill_number, courier, status, notes, owner_email
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         [
             payload.get("company_id"),
@@ -962,6 +964,7 @@ async def api_sample_shipments(payload: Dict[str, Any], owner_email: str = Depen
             payload.get("receiving_address"),
             payload.get("phone"),
             payload.get("quantity") or 0,
+            payload.get("tracking_number"),
             payload.get("waybill_number"),
             payload.get("courier"),
             payload.get("status") or "Preparing",

@@ -1155,6 +1155,7 @@ const formConfigs = {
       { name: "phone", label: "Telephone", placeholder: "+1 410 555 0101" },
       { name: "product_id", label: "Product", type: "select", options: ["-- Select product --"] },
       { name: "quantity", label: "Quantity", type: "number", step: "1", placeholder: "1" },
+      { name: "tracking_number", label: "Tracking Number", placeholder: "Tracking #" },
       { name: "waybill_number", label: "Waybill Number", placeholder: "WB-12345" },
       { name: "document_id", label: "Related Document", type: "select", options: ["-- Select document (optional) --"] },
       { name: "courier", label: "Courier", type: "select", options: ["-- Choose courier --", "DHL", "FedEx", "UPS", "SF Express", "Aramex", "Royal Mail", "Other"] },
@@ -1169,6 +1170,7 @@ const formConfigs = {
         receiving_address: values.receiving_address,
         phone: values.phone,
         quantity: num(values.quantity) ?? 0,
+        tracking_number: values.tracking_number,
         waybill_number: values.waybill_number,
         courier: values.courier,
         status: values.status || "Preparing",
@@ -1187,6 +1189,7 @@ const formConfigs = {
         document_id: num(values.document_id),
         receiving_address: values.receiving_address,
         phone: values.phone,
+        tracking_number: values.tracking_number,
         waybill_number: values.waybill_number,
         courier: values.courier,
         status: values.status || "Preparing",
@@ -4846,6 +4849,7 @@ function renderSampleShipmentPreview(record) {
     ["Quantity", record.quantity ?? "—"],
     ["Receiving Address", record.receiving_address || "—"],
     ["Phone", record.phone || "—"],
+    ["Tracking Number", record.tracking_number || "-"],
     ["Waybill Number", record.waybill_number || "—"],
     ["Courier", record.courier || "—"],
     ["Status", record.status || "—"],
@@ -6278,6 +6282,7 @@ function openForm(key, options = {}) {
 
     setIfPresent('textarea[name="receiving_address"]', initialValues?.receiving_address);
     setIfPresent('input[name="phone"]', initialValues?.phone);
+    setIfPresent('input[name="tracking_number"]', initialValues?.tracking_number);
     setIfPresent('input[name="waybill_number"]', initialValues?.waybill_number);
     setIfPresent('select[name="courier"]', initialValues?.courier);
     setIfPresent('select[name="status"]', initialValues?.status);
@@ -7848,3 +7853,4 @@ function attachBulkCsvHandlers({ uploadBtnId, uploadInputId, downloadBtnId, pars
 }
 
 lucide?.createIcons();
+
