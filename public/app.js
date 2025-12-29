@@ -4457,11 +4457,12 @@ async function hydrateSampleTracking(overlay, record) {
 
   try {
     const data = await fetchShippoTracking(waybill, record?.courier);
-    const statusLabel = formatTrackingStatus(data?.status);
+    const rawStatusDetail = typeof data?.status_detail === "string" ? data.status_detail.trim() : "";
+    const statusLabel = rawStatusDetail || formatTrackingStatus(data?.status);
     const tone = statusToneShipping(statusLabel);
     const carrier = data?.carrier || record?.courier || "";
     const updatedAt = data?.updated_at ? new Date(data.updated_at).toLocaleString() : "--";
-    const statusDetail = data?.status_detail || "";
+    const statusDetail = rawStatusDetail;
     const estDelivery = data?.est_delivery_date ? new Date(data.est_delivery_date).toLocaleDateString() : "";
 
     if (statusBadge) {
@@ -4476,9 +4477,11 @@ async function hydrateSampleTracking(overlay, record) {
       ["Waybill", waybill],
       ["Carrier", carrier || "-"],
       ["Status", statusLabel],
-      ["Status Detail", statusDetail || "-"],
       ["Updated", updatedAt]
     ];
+    if (statusDetail && statusDetail.toLowerCase() !== statusLabel.toLowerCase()) {
+      summaryRows.splice(3, 0, ["Status Detail", statusDetail]);
+    }
     if (estDelivery) {
       summaryRows.push(["Est. Delivery", estDelivery]);
     }
