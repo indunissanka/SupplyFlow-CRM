@@ -24,14 +24,52 @@ crm-cloudflare-app/
 ├── requirements.txt      # Python dependencies
 ├── public/                # Frontend static assets
 │   ├── index.html        # Main application
-│   ├── styles.css        # CSS styles
-│   └── app.js            # Frontend JavaScript
+│   ├── styles.css        # Desktop CSS styles
+│   ├── mobile.css        # Mobile theme (light)
+│   ├── mobile-dark.css   # Mobile theme (dark)
+│   ├── app.js            # Frontend JavaScript
+│   ├── theme-test.html   # Theme testing page
+│   └── theme-test-dark.html # Dark theme testing page
 ├── screenshots/           # Application screenshots
 ├── Dockerfile            # Docker configuration for Python app
 ├── wrangler.toml         # Cloudflare Worker configuration
 ├── wrangler-container.toml # Container configuration
 └── package.json          # Node.js dependencies
 ```
+
+## Themes and Mobile Responsiveness
+
+The application features a responsive design with multiple theme options:
+
+### Desktop Theme
+- **File**: `public/styles.css`
+- **Description**: Default dark blue theme optimized for desktop viewing
+- **Features**: Professional CRM interface with sidebar navigation, data tables, and forms
+
+### Mobile Themes
+Two mobile-optimized themes are available for viewports ≤ 900px:
+
+1. **Mobile Light Theme** (`public/mobile.css`)
+   - Color palette: Slate/blue with light backgrounds
+   - Optimized for mobile touch interactions
+   - Enhanced readability on mobile screens
+
+2. **Mobile Dark Theme** (`public/mobile-dark.css`)
+   - Color palette: Dark slate with violet accents
+   - Modern dark theme for better viewing in low-light conditions
+   - Improved contrast ratios and touch targets
+   - Custom scrollbar styling
+
+### Theme Implementation
+- **Approach**: CSS variable overrides within `@media (max-width: 900px)` media queries
+- **Benefits**: Desktop theme remains completely unchanged; mobile themes only apply on small screens
+- **Testing**: Use `theme-test.html` and `theme-test-dark.html` to preview themes
+
+### Key Mobile Features
+- Touch-friendly buttons (44px minimum touch targets)
+- Responsive grid layouts
+- Optimized font sizes for mobile readability
+- Mobile-specific form controls and navigation
 
 ## Deployment Status
 
