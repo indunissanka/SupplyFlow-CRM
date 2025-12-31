@@ -454,17 +454,30 @@ type JwtPayload = {
   exp: number;
 };
 
-const base64UrlEncode = (data: Uint8Array) =>
-  btoa(String.fromCharCode(...data))
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+const base64UrlEncode = (data: Uint8Array) => {
+  let base64 = "";
+  if (typeof btoa === "function") {
+    base64 = btoa(String.fromCharCode(...data));
+  } else if (typeof Buffer !== "undefined") {
+    base64 = Buffer.from(data).toString("base64");
+  } else {
+    throw new Error("Base64 encoder unavailable");
+  }
+  return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+};
 
 const base64UrlDecode = (input: string) => {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
   const pad = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
-  const decoded = atob(`${normalized}${pad}`);
-  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+  const base64 = `${normalized}${pad}`;
+  if (typeof atob === "function") {
+    const decoded = atob(base64);
+    return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+  }
+  if (typeof Buffer !== "undefined") {
+    return Uint8Array.from(Buffer.from(base64, "base64"));
+  }
+  throw new Error("Base64 decoder unavailable");
 };
 
 let cachedJwtKey: CryptoKey | null = null;
