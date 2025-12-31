@@ -4,6 +4,7 @@ window.addEventListener('error', (event) => {
 });
 
 const authTokenKey = "crm:authenticated";
+const authJwtKey = "crm:token";
 const authRoleKey = "crm:role";
 const authEmailKey = "crm:email";
 const authAccessKey = "crm:access";
@@ -51,6 +52,7 @@ accessOptions.forEach((option) => {
 let currentRole = adminRole;
 let currentUserEmail = "";
 let currentAccessList = [];
+let currentAuthToken = "";
 let salesContentItems = [];
 let navItems = [];
 
@@ -144,12 +146,14 @@ function showLoginScreen() {
 
 function handleLogout() {
   safeLocalStorageRemove(authTokenKey);
+  safeLocalStorageRemove(authJwtKey);
   safeLocalStorageRemove(authRoleKey);
   safeLocalStorageRemove(authEmailKey);
   safeLocalStorageRemove(authAccessKey);
   currentRole = adminRole;
   currentUserEmail = "";
   currentAccessList = [];
+  currentAuthToken = "";
   showLoginScreen();
   loginForm?.reset();
   if (loginError) {
@@ -161,12 +165,14 @@ function initAuthentication() {
   const storedRole = safeLocalStorageGet(authRoleKey);
   const storedEmail = safeLocalStorageGet(authEmailKey);
   const storedAccess = safeLocalStorageJsonGet(authAccessKey);
+  const storedToken = safeLocalStorageGet(authJwtKey);
   currentRole = storedRole || adminRole;
   currentUserEmail = storedEmail || "";
   currentAccessList = Array.isArray(storedAccess) ? storedAccess : [];
+  currentAuthToken = storedToken || "";
   salesContentItems = loadSalesContentState();
   if (safeLocalStorageGet(authTokenKey) === "true") {
-    if (!currentUserEmail) {
+    if (!currentUserEmail || !storedToken) {
       handleLogout();
       return;
     }
@@ -218,13 +224,22 @@ if (loginForm) {
       }
       const data = await res.json().catch(() => ({}));
       const user = normalizeUserRecord(data.user || { email: normalizedEmail, role: adminRole });
+      const token = data.token || "";
+      if (!token) {
+        if (loginError) {
+          loginError.textContent = "Login failed: missing auth token.";
+        }
+        return;
+      }
       currentRole = user.role || adminRole;
       currentUserEmail = user.email || normalizedEmail;
       currentAccessList = Array.isArray(user.accessList) ? user.accessList : [];
+      currentAuthToken = token;
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
       safeLocalStorageJsonSet(authAccessKey, currentAccessList);
       safeLocalStorageSet(authTokenKey, "true");
+      safeLocalStorageSet(authJwtKey, token);
       showAppShell();
       setActiveNav("dashboard");
       renderSection("dashboard");
@@ -709,6 +724,9 @@ async function apiFetch(input, init = {}) {
   const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
   if (currentUserEmail) {
     headers.set("x-user-email", currentUserEmail);
+  }
+  if (currentAuthToken) {
+    headers.set("authorization", `Bearer ${currentAuthToken}`);
   }
 
   if (input instanceof Request) {
@@ -8181,4 +8199,3 @@ function attachBulkCsvHandlers({ uploadBtnId, uploadInputId, downloadBtnId, pars
 }
 
 lucide?.createIcons();
-
