@@ -1110,10 +1110,19 @@ app.get("/api/health", (c) =>
 app.post("/api/auth/login", async (c) => {
   const ip =
     (c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
-  const rateLimit = await checkRateLimit(c.env.CACHE, `ratelimit:login:${ip}`);
-  if (!rateLimit.allowed) {
-    c.header("retry-after", String(rateLimit.retryAfter));
-    return c.json({ error: "Too many login attempts. Try again later." }, 429);
+  if (c.env.CACHE) {
+    try {
+      const rateLimit = await checkRateLimit(c.env.CACHE, `ratelimit:login:${ip}`);
+      if (!rateLimit.allowed) {
+        c.header("retry-after", String(rateLimit.retryAfter));
+        return c.json({ error: "Too many login attempts. Try again later." }, 429);
+      }
+    } catch (err) {
+      console.warn("Login rate limit check failed", err);
+    }
+  }
+  if (!c.env.AUTH_SECRET) {
+    return c.json({ error: "Authentication not configured" }, 500);
   }
   const body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>().catch(() => ({}));
   const email = normalizeEmail(body.email || "");
