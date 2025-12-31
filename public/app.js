@@ -1324,7 +1324,9 @@ function initNavigation() {
         return;
       }
       setActiveNav(section);
-      renderSection(section);
+      setTimeout(() => {
+        renderSection(section);
+      }, 0);
     });
   });
   renderSection("dashboard");
