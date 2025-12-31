@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev --local --ip 0.0.0.0",
     "deploy": "wrangler deploy -c wrangler.toml",
+    "deploy:full": "bash scripts/deploy.sh",
     "deploy:container": "wrangler deploy -c wrangler-container.toml",
     "check": "tsc --noEmit",
     "db:local": "wrangler d1 execute crmforall-db --local --file ./schema.sql",

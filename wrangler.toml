@@ -1,4 +1,4 @@
-name = "crmforall"
+name = "crm-cloudflare-app"
 compatibility_date = "2024-12-15"
 compatibility_flags = ["nodejs_compat"]
 main = "src/index.ts"
@@ -11,13 +11,13 @@ ALLOWED_ORIGINS = "*"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "crmforall-db"
+database_name = "crm-cloudflare-app-db"
 database_id = "42f5b376-0e32-49d9-8f8f-f22028f4c26d"
 
 [[r2_buckets]]
 binding = "FILES"
-bucket_name = "crmforall-files"
-preview_bucket_name = "crmforall-files-dev"
+bucket_name = "crm-cloudflare-app-files"
+preview_bucket_name = "crm-cloudflare-app-files-dev"
 
 [[kv_namespaces]]
 binding = "CACHE"

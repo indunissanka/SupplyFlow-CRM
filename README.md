@@ -121,11 +121,16 @@ Two mobile-optimized themes are available for viewports ≤ 900px:
    CLOUDFLARE_ACCOUNT_ID=your_account_id
    D1_API_TOKEN=your_api_token
    D1_DATABASE_ID=your_database_id
+   AUTH_SECRET=your_secure_random_string_for_jwt_tokens
    ```
 
 2. **Deploy Node.js Worker**:
    ```bash
+   # Standard deployment (requires AUTH_SECRET already set as secret)
    npx wrangler deploy -c wrangler.toml
+   
+   # Full deployment with automatic AUTH_SECRET secret setup
+   npm run deploy:full
    ```
 
 3. **Deploy Python Container**:
@@ -135,6 +140,21 @@ Two mobile-optimized themes are available for viewports ≤ 900px:
    npx wrangler containers push crm-python-app:latest
    npx wrangler deploy -c wrangler-container.toml
    ```
+
+### Automatic Secret Management
+
+The project includes an automated deployment script that automatically sets the `AUTH_SECRET` as a Cloudflare Workers secret during deployment:
+
+```bash
+npm run deploy:full
+```
+
+This script (`scripts/deploy.sh`):
+1. Checks for `AUTH_SECRET` in `.env` file or environment variables
+2. Sets it as a Cloudflare Workers secret using `wrangler secret put AUTH_SECRET`
+3. Deploys the worker with all configurations
+
+For CI/CD environments, ensure `AUTH_SECRET` is available as an environment variable.
 
 ## GitHub Repository Setup
 
