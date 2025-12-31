@@ -2020,22 +2020,84 @@ async function renderPricing() {
 
 async function renderOrders() {
   sectionTitle.textContent = "Orders";
-  const rows = await loadTableFromApi(
-    "orders",
-    (r) => {
-      const status = r?.status || "";
-      const tone = status.includes("Progress") ? "success" : status.includes("Completed") ? "info" : "warning";
-      return [
-        r?.reference || "-",
-        r.company_name || "-",
-        r.contact_name || "-",
-        badge(tone, status || "Pending"),
-        formatCurrency(r?.total_amount || 0, r?.currency || "USD"),
-        r?.updated_at ? new Date(r.updated_at).toLocaleDateString() : "-"
-      ];
-    },
-    fallback.orders
-  );
+  const orderRecords = await loadTableFromApi("orders", (row) => row, fallback.orders);
+  const orders = Array.isArray(orderRecords) ? orderRecords : [];
+  const needsTotals = orders.some((order) => {
+    const total = Number(order?.total_amount);
+    const hasTotal = Number.isFinite(total) && total > 0;
+    if (hasTotal) return false;
+    return Boolean(order?.quotation_id || order?.invoice_ids || order?.invoice_links || order?.invoice_id);
+  });
+  let quoteLookup = new Map();
+  let invoiceLookup = new Map();
+  if (needsTotals) {
+    const [quotes, invoices] = await Promise.all([fetchQuotationsList(), fetchInvoicesList()]);
+    quoteLookup = new Map(quotes.map((quote) => [String(quote.id), quote]));
+    invoiceLookup = new Map(invoices.map((invoice) => [String(invoice.id), invoice]));
+  }
+
+  const parseInvoiceIds = (raw) => {
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.map((val) => String(val)).filter(Boolean);
+    if (typeof raw === "string") {
+      return raw
+        .split(",")
+        .map((val) => val.trim())
+        .filter(Boolean);
+    }
+    return [String(raw)];
+  };
+
+  const resolveOrderTotal = (order) => {
+    const rawTotal = Number(order?.total_amount);
+    const hasStoredTotal = Number.isFinite(rawTotal) && rawTotal > 0;
+    let total = hasStoredTotal ? rawTotal : 0;
+    let currency = (order?.currency || "").toString().trim();
+
+    if (!hasStoredTotal && order?.quotation_id) {
+      const quote = quoteLookup.get(String(order.quotation_id));
+      const quoteAmount = Number(quote?.amount);
+      if (Number.isFinite(quoteAmount) && quoteAmount > 0) {
+        total = quoteAmount;
+        if (!currency && quote?.currency) currency = quote.currency;
+      }
+    }
+
+    if (!total) {
+      const invoiceIds = parseInvoiceIds(order?.invoice_ids ?? order?.invoice_links ?? order?.invoice_id);
+      if (invoiceIds.length) {
+        let invoiceCurrency = "";
+        const sum = invoiceIds.reduce((acc, id) => {
+          const invoice = invoiceLookup.get(String(id));
+          const invoiceTotal = Number(invoice?.total_amount);
+          if (!invoiceCurrency && invoice?.currency) {
+            invoiceCurrency = invoice.currency;
+          }
+          return acc + (Number.isFinite(invoiceTotal) ? invoiceTotal : 0);
+        }, 0);
+        if (sum > 0) {
+          total = sum;
+          if (!currency && invoiceCurrency) currency = invoiceCurrency;
+        }
+      }
+    }
+
+    return { total, currency: currency || "USD" };
+  };
+
+  const rows = orders.map((r) => {
+    const status = r?.status || "";
+    const tone = status.includes("Progress") ? "success" : status.includes("Completed") ? "info" : "warning";
+    const { total, currency } = resolveOrderTotal(r);
+    return [
+      r?.reference || "-",
+      r.company_name || "-",
+      r.contact_name || "-",
+      badge(tone, status || "Pending"),
+      formatCurrency(total, currency),
+      r?.updated_at ? new Date(r.updated_at).toLocaleDateString() : "-"
+    ];
+  });
 
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -3682,6 +3744,8 @@ async function fetchInvoicesList() {
           reference: row.reference,
           company_id: row.company_id,
           company: row.company_id || row.company,
+          total_amount: row.total_amount,
+          currency: row.currency,
           created_at: row.created_at,
           due_date: row.due_date
         }));
@@ -3725,6 +3789,7 @@ async function fetchQuotationsList() {
           reference: row.reference,
           title: row.title,
           company_id: row.company_id,
+          amount: row.amount,
           currency: row.currency,
           tax_rate: row.tax_rate
         }));
