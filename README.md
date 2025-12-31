@@ -198,6 +198,99 @@ AUTH_SECRET=your_secure_random_string_for_jwt_tokens
 openssl rand -base64 32
 ```
 
+## Troubleshooting
+
+### Login Issues
+
+If you encounter login problems (e.g., "Invalid credentials" error), follow these steps:
+
+#### 1. Check Database Users
+```bash
+# List all users in the database
+npx wrangler d1 execute crm-cloudflare-app-db --command "SELECT email, enabled FROM users;"
+```
+
+#### 2. Reset Admin Password
+If the user `admin@salesaid.com` exists but login fails:
+
+```bash
+# Generate a new password hash
+node scripts/generate-password-hash.js "your-new-password" "admin@salesaid.com"
+
+# Update the user in the database (use the SQL output from above)
+npx wrangler d1 execute crm-cloudflare-app-db --command "UPDATE users SET password_hash = 'pbkdf2\$120000\$...', password_salt = '...', updated_at = CURRENT_TIMESTAMP WHERE email = 'admin@salesaid.com';"
+```
+
+#### 3. Create New Admin User
+If no users exist in the database:
+
+```bash
+# Run the database initialization script
+./scripts/init-database.sh
+
+# Or create a user manually using the generator script
+node scripts/init-admin.js "your-email@example.com" "your-password"
+```
+
+#### 4. Verify Password Hash Format
+The password hash must be in the format: `pbkdf2$120000$<64_character_hex_hash>`
+- Check the hash in the database: `SELECT password_hash FROM users WHERE email = 'your-email@example.com';`
+- The hash should start with `pbkdf2$120000$` followed by 64 hex characters
+- If the hash is truncated or malformed, regenerate it using the generator script
+
+#### 5. Test Login Locally
+```bash
+# Test login with curl
+curl -X POST http://localhost:8787/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@salesaid.com", "password": "1@Nissanka"}'
+```
+
+### Deployment Issues
+
+#### AUTH_SECRET Not Set
+If you see "Authentication not configured" error:
+```bash
+# Ensure AUTH_SECRET is set as a Cloudflare Workers secret
+npm run deploy:full
+```
+
+#### TypeScript Compilation Errors
+If deployment fails due to TypeScript errors:
+```bash
+# Fix TypeScript errors locally first
+npm run type-check
+
+# Or build to see errors
+npm run build
+```
+
+### Database Issues
+
+#### Reset Local Database
+```bash
+# Delete local D1 database
+rm -rf .wrangler/state/v3/d1
+
+# Recreate database
+npx wrangler d1 create crm-cloudflare-app-db
+npx wrangler d1 execute crm-cloudflare-app-db --file=schema.sql
+```
+
+#### Check Database Schema
+```bash
+# List all tables
+npx wrangler d1 execute crm-cloudflare-app-db --command "SELECT name FROM sqlite_master WHERE type='table';"
+```
+
+## Default Login Credentials
+
+After initial deployment, you can use:
+- **Email**: `admin@salesaid.com`
+- **Password**: `1@Nissanka`
+
+To change these credentials, use the password reset tools in the `scripts/` directory.
+
 ## License
 
 MIT License - see LICENSE file for details.
