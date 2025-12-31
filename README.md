@@ -166,10 +166,16 @@ Create a `.env` file with:
 CLOUDFLARE_ACCOUNT_ID=your_account_id
 CLOUDFLARE_API_TOKEN=your_api_token
 D1_DATABASE_ID=your_database_id
- D1_API_TOKEN=your_api_token
+D1_API_TOKEN=your_api_token
 R2_ACCESS_KEY_ID=your_r2_access_key
 R2_SECRET_ACCESS_KEY=your_r2_secret_key
 R2_BUCKET=your_r2_bucket
+AUTH_SECRET=your_secure_random_string_for_jwt_tokens
+```
+
+**Important**: The `AUTH_SECRET` must be a secure random string (at least 32 characters) for JWT token generation and verification. You can generate one with:
+```bash
+openssl rand -base64 32
 ```
 
 ## License
