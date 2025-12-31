@@ -1140,6 +1140,7 @@ const formConfigs = {
         }
         const data = await res.json();
         showToast(`Uploaded ${data.uploaded || 0} documents successfully`);
+        cacheBypassTables.add("documents");
       } catch (err) {
         console.error(err);
         showToast("Upload failed: " + err.message);
@@ -3737,7 +3738,10 @@ async function fetchQuotationsList() {
 
 async function fetchDocumentsList() {
   try {
-    const res = await apiFetch("/api/documents");
+    const bypass = cacheBypassTables.has("documents");
+    const url = bypass ? "/api/documents?cache=0" : "/api/documents";
+    const res = await apiFetch(url);
+    if (bypass) cacheBypassTables.delete("documents");
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.rows)) {
