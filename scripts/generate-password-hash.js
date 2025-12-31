@@ -8,7 +8,7 @@
 const encoder = new TextEncoder();
 
 const PASSWORD_HASH_PREFIX = "pbkdf2";
-const PASSWORD_HASH_ITERATIONS = 120000;
+const PASSWORD_HASH_ITERATIONS = 100000;
 
 function hexToBytes(hex) {
   const cleaned = hex.trim();

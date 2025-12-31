@@ -3257,7 +3257,7 @@ const requireAdminUser = (c: Context) => {
 const encoder = new TextEncoder();
 
 const PASSWORD_HASH_PREFIX = "pbkdf2";
-const PASSWORD_HASH_ITERATIONS = 120_000;
+const PASSWORD_HASH_ITERATIONS = 100_000;
 
 const hexToBytes = (hex: string) => {
   const cleaned = hex.trim();
