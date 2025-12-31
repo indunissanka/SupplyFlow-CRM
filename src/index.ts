@@ -1119,33 +1119,34 @@ app.get("/api/health", (c) =>
 );
 
 app.post("/api/auth/login", async (c) => {
-  const ip =
-    (c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
-  if (c.env.CACHE) {
-    try {
-      const rateLimit = await checkRateLimit(c.env.CACHE, `ratelimit:login:${ip}`);
-      if (!rateLimit.allowed) {
-        c.header("retry-after", String(rateLimit.retryAfter));
-        return c.json({ error: "Too many login attempts. Try again later." }, 429);
-      }
-    } catch (err) {
-      console.warn("Login rate limit check failed", err);
-    }
-  }
-  if (!c.env.AUTH_SECRET) {
-    return c.json({ error: "Authentication not configured" }, 500);
-  }
-  let body: { email?: string; password?: string; name?: string; accessList?: string[]; access?: string } = {};
   try {
-    body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>();
-  } catch {
-    // Leave body as empty object
-  }
-  const email = normalizeEmail(body.email || "");
-  const password = typeof body.password === "string" ? body.password : "";
-  if (!email || !password) {
-    return c.json({ error: "Email and password required" }, 400);
-  }
+    const ip =
+      (c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
+    if (c.env.CACHE) {
+      try {
+        const rateLimit = await checkRateLimit(c.env.CACHE, `ratelimit:login:${ip}`);
+        if (!rateLimit.allowed) {
+          c.header("retry-after", String(rateLimit.retryAfter));
+          return c.json({ error: "Too many login attempts. Try again later." }, 429);
+        }
+      } catch (err) {
+        console.warn("Login rate limit check failed", err);
+      }
+    }
+    if (!c.env.AUTH_SECRET) {
+      return c.json({ error: "Authentication not configured" }, 500);
+    }
+    let body: { email?: string; password?: string; name?: string; accessList?: string[]; access?: string } = {};
+    try {
+      body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>();
+    } catch {
+      // Leave body as empty object
+    }
+    const email = normalizeEmail(body.email || "");
+    const password = typeof body.password === "string" ? body.password : "";
+    if (!email || !password) {
+      return c.json({ error: "Email and password required" }, 400);
+    }
 
   let user = await getUserByEmail(c.env.DB, email);
   if (!user) {
@@ -1206,7 +1207,15 @@ app.post("/api/auth/login", async (c) => {
     { sub: normalizeEmail(user.email || email), iat: issuedAt, exp: issuedAt + AUTH_TOKEN_TTL_SECONDS },
     c.env.AUTH_SECRET
   );
-  return c.json({ ok: true, user: buildUserResponse(user), token });
+    return c.json({ ok: true, user: buildUserResponse(user), token });
+  } catch (err) {
+    console.error("Login failed", err);
+    if (c.env.DEBUG_ERRORS === "true") {
+      const message = err instanceof Error ? err.message : "Login failed";
+      return c.json({ error: "Internal error", detail: message }, 500);
+    }
+    return c.json({ error: "Internal error" }, 500);
+  }
 });
 
 app.get("/api/auth/users", async (c) => {
