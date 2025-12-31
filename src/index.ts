@@ -396,20 +396,21 @@ const selectColumns = (alias: string, columns: string[]) => columns.map((col) =>
 
 const parseFilters = (table: string, searchParams: URLSearchParams) => {
   const allowed = filterableFields[table] ?? [];
-  return allowed
-    .map((field) => {
-      const raw = searchParams.get(field);
-      if (!raw) return null;
-      const trimmed = raw.trim();
-      if (!trimmed) return null;
-      if (field.endsWith("_id") || field === "related_id" || field === "entity_id") {
-        const numeric = Number(trimmed);
-        if (!Number.isFinite(numeric)) return null;
-        return { column: field, value: numeric };
-      }
-      return { column: field, value: trimmed };
-    })
-    .filter((entry): entry is { column: string; value: string | number } => entry !== null);
+  const result: Array<{ column: string; value: string | number }> = [];
+  for (const field of allowed) {
+    const raw = searchParams.get(field);
+    if (!raw) continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    if (field.endsWith("_id") || field === "related_id" || field === "entity_id") {
+      const numeric = Number(trimmed);
+      if (!Number.isFinite(numeric)) continue;
+      result.push({ column: field, value: numeric });
+    } else {
+      result.push({ column: field, value: trimmed });
+    }
+  }
+  return result;
 };
 
 const buildFilterKey = (filters: Array<{ column: string; value: string | number }>) => {
@@ -458,10 +459,10 @@ const base64UrlEncode = (data: Uint8Array) => {
   let base64 = "";
   if (typeof btoa === "function") {
     base64 = btoa(String.fromCharCode(...data));
-  } else if (typeof Buffer !== "undefined") {
-    base64 = Buffer.from(data).toString("base64");
   } else {
-    throw new Error("Base64 encoder unavailable");
+    // Fallback using TextEncoder if btoa is not available
+    const binary = Array.from(data).map(byte => String.fromCharCode(byte)).join('');
+    base64 = btoa(binary);
   }
   return base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
 };
@@ -473,9 +474,6 @@ const base64UrlDecode = (input: string) => {
   if (typeof atob === "function") {
     const decoded = atob(base64);
     return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
-  }
-  if (typeof Buffer !== "undefined") {
-    return Uint8Array.from(Buffer.from(base64, "base64"));
   }
   throw new Error("Base64 decoder unavailable");
 };
@@ -1137,7 +1135,12 @@ app.post("/api/auth/login", async (c) => {
   if (!c.env.AUTH_SECRET) {
     return c.json({ error: "Authentication not configured" }, 500);
   }
-  const body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>().catch(() => ({}));
+  let body: { email?: string; password?: string; name?: string; accessList?: string[]; access?: string } = {};
+  try {
+    body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>();
+  } catch {
+    // Leave body as empty object
+  }
   const email = normalizeEmail(body.email || "");
   const password = typeof body.password === "string" ? body.password : "";
   if (!email || !password) {
@@ -1223,14 +1226,26 @@ app.get("/api/auth/users", async (c) => {
 app.post("/api/auth/users", async (c) => {
   const adminError = requireAdminUser(c);
   if (adminError) return adminError;
-  const body = await c.req.json<{
+  let body: {
     name?: string;
     email?: string;
     role?: string;
     accessList?: string[];
     access?: string;
     password?: string;
-  }>().catch(() => ({}));
+  } = {};
+  try {
+    body = await c.req.json<{
+      name?: string;
+      email?: string;
+      role?: string;
+      accessList?: string[];
+      access?: string;
+      password?: string;
+    }>();
+  } catch {
+    // Leave body as empty object
+  }
   const email = normalizeEmail(body.email || "");
   const password = typeof body.password === "string" ? body.password : "";
   if (!email || !password) {
@@ -1273,7 +1288,12 @@ app.put("/api/auth/users/:id", async (c) => {
   if (!Number.isFinite(id) || id <= 0) {
     return c.json({ error: "Invalid user id" }, 400);
   }
-  const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+  let body: Record<string, unknown> = {};
+  try {
+    body = await c.req.json<Record<string, unknown>>();
+  } catch {
+    // Leave body as empty object
+  }
   const updates: string[] = [];
   const values: unknown[] = [];
   if (typeof body.name === "string") {
@@ -1333,7 +1353,12 @@ app.post("/api/auth/users/:id/password", async (c) => {
   if (!Number.isFinite(id) || id <= 0) {
     return c.json({ error: "Invalid user id" }, 400);
   }
-  const body = await c.req.json<{ password?: string }>().catch(() => ({}));
+  let body: { password?: string } = {};
+  try {
+    body = await c.req.json<{ password?: string }>();
+  } catch {
+    // Leave body as empty object
+  }
   const password = typeof body.password === "string" ? body.password : "";
   if (!password) {
     return c.json({ error: "Password required" }, 400);
@@ -1376,11 +1401,12 @@ app.delete("/api/auth/users/:id", async (c) => {
 
 app.post("/api/auth/password", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const body = await c.req.json<{
-    currentPassword?: string;
-    newPassword?: string;
-    newEmail?: string;
-  }>().catch(() => ({}));
+  let body: { currentPassword?: string; newPassword?: string; newEmail?: string } = {};
+  try {
+    body = await c.req.json<{ currentPassword?: string; newPassword?: string; newEmail?: string }>();
+  } catch {
+    // Leave body as empty object
+  }
   const currentPassword = typeof body.currentPassword === "string" ? body.currentPassword : "";
   if (!currentPassword) {
     return c.json({ error: "Current password required" }, 400);
@@ -1823,6 +1849,7 @@ app.post("/api/companies", async (c) => {
     owner?: string;
     industry?: string;
     status?: string;
+    address?: string;
     tags?: Array<number | string>;
   }>();
 
@@ -2196,6 +2223,7 @@ app.post("/api/quotations", async (c) => {
     title?: string;
     tax_rate?: number;
     notes?: string;
+    bank_charge_method?: string;
     attachment_key?: string;
     tags?: Array<number | string>;
     items?: Array<{
@@ -2632,7 +2660,7 @@ app.post("/api/upload", async (c) => {
     `).bind(companyId, contactId, invoiceId, docTypeId, title, key, contentType, body.byteLength, ownerEmail);
 
     const doc = await stmt.first();
-    if (doc && tags.length) {
+    if (doc && tags.length && typeof doc.id === 'number') {
       await attachTags(c.env.DB, ownerEmail, "document", doc.id, tags);
     }
 
@@ -3458,7 +3486,7 @@ async function hasColumn(db: D1Database, table: string, column: string) {
   return Boolean(results && results.length);
 }
 
-async function serveAsset(c: Context<{ Bindings: Env }>) {
+async function serveAsset(c: Context<{ Bindings: Env; Variables: { ownerEmail: string; currentUser: UserRow; accessList: string[]; } }>) {
   const url = new URL(c.req.url);
   const path = url.pathname === "/" ? "/index.html" : url.pathname;
 

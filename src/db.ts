@@ -45,7 +45,8 @@ export const cacheJson = async ({
 }: CacheJsonOptions) => {
   const canCache = !bypass && (!request || !shouldBypassCache(request));
   if (canCache) {
-    const cached = await caches.default.match(cacheKey);
+    const cache = await caches.open('default');
+    const cached = await cache.match(cacheKey);
     if (cached) return cached;
   }
 
@@ -58,7 +59,8 @@ export const cacheJson = async ({
   }
   const response = new Response(JSON.stringify(payload), { headers });
   if (canCache) {
-    await caches.default.put(cacheKey, response.clone());
+    const cache = await caches.open('default');
+    await cache.put(cacheKey, response.clone());
   }
   return response;
 };
