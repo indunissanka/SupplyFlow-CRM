@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Context } from "hono";
+import { batchInChunks, buildCacheRequest, cacheJson, getReadSession } from "./db";
+import type { D1Queryable } from "./db";
 
 type Env = {
   DB: D1Database;
@@ -31,17 +33,23 @@ const cacheableTables = new Set<string>([
   "companies",
   "contacts",
   "products",
+  "orders",
   "quotations",
+  "invoices",
   "documents",
+  "shipping_schedules",
   "sample_shipments",
   "tasks",
   "notes",
   "tags",
   "doc_types",
-  "quotation_items"
+  "quotation_items",
+  "site_config"
 ]);
 
-const CACHE_TTL_SECONDS = 60;
+const CACHE_TTL_SECONDS = 20;
+const DASHBOARD_CACHE_TTL_SECONDS = 15;
+const SITE_CONFIG_CACHE_TTL_SECONDS = 20;
 const TAGGED_LIST_TABLES = ["orders", "quotations", "documents"];
 const DOC_TYPE_LIST_TABLES = ["doc_types", "documents"];
 const CACHEABLE_TABLES_LIST = Array.from(cacheableTables.values());
@@ -412,7 +420,7 @@ const coerceBoolean = (value: unknown, fallback = true) => {
   return fallback;
 };
 
-async function getSiteConfig(db: D1Database, ownerEmail: string) {
+async function getSiteConfig(db: D1Queryable, ownerEmail: string) {
   const row = await db
     .prepare(
       `SELECT site_name, base_company, region, timezone, theme, active_theme,
@@ -518,15 +526,6 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
     showFooter
   };
 }
-
-const runBatches = async (db: D1Database, statements: D1PreparedStatement[], batchSize = 50) => {
-  for (let i = 0; i < statements.length; i += batchSize) {
-    const chunk = statements.slice(i, i + batchSize);
-    if (chunk.length) {
-      await db.batch(chunk);
-    }
-  }
-};
 
 const bumpCacheVersion = async (env: Env, ownerEmail: string, table: string) => {
   if (!cacheableTables.has(table)) return;
@@ -819,6 +818,19 @@ const schemaStatements = [
   "CREATE INDEX IF NOT EXISTS idx_sample_shipments_owner_updated ON sample_shipments(owner_email, updated_at)",
   "CREATE INDEX IF NOT EXISTS idx_tasks_owner_updated ON tasks(owner_email, updated_at)",
   "CREATE INDEX IF NOT EXISTS idx_notes_owner_updated ON notes(owner_email, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_companies_owner_status_updated ON companies(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_contacts_owner_status_updated ON contacts(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_products_owner_status_updated ON products(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_orders_owner_status_updated ON orders(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_quotations_owner_status_updated ON quotations(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_invoices_owner_status_updated ON invoices(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_shipping_owner_status_updated ON shipping_schedules(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_sample_shipments_owner_status_updated ON sample_shipments(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_owner_status_updated ON tasks(owner_email, status, updated_at)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_owner_assignee ON tasks(owner_email, assignee)",
+  "CREATE INDEX IF NOT EXISTS idx_tasks_owner_related ON tasks(owner_email, related_type, related_id)",
+  "CREATE INDEX IF NOT EXISTS idx_notes_owner_entity ON notes(owner_email, entity_type, entity_id)",
+  "CREATE INDEX IF NOT EXISTS idx_documents_owner_title ON documents(owner_email, title)",
   "CREATE INDEX IF NOT EXISTS idx_tags_owner_created ON tags(owner_email, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_doc_types_owner_created ON doc_types(owner_email, created_at)",
   "CREATE INDEX IF NOT EXISTS idx_quotation_items_owner_created ON quotation_items(owner_email, created_at)",
@@ -930,12 +942,16 @@ app.post("/api/auth/login", async (c) => {
 
 app.get("/api/auth/users", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
+  const readDb = getReadSession(c.env.DB);
+  if (!(await requireAdmin(readDb, ownerEmail))) {
     return c.json({ error: "Admin access required" }, 403);
   }
-  const { results } = await c.env.DB.prepare(
+  const { results } = await readDb
+    .prepare(
     "SELECT id, email, name, role, access, access_list, enabled FROM users ORDER BY role = 'Admin' DESC, name, email"
-  ).all<UserRow>();
+    )
+    .bind()
+    .all<UserRow>();
   const users = (results ?? []).map((row) => buildUserResponse(row));
   return c.json({ users });
 });
@@ -1171,25 +1187,50 @@ app.post("/api/auth/password", async (c) => {
 
 app.get("/api/settings/site-config", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const config = await getSiteConfig(c.env.DB, ownerEmail);
-  return c.json({ config: config ?? {} });
+  const cacheBypass = c.req.query("cache") === "0";
+  const version = (await c.env.CACHE.get(cacheVersionKey(ownerEmail, "site_config"))) ?? "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/site-config?owner=${encodeURIComponent(ownerEmail)}&v=${version}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: SITE_CONFIG_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const config = await getSiteConfig(readDb, ownerEmail);
+      return { config: config ?? {} };
+    }
+  });
 });
 
 app.put("/api/settings/site-config", async (c) => {
   const ownerEmail = c.get("ownerEmail");
   const payload = await c.req.json<SiteConfigPayload>().catch(() => ({}));
   const config = await upsertSiteConfig(c.env.DB, ownerEmail, payload);
+  await bumpCacheVersion(c.env, ownerEmail, "site_config");
   return c.json({ ok: true, config });
 });
 
 app.get("/api/dashboard", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  await syncShippingMilestones(c.env.DB, ownerEmail);
-  const stats = await getStats(c.env.DB, ownerEmail);
-  const pipeline = await getPipeline(c.env.DB, ownerEmail);
-  const activity = await getActivity(c.env.DB, ownerEmail);
-
-  return c.json({ stats, pipeline, activity });
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(`https://cache.local/api/dashboard?owner=${encodeURIComponent(ownerEmail)}`);
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      await syncShippingMilestones(c.env.DB, ownerEmail);
+      const readDb = getReadSession(c.env.DB, true);
+      const stats = await getStats(readDb, ownerEmail);
+      const pipeline = await getPipeline(readDb, ownerEmail);
+      const activity = await getActivity(readDb, ownerEmail);
+      return { stats, pipeline, activity };
+    }
+  });
 });
 
 app.get("/api/tracking/shippo", async (c) => {
@@ -1261,31 +1302,33 @@ app.get("/api/:table", async (c) => {
   const offsetRaw = offsetParam ? Number.parseInt(offsetParam, 10) : 0;
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 200) : 50;
   const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
-  if (table === "orders" || table === "invoices" || table === "shipping_schedules") {
-    await syncShippingMilestones(c.env.DB, ownerEmail);
-  }
+  const needsPrimary = table === "orders" || table === "invoices" || table === "shipping_schedules";
+  const cacheEnabled = !cacheBypass && cacheableTables.has(table);
 
-  if (!cacheBypass && cacheableTables.has(table)) {
+  if (cacheEnabled) {
     const filterKey = buildFilterKey(filters);
     const version = (await c.env.CACHE.get(cacheVersionKey(ownerEmail, table))) ?? "0";
-    const cacheKey = new Request(buildCacheKey(ownerEmail, table, filterKey, version, limit, offset));
-    const cached = await caches.default.match(cacheKey);
-    if (cached) {
-      return cached;
-    }
-    const rows = await fetchRows(c.env.DB, table, ownerEmail, filters, limit, offset);
-    const body = JSON.stringify({ rows });
-    const response = new Response(body, {
-      headers: {
-        "content-type": "application/json",
-        "cache-control": `max-age=${CACHE_TTL_SECONDS}`
+    const cacheKey = buildCacheRequest(buildCacheKey(ownerEmail, table, filterKey, version, limit, offset));
+    return cacheJson({
+      cacheKey,
+      ttlSeconds: CACHE_TTL_SECONDS,
+      request: c.req.raw,
+      data: async () => {
+        if (needsPrimary) {
+          await syncShippingMilestones(c.env.DB, ownerEmail);
+        }
+        const readDb = getReadSession(c.env.DB, needsPrimary);
+        const rows = await fetchRows(readDb, table, ownerEmail, filters, limit, offset);
+        return { rows };
       }
     });
-    await caches.default.put(cacheKey, response.clone());
-    return response;
   }
 
-  const rows = await fetchRows(c.env.DB, table, ownerEmail, filters, limit, offset);
+  if (needsPrimary) {
+    await syncShippingMilestones(c.env.DB, ownerEmail);
+  }
+  const readDb = getReadSession(c.env.DB, needsPrimary);
+  const rows = await fetchRows(readDb, table, ownerEmail, filters, limit, offset);
   return c.json({ rows });
 });
 
@@ -1411,7 +1454,7 @@ app.delete("/api/:table/:id", async (c) => {
       }
     }
     if (detach.length) {
-      await runBatches(c.env.DB, detach);
+      await batchInChunks(c.env.DB, detach);
     }
   }
   if (table === "products") {
@@ -1427,7 +1470,7 @@ app.delete("/api/:table/:id", async (c) => {
       }
     }
     if (detach.length) {
-      await runBatches(c.env.DB, detach);
+      await batchInChunks(c.env.DB, detach);
     }
   }
 
@@ -1595,7 +1638,7 @@ app.post("/api/companies/bulk", async (c) => {
       );
     });
 
-    await runBatches(c.env.DB, inserts);
+    await batchInChunks(c.env.DB, inserts);
     await bumpCacheVersion(c.env, ownerEmail, "companies");
     return c.json({ inserted: inserts.length });
   } catch (err) {
@@ -1607,7 +1650,8 @@ app.post("/api/companies/bulk", async (c) => {
 
 app.get("/api/companies/csv", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const { results } = await c.env.DB.prepare(
+  const readDb = getReadSession(c.env.DB);
+  const { results } = await readDb.prepare(
     `SELECT name, company_code, website, email, phone, owner, industry, status, address
      FROM companies
      WHERE owner_email = ?
@@ -1708,14 +1752,15 @@ app.post("/api/contacts/bulk", async (c) => {
       );
   });
 
-  await runBatches(c.env.DB, inserts);
+  await batchInChunks(c.env.DB, inserts);
   await bumpCacheVersion(c.env, ownerEmail, "contacts");
   return c.json({ inserted: inserts.length });
 });
 
 app.get("/api/contacts/csv", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const { results } = await c.env.DB.prepare(
+  const readDb = getReadSession(c.env.DB);
+  const { results } = await readDb.prepare(
     `SELECT c.company_id, co.name as company_name, c.first_name, c.last_name, c.email, c.phone, c.role, c.status
      FROM contacts c
      LEFT JOIN companies co ON co.id = c.company_id AND co.owner_email = ?
@@ -1770,14 +1815,15 @@ app.post("/api/products/bulk", async (c) => {
       )
     );
 
-  await runBatches(c.env.DB, inserts);
+  await batchInChunks(c.env.DB, inserts);
   await bumpCacheVersion(c.env, ownerEmail, "products");
   return c.json({ inserted: inserts.length });
 });
 
 app.get("/api/products/csv", async (c) => {
   const ownerEmail = c.get("ownerEmail");
-  const { results } = await c.env.DB.prepare(
+  const readDb = getReadSession(c.env.DB);
+  const { results } = await readDb.prepare(
     `SELECT name, sku, category, price, currency, status, description
      FROM products
      WHERE owner_email = ?
@@ -1919,7 +1965,7 @@ app.post("/api/quotations", async (c) => {
         ownerEmail
       )
     );
-    await runBatches(c.env.DB, inserts);
+    await batchInChunks(c.env.DB, inserts);
   }
 
   await attachTags(c.env.DB, ownerEmail, "quotation", quotationId, tags);
@@ -2287,7 +2333,8 @@ app.get("/api/files/:key{.+}", async (c) => {
     return c.notFound();
   }
 
-  const record = await c.env.DB
+  const readDb = getReadSession(c.env.DB);
+  const record = await readDb
     .prepare("SELECT id FROM documents WHERE storage_key = ? AND owner_email = ?")
     .bind(key, ownerEmail)
     .first();
@@ -2326,10 +2373,16 @@ type UniqueTableConfig = {
 };
 
 async function hasSingleColumnUniqueIndex(db: D1Database, table: string, column: string) {
-  const indexes = await db.prepare(`PRAGMA index_list(${table})`).all<{ name: string; unique: number }>();
+  const indexes = await db
+    .prepare(`PRAGMA index_list(${table})`)
+    .bind()
+    .all<{ name: string; unique: number }>();
   for (const idx of indexes.results ?? []) {
     if (!idx.unique || !idx.name) continue;
-    const info = await db.prepare(`PRAGMA index_info(${idx.name})`).all<{ name: string }>();
+    const info = await db
+      .prepare(`PRAGMA index_info(${idx.name})`)
+      .bind()
+      .all<{ name: string }>();
     const columns = info.results?.map((row) => row.name) ?? [];
     if (columns.length === 1 && columns[0] === column) {
       return true;
@@ -2341,7 +2394,10 @@ async function hasSingleColumnUniqueIndex(db: D1Database, table: string, column:
 async function rebuildOwnerScopedTable(db: D1Database, table: string) {
   const createTemplate = schemaCreateStatements.get(table);
   if (!createTemplate) return false;
-  const columnsInfo = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+  const columnsInfo = await db
+    .prepare(`PRAGMA table_info(${table})`)
+    .bind()
+    .all<{ name: string }>();
   const columns = columnsInfo.results?.map((row) => row.name) ?? [];
   if (!columns.length) return false;
 
@@ -2354,13 +2410,13 @@ async function rebuildOwnerScopedTable(db: D1Database, table: string) {
     .map((col) => (col === "owner_email" ? "COALESCE(owner_email, '')" : `"${col}"`))
     .join(", ");
 
-  await db.prepare(`DROP TABLE IF EXISTS ${table}_new`).run();
-  await db.prepare("PRAGMA foreign_keys = OFF").run();
-  await db.prepare(createSql).run();
-  await db.prepare(`INSERT INTO ${table}_new (${quotedColumns}) SELECT ${selectColumns} FROM ${table}`).run();
-  await db.prepare(`DROP TABLE ${table}`).run();
-  await db.prepare(`ALTER TABLE ${table}_new RENAME TO ${table}`).run();
-  await db.prepare("PRAGMA foreign_keys = ON").run();
+  await db.prepare(`DROP TABLE IF EXISTS ${table}_new`).bind().run();
+  await db.prepare("PRAGMA foreign_keys = OFF").bind().run();
+  await db.prepare(createSql).bind().run();
+  await db.prepare(`INSERT INTO ${table}_new (${quotedColumns}) SELECT ${selectColumns} FROM ${table}`).bind().run();
+  await db.prepare(`DROP TABLE ${table}`).bind().run();
+  await db.prepare(`ALTER TABLE ${table}_new RENAME TO ${table}`).bind().run();
+  await db.prepare("PRAGMA foreign_keys = ON").bind().run();
   return true;
 }
 
@@ -2378,7 +2434,10 @@ async function rebuildOwnerUniqueTables(db: D1Database) {
 
   let rebuilt = false;
   for (const target of targets) {
-    const hasTable = await db.prepare(`PRAGMA table_info(${target.table})`).all<{ name: string }>();
+    const hasTable = await db
+      .prepare(`PRAGMA table_info(${target.table})`)
+      .bind()
+      .all<{ name: string }>();
     if (!hasTable.results || hasTable.results.length === 0) continue;
     let needsRebuild = false;
     for (const column of target.uniqueColumns) {
@@ -2394,86 +2453,86 @@ async function rebuildOwnerUniqueTables(db: D1Database) {
   }
 
   if (rebuilt) {
-    await db.batch(schemaIndexStatements.map((sql) => db.prepare(sql)));
+    await db.batch(schemaIndexStatements.map((sql) => db.prepare(sql).bind()));
   }
 }
 
 async function ensureSchema(db: D1Database) {
   if (schemaInitialized) return;
-  await db.batch(schemaStatements.map((sql) => db.prepare(sql)));
+  await db.batch(schemaStatements.map((sql) => db.prepare(sql).bind()));
 
   // Backfill note_date if missing on existing databases
-  const noteColumns = await db.prepare("PRAGMA table_info(notes)").all<{ name: string }>();
+  const noteColumns = await db.prepare("PRAGMA table_info(notes)").bind().all<{ name: string }>();
   const hasNoteDate = noteColumns.results?.some((c) => c.name === "note_date");
   if (!hasNoteDate) {
-    await db.prepare("ALTER TABLE notes ADD COLUMN note_date TEXT").run();
+    await db.prepare("ALTER TABLE notes ADD COLUMN note_date TEXT").bind().run();
   }
 
-  const companyColumns = await db.prepare("PRAGMA table_info(companies)").all<{ name: string }>();
+  const companyColumns = await db.prepare("PRAGMA table_info(companies)").bind().all<{ name: string }>();
   const companyNames = new Set(companyColumns.results?.map((c) => c.name));
   if (companyNames.size && !companyNames.has("company_code")) {
-    await db.prepare("ALTER TABLE companies ADD COLUMN company_code TEXT").run();
+    await db.prepare("ALTER TABLE companies ADD COLUMN company_code TEXT").bind().run();
   }
   if (companyNames.size && !companyNames.has("address")) {
-    await db.prepare("ALTER TABLE companies ADD COLUMN address TEXT").run();
+    await db.prepare("ALTER TABLE companies ADD COLUMN address TEXT").bind().run();
   }
   if (companyNames.size && !companyNames.has("industry")) {
-    await db.prepare("ALTER TABLE companies ADD COLUMN industry TEXT").run();
+    await db.prepare("ALTER TABLE companies ADD COLUMN industry TEXT").bind().run();
   }
 
-  const shipColumns = await db.prepare("PRAGMA table_info(shipping_schedules)").all<{ name: string }>();
+  const shipColumns = await db.prepare("PRAGMA table_info(shipping_schedules)").bind().all<{ name: string }>();
   const shipNames = new Set(shipColumns.results?.map((c) => c.name));
   if (shipNames.size) {
-    if (!shipNames.has("invoice_id")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN invoice_id INTEGER").run();
-    if (!shipNames.has("company_id")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN company_id INTEGER").run();
-    if (!shipNames.has("factory_exit_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN factory_exit_date TEXT").run();
-    if (!shipNames.has("etc_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN etc_date TEXT").run();
-    if (!shipNames.has("etd_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN etd_date TEXT").run();
+    if (!shipNames.has("invoice_id")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN invoice_id INTEGER").bind().run();
+    if (!shipNames.has("company_id")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN company_id INTEGER").bind().run();
+    if (!shipNames.has("factory_exit_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN factory_exit_date TEXT").bind().run();
+    if (!shipNames.has("etc_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN etc_date TEXT").bind().run();
+    if (!shipNames.has("etd_date")) await db.prepare("ALTER TABLE shipping_schedules ADD COLUMN etd_date TEXT").bind().run();
   }
 
-  const sampleColumns = await db.prepare("PRAGMA table_info(sample_shipments)").all<{ name: string }>();
+  const sampleColumns = await db.prepare("PRAGMA table_info(sample_shipments)").bind().all<{ name: string }>();
   const sampleNames = new Set(sampleColumns.results?.map((c) => c.name));
   if (sampleNames.size) {
-    if (!sampleNames.has("document_id")) await db.prepare("ALTER TABLE sample_shipments ADD COLUMN document_id INTEGER").run();
+    if (!sampleNames.has("document_id")) await db.prepare("ALTER TABLE sample_shipments ADD COLUMN document_id INTEGER").bind().run();
   }
 
-  const docColumns = await db.prepare("PRAGMA table_info(documents)").all<{ name: string }>();
+  const docColumns = await db.prepare("PRAGMA table_info(documents)").bind().all<{ name: string }>();
   const docNames = new Set(docColumns.results?.map((c) => c.name));
   if (docNames.size) {
-    if (!docNames.has("invoice_id")) await db.prepare("ALTER TABLE documents ADD COLUMN invoice_id INTEGER").run();
-    if (!docNames.has("doc_type_id")) await db.prepare("ALTER TABLE documents ADD COLUMN doc_type_id INTEGER").run();
+    if (!docNames.has("invoice_id")) await db.prepare("ALTER TABLE documents ADD COLUMN invoice_id INTEGER").bind().run();
+    if (!docNames.has("doc_type_id")) await db.prepare("ALTER TABLE documents ADD COLUMN doc_type_id INTEGER").bind().run();
   }
 
-  const orderColumns = await db.prepare("PRAGMA table_info(orders)").all<{ name: string }>();
+  const orderColumns = await db.prepare("PRAGMA table_info(orders)").bind().all<{ name: string }>();
   const orderNames = new Set(orderColumns.results?.map((c) => c.name));
   if (orderNames.size && !orderNames.has("quotation_id")) {
-    await db.prepare("ALTER TABLE orders ADD COLUMN quotation_id INTEGER").run();
+    await db.prepare("ALTER TABLE orders ADD COLUMN quotation_id INTEGER").bind().run();
   }
   if (orderNames.size && !orderNames.has("invoice_ids")) {
-    await db.prepare("ALTER TABLE orders ADD COLUMN invoice_ids TEXT").run();
+    await db.prepare("ALTER TABLE orders ADD COLUMN invoice_ids TEXT").bind().run();
   }
 
-  const quoteColumns = await db.prepare("PRAGMA table_info(quotations)").all<{ name: string }>();
+  const quoteColumns = await db.prepare("PRAGMA table_info(quotations)").bind().all<{ name: string }>();
   const quoteNames = new Set(quoteColumns.results?.map((c) => c.name));
   if (quoteNames.size) {
-    if (!quoteNames.has("title")) await db.prepare("ALTER TABLE quotations ADD COLUMN title TEXT").run();
-    if (!quoteNames.has("tax_rate")) await db.prepare("ALTER TABLE quotations ADD COLUMN tax_rate REAL DEFAULT 0").run();
-    if (!quoteNames.has("notes")) await db.prepare("ALTER TABLE quotations ADD COLUMN notes TEXT").run();
-    if (!quoteNames.has("bank_charge_method")) await db.prepare("ALTER TABLE quotations ADD COLUMN bank_charge_method TEXT").run();
-    if (!quoteNames.has("attachment_key")) await db.prepare("ALTER TABLE quotations ADD COLUMN attachment_key TEXT").run();
+    if (!quoteNames.has("title")) await db.prepare("ALTER TABLE quotations ADD COLUMN title TEXT").bind().run();
+    if (!quoteNames.has("tax_rate")) await db.prepare("ALTER TABLE quotations ADD COLUMN tax_rate REAL DEFAULT 0").bind().run();
+    if (!quoteNames.has("notes")) await db.prepare("ALTER TABLE quotations ADD COLUMN notes TEXT").bind().run();
+    if (!quoteNames.has("bank_charge_method")) await db.prepare("ALTER TABLE quotations ADD COLUMN bank_charge_method TEXT").bind().run();
+    if (!quoteNames.has("attachment_key")) await db.prepare("ALTER TABLE quotations ADD COLUMN attachment_key TEXT").bind().run();
   }
 
-  const invoiceColumns = await db.prepare("PRAGMA table_info(invoices)").all<{ name: string }>();
+  const invoiceColumns = await db.prepare("PRAGMA table_info(invoices)").bind().all<{ name: string }>();
   const invoiceNames = new Set(invoiceColumns.results?.map((c) => c.name));
   if (invoiceNames.size) {
-    if (!invoiceNames.has("attachment_key")) await db.prepare("ALTER TABLE invoices ADD COLUMN attachment_key TEXT").run();
+    if (!invoiceNames.has("attachment_key")) await db.prepare("ALTER TABLE invoices ADD COLUMN attachment_key TEXT").bind().run();
   }
 
   for (const table of ownerEmailTables) {
-    const columns = await db.prepare(`PRAGMA table_info(${table})`).all<{ name: string }>();
+    const columns = await db.prepare(`PRAGMA table_info(${table})`).bind().all<{ name: string }>();
     const names = new Set(columns.results?.map((c) => c.name));
     if (names.size && !names.has("owner_email")) {
-      await db.prepare(`ALTER TABLE ${table} ADD COLUMN owner_email TEXT`).run();
+      await db.prepare(`ALTER TABLE ${table} ADD COLUMN owner_email TEXT`).bind().run();
     }
   }
 
@@ -2533,6 +2592,7 @@ async function syncShippingMilestones(db: D1Database, ownerEmail: string) {
      SET status = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ? AND owner_email = ? AND (status IS NULL OR status <> ?)`
   );
+  const scheduleUpdates: D1PreparedStatement[] = [];
 
   const applyStatus = (target: Map<number, string>, id: number, status: string) => {
     const current = target.get(id);
@@ -2545,10 +2605,14 @@ async function syncShippingMilestones(db: D1Database, ownerEmail: string) {
     const computedStatus = computeShippingMilestoneStatus(row, nowMs);
     if (!computedStatus) continue;
     if (row.status !== computedStatus) {
-      await updateSchedule.bind(computedStatus, row.id, ownerEmail, computedStatus).run();
+      scheduleUpdates.push(updateSchedule.bind(computedStatus, row.id, ownerEmail, computedStatus));
     }
     if (row.order_id) applyStatus(orderStatuses, row.order_id, computedStatus);
     if (row.invoice_id) applyStatus(invoiceStatuses, row.invoice_id, computedStatus);
+  }
+
+  if (scheduleUpdates.length) {
+    await batchInChunks(db, scheduleUpdates);
   }
 
   if (orderStatuses.size) {
@@ -2557,8 +2621,12 @@ async function syncShippingMilestones(db: D1Database, ownerEmail: string) {
        SET status = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND owner_email = ? AND (status IS NULL OR status <> ?)`
     );
+    const orderUpdates: D1PreparedStatement[] = [];
     for (const [id, status] of orderStatuses.entries()) {
-      await updateOrder.bind(status, id, ownerEmail, status).run();
+      orderUpdates.push(updateOrder.bind(status, id, ownerEmail, status));
+    }
+    if (orderUpdates.length) {
+      await batchInChunks(db, orderUpdates);
     }
   }
 
@@ -2568,28 +2636,33 @@ async function syncShippingMilestones(db: D1Database, ownerEmail: string) {
        SET status = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND owner_email = ? AND (status IS NULL OR status <> ?)`
     );
+    const invoiceUpdates: D1PreparedStatement[] = [];
     for (const [id, status] of invoiceStatuses.entries()) {
-      await updateInvoice.bind(status, id, ownerEmail, status).run();
+      invoiceUpdates.push(updateInvoice.bind(status, id, ownerEmail, status));
+    }
+    if (invoiceUpdates.length) {
+      await batchInChunks(db, invoiceUpdates);
     }
   }
 }
 
-async function getStats(db: D1Database, ownerEmail: string) {
-  const result: Record<string, number> = {};
-
-  for (const table of ["companies", "contacts", "orders", "quotations", "invoices", "tasks"]) {
-    const row = await db
-      .prepare(`SELECT COUNT(*) as count FROM ${table} WHERE owner_email = ?`)
-      .bind(ownerEmail)
-      .first<{ count: number }>();
-    result[table === "orders" ? "openOrders" : table] = row?.count ?? 0;
-  }
-
-  return result;
+async function getStats(db: D1Queryable, ownerEmail: string) {
+  const tables = ["companies", "contacts", "orders", "quotations", "invoices", "tasks"];
+  const statements = tables.map((table) =>
+    db.prepare(`SELECT COUNT(*) as count FROM ${table} WHERE owner_email = ?`).bind(ownerEmail)
+  );
+  const results = await db.batch<{ count: number }>(statements);
+  const output: Record<string, number> = {};
+  results.forEach((res, index) => {
+    const row = res.results?.[0] as { count: number } | undefined;
+    const key = tables[index] === "orders" ? "openOrders" : tables[index];
+    output[key] = row?.count ?? 0;
+  });
+  return output;
 }
 
 async function fetchRows(
-  db: D1Database,
+  db: D1Queryable,
   table: string,
   ownerEmail: string,
   filters: Array<{ column: string; value: string | number }>,
@@ -2831,7 +2904,7 @@ const buildUserResponse = (row: UserRow) => {
   };
 };
 
-const getUserByEmail = async (db: D1Database, email: string) =>
+const getUserByEmail = async (db: D1Queryable, email: string) =>
   db
     .prepare(
       "SELECT id, email, name, role, access, access_list, password_hash, password_salt, enabled FROM users WHERE email = ? LIMIT 1"
@@ -2839,24 +2912,24 @@ const getUserByEmail = async (db: D1Database, email: string) =>
     .bind(email)
     .first<UserRow>();
 
-const countUsers = async (db: D1Database) => {
-  const row = await db.prepare("SELECT COUNT(*) as count FROM users").first<{ count: number }>();
+const countUsers = async (db: D1Queryable) => {
+  const row = await db.prepare("SELECT COUNT(*) as count FROM users").bind().first<{ count: number }>();
   return row?.count ?? 0;
 };
 
-const requireUser = async (db: D1Database, email: string) => {
+const requireUser = async (db: D1Queryable, email: string) => {
   const user = await getUserByEmail(db, email);
   if (!user || user.enabled === 0) return null;
   return user;
 };
 
-const requireAdmin = async (db: D1Database, email: string) => {
+const requireAdmin = async (db: D1Queryable, email: string) => {
   const user = await requireUser(db, email);
   if (!user || user.role !== adminRole) return null;
   return user;
 };
 
-const isEmailAvailable = async (db: D1Database, nextEmail: string) => {
+const isEmailAvailable = async (db: D1Queryable, nextEmail: string) => {
   for (const table of ownerEmailTables) {
     const existing = await db.prepare(`SELECT 1 FROM ${table} WHERE owner_email = ? LIMIT 1`).bind(nextEmail).first();
     if (existing) return false;
@@ -2870,7 +2943,7 @@ const updateOwnerEmailTables = async (db: D1Database, fromEmail: string, toEmail
   const updates = ownerEmailTables.map((table) =>
     db.prepare(`UPDATE ${table} SET owner_email = ? WHERE owner_email = ?`).bind(toEmail, fromEmail)
   );
-  await runBatches(db, updates);
+  await batchInChunks(db, updates);
 };
 
 function normalizeCompanyName(value: unknown): string {
@@ -2899,34 +2972,33 @@ async function attachTags(db: D1Database, ownerEmail: string, entityType: string
       .bind(tagId, entityType, entityId, ownerEmail)
   );
   if (inserts.length) {
-    await runBatches(db, inserts);
+    await batchInChunks(db, inserts);
   }
 }
 
-async function getPipeline(db: D1Database, ownerEmail: string) {
-  const orders = await db
-    .prepare(
-      `SELECT o.reference AS ref, c.name AS account, o.total_amount AS amount, o.status
-       FROM orders o
-       LEFT JOIN companies c ON c.id = o.company_id AND c.owner_email = ?
-       WHERE o.owner_email = ?
-       ORDER BY o.updated_at DESC
-       LIMIT 5`
-    )
-    .bind(ownerEmail, ownerEmail)
-    .all<{ ref: string; account: string; amount: number; status: string }>();
-
-  const invoices = await db
-    .prepare(
-      `SELECT i.reference AS ref, c.name AS account, i.total_amount AS amount, i.status
-       FROM invoices i
-       LEFT JOIN companies c ON c.id = i.company_id AND c.owner_email = ?
-       WHERE i.owner_email = ?
-       ORDER BY i.updated_at DESC
-       LIMIT 5`
-    )
-    .bind(ownerEmail, ownerEmail)
-    .all<{ ref: string; account: string; amount: number; status: string }>();
+async function getPipeline(db: D1Queryable, ownerEmail: string) {
+  const [orders, invoices] = await db.batch<{ ref: string; account: string; amount: number; status: string }>([
+    db
+      .prepare(
+        `SELECT o.reference AS ref, c.name AS account, o.total_amount AS amount, o.status
+         FROM orders o
+         LEFT JOIN companies c ON c.id = o.company_id AND c.owner_email = ?
+         WHERE o.owner_email = ?
+         ORDER BY o.updated_at DESC
+         LIMIT 5`
+      )
+      .bind(ownerEmail, ownerEmail),
+    db
+      .prepare(
+        `SELECT i.reference AS ref, c.name AS account, i.total_amount AS amount, i.status
+         FROM invoices i
+         LEFT JOIN companies c ON c.id = i.company_id AND c.owner_email = ?
+         WHERE i.owner_email = ?
+         ORDER BY i.updated_at DESC
+         LIMIT 5`
+      )
+      .bind(ownerEmail, ownerEmail)
+  ]);
 
   const formatAmount = (amount?: number) =>
     typeof amount === "number" && !Number.isNaN(amount)
@@ -2950,7 +3022,7 @@ async function getPipeline(db: D1Database, ownerEmail: string) {
   return combined;
 }
 
-async function getActivity(db: D1Database, ownerEmail: string) {
+async function getActivity(db: D1Queryable, ownerEmail: string) {
   const notes = await db
     .prepare(
       `SELECT body, author, entity_type
