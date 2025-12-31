@@ -10,6 +10,8 @@ type Env = {
   ASSETS: Fetcher;
   CACHE: KVNamespace;
   SHIPPO_API_KEY?: string;
+  AUTH_SECRET: string;
+  ALLOWED_ORIGINS?: string;
 };
 
 const allowedTables = [
@@ -50,6 +52,9 @@ const cacheableTables = new Set<string>([
 const CACHE_TTL_SECONDS = 20;
 const DASHBOARD_CACHE_TTL_SECONDS = 15;
 const SITE_CONFIG_CACHE_TTL_SECONDS = 20;
+const AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 12;
+const LOGIN_RATE_LIMIT_WINDOW_SECONDS = 5 * 60;
+const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
 const TAGGED_LIST_TABLES = ["orders", "quotations", "documents"];
 const DOC_TYPE_LIST_TABLES = ["doc_types", "documents"];
 const CACHEABLE_TABLES_LIST = Array.from(cacheableTables.values());
@@ -91,6 +96,38 @@ const ownerEmailTables = [
   "site_config"
 ];
 
+const accessByTable: Record<string, string> = {
+  companies: "companies",
+  contacts: "contacts",
+  products: "products",
+  orders: "orders",
+  quotations: "quotations",
+  invoices: "invoices",
+  documents: "documents",
+  shipping_schedules: "shipping",
+  sample_shipments: "sample_shipments",
+  tasks: "tasks",
+  notes: "notes",
+  tags: "tags",
+  doc_types: "tags",
+  quotation_items: "quotations"
+};
+
+const allowedUploadContentTypes = new Set<string>([
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/octet-stream"
+]);
+
 const updatableFields: Record<string, string[]> = {
   companies: ["name", "website", "email", "phone", "owner", "industry", "status", "address", "updated_at", "company_code"],
   contacts: ["company_id", "first_name", "last_name", "email", "phone", "role", "status"],
@@ -129,6 +166,23 @@ const updatableFields: Record<string, string[]> = {
   tags: ["name", "color"],
   doc_types: ["name"]
 };
+
+const securityHeaders = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "same-origin",
+  "x-frame-options": "DENY",
+  "permissions-policy": "camera=(), microphone=(), geolocation=()"
+};
+
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self' https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src https://fonts.gstatic.com",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'"
+].join("; ");
 
 const entityTypes: Record<string, string> = {
   companies: "company",
@@ -392,6 +446,127 @@ const buildWhereClause = (
     params.push(filter.value);
   }
   return { clause: parts.join(" AND "), params };
+};
+
+type JwtPayload = {
+  sub: string;
+  iat: number;
+  exp: number;
+};
+
+const base64UrlEncode = (data: Uint8Array) =>
+  btoa(String.fromCharCode(...data))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+
+const base64UrlDecode = (input: string) => {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = normalized.length % 4 === 0 ? "" : "=".repeat(4 - (normalized.length % 4));
+  const decoded = atob(`${normalized}${pad}`);
+  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+};
+
+let cachedJwtKey: CryptoKey | null = null;
+let cachedJwtSecret: string | null = null;
+
+const getJwtKey = async (secret: string) => {
+  if (cachedJwtKey && cachedJwtSecret === secret) return cachedJwtKey;
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"]
+  );
+  cachedJwtKey = key;
+  cachedJwtSecret = secret;
+  return key;
+};
+
+const signJwt = async (payload: JwtPayload, secret: string) => {
+  const header = base64UrlEncode(new TextEncoder().encode(JSON.stringify({ alg: "HS256", typ: "JWT" })));
+  const body = base64UrlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const data = `${header}.${body}`;
+  const signature = await crypto.subtle.sign("HMAC", await getJwtKey(secret), new TextEncoder().encode(data));
+  return `${data}.${base64UrlEncode(new Uint8Array(signature))}`;
+};
+
+const verifyJwt = async (token: string, secret: string) => {
+  const parts = token.split(".");
+  if (parts.length !== 3) return null;
+  const [header, body, signature] = parts;
+  const data = `${header}.${body}`;
+  const signatureBytes = base64UrlDecode(signature);
+  const valid = await crypto.subtle.verify(
+    "HMAC",
+    await getJwtKey(secret),
+    signatureBytes,
+    new TextEncoder().encode(data)
+  );
+  if (!valid) return null;
+  try {
+    const payload = JSON.parse(new TextDecoder().decode(base64UrlDecode(body))) as JwtPayload;
+    if (!payload?.sub || typeof payload.sub !== "string") return null;
+    if (!Number.isFinite(payload.iat) || !Number.isFinite(payload.exp)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+};
+
+const parseAllowedOrigins = (raw?: string) =>
+  (raw || "")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+const isOriginAllowed = (origin: string, requestOrigin: string, allowlist: string[]) => {
+  if (allowlist.includes("*")) return true;
+  if (!allowlist.length) return origin === requestOrigin;
+  return allowlist.includes(origin);
+};
+
+const normalizeContentType = (value?: string | null) => {
+  const trimmed = (value || "").split(";")[0]?.trim().toLowerCase();
+  return trimmed || "application/octet-stream";
+};
+
+const applySecurityHeaders = (response: Response) => {
+  const headers = new Headers(response.headers);
+  Object.entries(securityHeaders).forEach(([key, value]) => {
+    headers.set(key, value);
+  });
+  const contentType = headers.get("content-type") || "";
+  if (contentType.includes("text/html")) {
+    headers.set("content-security-policy", contentSecurityPolicy);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+};
+
+const checkRateLimit = async (kv: KVNamespace, key: string) => {
+  const now = Date.now();
+  const raw = await kv.get(key);
+  let state: { count: number; reset: number } | null = null;
+  if (raw) {
+    try {
+      state = JSON.parse(raw) as { count: number; reset: number };
+    } catch {
+      state = null;
+    }
+  }
+  if (!state || typeof state !== "object" || now > state.reset) {
+    state = { count: 0, reset: now + LOGIN_RATE_LIMIT_WINDOW_SECONDS * 1000 };
+  }
+  state.count += 1;
+  const ttl = Math.max(1, Math.ceil((state.reset - now) / 1000));
+  await kv.put(key, JSON.stringify(state), { expirationTtl: ttl });
+  const allowed = state.count <= LOGIN_RATE_LIMIT_MAX_ATTEMPTS;
+  return { allowed, retryAfter: ttl, remaining: Math.max(0, LOGIN_RATE_LIMIT_MAX_ATTEMPTS - state.count) };
 };
 
 type SiteConfigPayload = {
@@ -864,9 +1039,30 @@ schemaStatements.forEach((statement) => {
 
 let schemaInitialized = false;
 
-const app = new Hono<{ Bindings: Env; Variables: { ownerEmail: string } }>();
+const app = new Hono<{
+  Bindings: Env;
+  Variables: { ownerEmail: string; currentUser: UserRow; accessList: string[] };
+}>();
 
-app.use("/api/*", cors());
+app.use(
+  "/api/*",
+  cors({
+    origin: (origin, c) => {
+      if (!origin) return "*";
+      const allowlist = parseAllowedOrigins(c.env.ALLOWED_ORIGINS);
+      const requestOrigin = new URL(c.req.url).origin;
+      return isOriginAllowed(origin, requestOrigin, allowlist) ? origin : "";
+    },
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowHeaders: ["content-type", "authorization"],
+    maxAge: 86400
+  })
+);
+
+app.use("*", async (c, next) => {
+  await next();
+  c.res = applySecurityHeaders(c.res);
+});
 
 app.use("/api/*", async (c, next) => {
   await ensureSchema(c.env.DB);
@@ -875,11 +1071,32 @@ app.use("/api/*", async (c, next) => {
     await next();
     return;
   }
-  const ownerEmail = (c.req.header("x-user-email") || "").trim().toLowerCase();
-  if (!ownerEmail) {
-    return c.json({ error: "Missing user context" }, 401);
+  const authHeader = c.req.header("authorization") || "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) {
+    return c.json({ error: "Missing authentication token" }, 401);
   }
+  if (!c.env.AUTH_SECRET) {
+    return c.json({ error: "Authentication not configured" }, 500);
+  }
+  const payload = await verifyJwt(token, c.env.AUTH_SECRET);
+  if (!payload) {
+    return c.json({ error: "Invalid authentication token" }, 401);
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (payload.exp <= nowSeconds) {
+    return c.json({ error: "Authentication token expired" }, 401);
+  }
+  const ownerEmail = normalizeEmail(payload.sub);
+  const readDb = getReadSession(c.env.DB);
+  const user = await getUserByEmail(readDb, ownerEmail);
+  if (!user || user.enabled === 0) {
+    return c.json({ error: "Account disabled or not found" }, 403);
+  }
+  const accessList = normalizeAccessList(user.access_list ?? user.access);
   c.set("ownerEmail", ownerEmail);
+  c.set("currentUser", user);
+  c.set("accessList", accessList);
   await next();
 });
 
@@ -891,6 +1108,13 @@ app.get("/api/health", (c) =>
 );
 
 app.post("/api/auth/login", async (c) => {
+  const ip =
+    (c.req.header("cf-connecting-ip") || c.req.header("x-forwarded-for") || "").split(",")[0].trim() || "unknown";
+  const rateLimit = await checkRateLimit(c.env.CACHE, `ratelimit:login:${ip}`);
+  if (!rateLimit.allowed) {
+    c.header("retry-after", String(rateLimit.retryAfter));
+    return c.json({ error: "Too many login attempts. Try again later." }, 429);
+  }
   const body = await c.req.json<{ email?: string; password?: string; name?: string; accessList?: string[]; access?: string }>().catch(() => ({}));
   const email = normalizeEmail(body.email || "");
   const password = typeof body.password === "string" ? body.password : "";
@@ -923,7 +1147,12 @@ app.post("/api/auth/login", async (c) => {
       if (!user) {
         return c.json({ error: "Unable to create admin account" }, 500);
       }
-      return c.json({ ok: true, bootstrap: true, user: buildUserResponse(user) });
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const token = await signJwt(
+        { sub: normalizeEmail(user.email || email), iat: issuedAt, exp: issuedAt + AUTH_TOKEN_TTL_SECONDS },
+        c.env.AUTH_SECRET
+      );
+      return c.json({ ok: true, bootstrap: true, user: buildUserResponse(user), token });
     }
     return c.json({ error: "Invalid credentials" }, 401);
   }
@@ -937,15 +1166,28 @@ app.post("/api/auth/login", async (c) => {
   if (!valid) {
     return c.json({ error: "Invalid credentials" }, 401);
   }
-  return c.json({ ok: true, user: buildUserResponse(user) });
+  if (hash && !hash.startsWith(`${PASSWORD_HASH_PREFIX}$`)) {
+    const nextSalt = randomSalt();
+    const nextHash = await hashPassword(password, nextSalt);
+    await c.env.DB
+      .prepare("UPDATE users SET password_hash = ?, password_salt = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(nextHash, nextSalt, user.id)
+      .run();
+    user.password_hash = nextHash;
+    user.password_salt = nextSalt;
+  }
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const token = await signJwt(
+    { sub: normalizeEmail(user.email || email), iat: issuedAt, exp: issuedAt + AUTH_TOKEN_TTL_SECONDS },
+    c.env.AUTH_SECRET
+  );
+  return c.json({ ok: true, user: buildUserResponse(user), token });
 });
 
 app.get("/api/auth/users", async (c) => {
-  const ownerEmail = c.get("ownerEmail");
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
   const readDb = getReadSession(c.env.DB);
-  if (!(await requireAdmin(readDb, ownerEmail))) {
-    return c.json({ error: "Admin access required" }, 403);
-  }
   const { results } = await readDb
     .prepare(
     "SELECT id, email, name, role, access, access_list, enabled FROM users ORDER BY role = 'Admin' DESC, name, email"
@@ -957,10 +1199,8 @@ app.get("/api/auth/users", async (c) => {
 });
 
 app.post("/api/auth/users", async (c) => {
-  const ownerEmail = c.get("ownerEmail");
-  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
-    return c.json({ error: "Admin access required" }, 403);
-  }
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
   const body = await c.req.json<{
     name?: string;
     email?: string;
@@ -1005,10 +1245,8 @@ app.post("/api/auth/users", async (c) => {
 });
 
 app.put("/api/auth/users/:id", async (c) => {
-  const ownerEmail = c.get("ownerEmail");
-  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
-    return c.json({ error: "Admin access required" }, 403);
-  }
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
   const id = Number(c.req.param("id"));
   if (!Number.isFinite(id) || id <= 0) {
     return c.json({ error: "Invalid user id" }, 400);
@@ -1067,10 +1305,8 @@ app.put("/api/auth/users/:id", async (c) => {
 });
 
 app.post("/api/auth/users/:id/password", async (c) => {
-  const ownerEmail = c.get("ownerEmail");
-  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
-    return c.json({ error: "Admin access required" }, 403);
-  }
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
   const id = Number(c.req.param("id"));
   if (!Number.isFinite(id) || id <= 0) {
     return c.json({ error: "Invalid user id" }, 400);
@@ -1093,10 +1329,8 @@ app.post("/api/auth/users/:id/password", async (c) => {
 });
 
 app.delete("/api/auth/users/:id", async (c) => {
-  const ownerEmail = c.get("ownerEmail");
-  if (!(await requireAdmin(c.env.DB, ownerEmail))) {
-    return c.json({ error: "Admin access required" }, 403);
-  }
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
   const id = Number(c.req.param("id"));
   if (!Number.isFinite(id) || id <= 0) {
     return c.json({ error: "Invalid user id" }, 400);
@@ -1186,6 +1420,8 @@ app.post("/api/auth/password", async (c) => {
 });
 
 app.get("/api/settings/site-config", async (c) => {
+  const accessError = requireAccess(c, "settings");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const cacheBypass = c.req.query("cache") === "0";
   const version = (await c.env.CACHE.get(cacheVersionKey(ownerEmail, "site_config"))) ?? "0";
@@ -1206,6 +1442,8 @@ app.get("/api/settings/site-config", async (c) => {
 });
 
 app.put("/api/settings/site-config", async (c) => {
+  const accessError = requireAccess(c, "settings");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const payload = await c.req.json<SiteConfigPayload>().catch(() => ({}));
   const config = await upsertSiteConfig(c.env.DB, ownerEmail, payload);
@@ -1234,6 +1472,8 @@ app.get("/api/dashboard", async (c) => {
 });
 
 app.get("/api/tracking/shippo", async (c) => {
+  const accessError = requireAccess(c, "shipping");
+  if (accessError) return accessError;
   const apiKey = c.env.SHIPPO_API_KEY;
   if (!apiKey) {
     return c.json({ error: "Shippo API key not configured" }, 501);
@@ -1292,6 +1532,8 @@ app.get("/api/:table", async (c) => {
   if (!allowedTables.includes(table)) {
     return c.json({ error: "Unknown table" }, 404);
   }
+  const accessError = requireAccess(c, accessByTable[table]);
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const searchParams = new URL(c.req.url).searchParams;
   const filters = parseFilters(table, searchParams);
@@ -1367,6 +1609,8 @@ app.put("/api/:table/:id", async (c) => {
   if (!updatableFields[table] || Number.isNaN(id)) {
     return c.json({ error: "Invalid table or id" }, 400);
   }
+  const accessError = requireAccess(c, accessByTable[table]);
+  if (accessError) return accessError;
 
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<Record<string, unknown>>();
@@ -1419,6 +1663,8 @@ app.delete("/api/:table/:id", async (c) => {
   if (!updatableFields[table] || Number.isNaN(id)) {
     return c.json({ error: "Invalid table or id" }, 400);
   }
+  const accessError = requireAccess(c, accessByTable[table]);
+  if (accessError) return accessError;
 
   const ownerEmail = c.get("ownerEmail");
   const entityType = entityTypes[table];
@@ -1480,6 +1726,8 @@ app.delete("/api/:table/:id", async (c) => {
 });
 
 app.post("/api/contacts", async (c) => {
+  const accessError = requireAccess(c, "contacts");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
@@ -1540,6 +1788,8 @@ app.post("/api/contacts", async (c) => {
 });
 
 app.post("/api/companies", async (c) => {
+  const accessError = requireAccess(c, "companies");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     id?: number;
@@ -1594,6 +1844,8 @@ app.post("/api/companies", async (c) => {
 });
 
 app.post("/api/companies/bulk", async (c) => {
+  const accessError = requireAccess(c, "companies");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<
     Array<{
@@ -1649,6 +1901,8 @@ app.post("/api/companies/bulk", async (c) => {
 });
 
 app.get("/api/companies/csv", async (c) => {
+  const accessError = requireAccess(c, "companies");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const readDb = getReadSession(c.env.DB);
   const { results } = await readDb.prepare(
@@ -1670,6 +1924,8 @@ app.get("/api/companies/csv", async (c) => {
 });
 
 app.post("/api/products", async (c) => {
+  const accessError = requireAccess(c, "products");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     name: string;
@@ -1706,6 +1962,8 @@ app.post("/api/products", async (c) => {
 });
 
 app.post("/api/contacts/bulk", async (c) => {
+  const accessError = requireAccess(c, "contacts");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<
     Array<{
@@ -1758,6 +2016,8 @@ app.post("/api/contacts/bulk", async (c) => {
 });
 
 app.get("/api/contacts/csv", async (c) => {
+  const accessError = requireAccess(c, "contacts");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const readDb = getReadSession(c.env.DB);
   const { results } = await readDb.prepare(
@@ -1780,6 +2040,8 @@ app.get("/api/contacts/csv", async (c) => {
 });
 
 app.post("/api/products/bulk", async (c) => {
+  const accessError = requireAccess(c, "products");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<
     Array<{
@@ -1821,6 +2083,8 @@ app.post("/api/products/bulk", async (c) => {
 });
 
 app.get("/api/products/csv", async (c) => {
+  const accessError = requireAccess(c, "products");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const readDb = getReadSession(c.env.DB);
   const { results } = await readDb.prepare(
@@ -1853,6 +2117,8 @@ app.get("/api/products/csv", async (c) => {
 });
 
 app.post("/api/orders", async (c) => {
+  const accessError = requireAccess(c, "orders");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
@@ -1894,6 +2160,8 @@ app.post("/api/orders", async (c) => {
 });
 
 app.post("/api/quotations", async (c) => {
+  const accessError = requireAccess(c, "quotations");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
@@ -1974,6 +2242,8 @@ app.post("/api/quotations", async (c) => {
 });
 
 app.post("/api/invoices", async (c) => {
+  const accessError = requireAccess(c, "invoices");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
@@ -2013,6 +2283,8 @@ app.post("/api/invoices", async (c) => {
 });
 
 app.post("/api/shipping_schedules", async (c) => {
+  const accessError = requireAccess(c, "shipping");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     order_id?: number;
@@ -2058,6 +2330,8 @@ app.post("/api/shipping_schedules", async (c) => {
 });
 
 app.post("/api/sample_shipments", async (c) => {
+  const accessError = requireAccess(c, "sample_shipments");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     company_id?: number;
@@ -2096,6 +2370,8 @@ app.post("/api/sample_shipments", async (c) => {
 });
 
 app.post("/api/tasks", async (c) => {
+  const accessError = requireAccess(c, "tasks");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     title: string;
@@ -2131,6 +2407,8 @@ app.post("/api/tasks", async (c) => {
 });
 
 app.post("/api/notes", async (c) => {
+  const accessError = requireAccess(c, "notes");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     entity_type: string;
@@ -2157,6 +2435,8 @@ app.post("/api/notes", async (c) => {
 });
 
 app.post("/api/tags", async (c) => {
+  const accessError = requireAccess(c, "tags");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{ name: string; color?: string }>();
   const result = await c.env.DB.prepare(`INSERT INTO tags (name, color, owner_email) VALUES (?, ?, ?)`)
@@ -2168,6 +2448,8 @@ app.post("/api/tags", async (c) => {
 });
 
 app.delete("/api/tags/:id", async (c) => {
+  const accessError = requireAccess(c, "tags");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
@@ -2177,6 +2459,8 @@ app.delete("/api/tags/:id", async (c) => {
 });
 
 app.post("/api/doc_types", async (c) => {
+  const accessError = requireAccess(c, "tags");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{ name: string }>();
   if (!body.name) return c.json({ error: "name is required" }, 400);
@@ -2186,6 +2470,8 @@ app.post("/api/doc_types", async (c) => {
 });
 
 app.delete("/api/doc_types/:id", async (c) => {
+  const accessError = requireAccess(c, "tags");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const id = Number(c.req.param("id"));
   if (Number.isNaN(id)) return c.json({ error: "Invalid id" }, 400);
@@ -2195,6 +2481,8 @@ app.delete("/api/doc_types/:id", async (c) => {
 });
 
 app.post("/api/documents", async (c) => {
+  const accessError = requireAccess(c, "documents");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const body = await c.req.json<{
     title: string;
@@ -2238,18 +2526,27 @@ app.post("/api/documents", async (c) => {
 });
 
 app.put("/api/files/:key{.+}", async (c) => {
+  const accessError = requireAccess(c, "documents");
+  if (accessError) return accessError;
+  const ownerEmail = c.get("ownerEmail");
   const keyParam = c.req.param("key");
   const key = decodeURIComponent(keyParam || "");
-  if (!key) {
+  if (!key || key.includes("..") || !key.startsWith("uploads/")) {
     return c.text("Missing file key", 400);
   }
-  
-  console.log(`R2 Upload attempt for key="${key}" Content-Length="${c.req.header("content-length")}" Content-Type="${c.req.header("content-type")}"`);
-  
+
+  const readDb = getReadSession(c.env.DB);
+  const existing = await readDb
+    .prepare("SELECT owner_email FROM documents WHERE storage_key = ? LIMIT 1")
+    .bind(key)
+    .first<{ owner_email?: string | null }>();
+  if (existing && existing.owner_email && existing.owner_email !== ownerEmail) {
+    return c.text("Forbidden", 403);
+  }
+
   let body: ArrayBuffer | null = null;
   try {
     body = await c.req.arrayBuffer();
-    console.log(`R2 body received length: ${body.byteLength}`);
   } catch (err) {
     console.error("Failed to read upload body", err);
     return c.text("Invalid file body", 400);
@@ -2259,13 +2556,18 @@ app.put("/api/files/:key{.+}", async (c) => {
     return c.text("Missing file body", 400);
   }
 
-  const contentType = c.req.header("content-type") || "application/octet-stream";
+  const contentType = normalizeContentType(c.req.header("content-type"));
+  if (!allowedUploadContentTypes.has(contentType)) {
+    return c.text("Unsupported file type", 415);
+  }
   await c.env.FILES.put(key, body, { httpMetadata: { contentType } });
 
   return c.json({ key });
 });
 
 app.post("/api/upload", async (c) => {
+  const accessError = requireAccess(c, "documents");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const formData = await c.req.formData();
   const title = formData.get("title")?.toString() || "Untitled document";
@@ -2289,19 +2591,17 @@ app.post("/api/upload", async (c) => {
     const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
     const key = `uploads/${uuid}-${safeName}`;
 
-    console.log(`R2 Upload via multipart: key="${key}" size=${file.size} type="${file.type}"`);
-
     const body = await file.arrayBuffer();
-    console.log(`R2 body length from file.arrayBuffer(): ${body.byteLength}`);
-
     if (body.byteLength === 0) {
       console.error("Empty body from file.arrayBuffer()");
       continue;
     }
 
-    const contentType = file.type || 'application/octet-stream';
+    const contentType = normalizeContentType(file.type || "application/octet-stream");
+    if (!allowedUploadContentTypes.has(contentType)) {
+      return c.json({ error: "Unsupported file type" }, 415);
+    }
     await c.env.FILES.put(key, body, { httpMetadata: { contentType } });
-    console.log(`R2 put success for ${key}`);
 
     const stmt = c.env.DB.prepare(`
       INSERT INTO documents (company_id, contact_id, invoice_id, doc_type_id, title, storage_key, content_type, size, owner_email)
@@ -2310,8 +2610,6 @@ app.post("/api/upload", async (c) => {
     `).bind(companyId, contactId, invoiceId, docTypeId, title, key, contentType, body.byteLength, ownerEmail);
 
     const doc = await stmt.first();
-    console.log(`Document inserted: id=${doc?.id}`);
-
     if (doc && tags.length) {
       await attachTags(c.env.DB, ownerEmail, "document", doc.id, tags);
     }
@@ -2326,6 +2624,8 @@ app.post("/api/upload", async (c) => {
 });
 
 app.get("/api/files/:key{.+}", async (c) => {
+  const accessError = requireAccess(c, "documents");
+  if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const keyParam = c.req.param("key");
   const key = decodeURIComponent(keyParam || "");
@@ -2353,7 +2653,7 @@ app.get("/api/files/:key{.+}", async (c) => {
   return new Response(object.body, {
     headers: {
       "content-type": object.httpMetadata?.contentType ?? "application/octet-stream",
-      "content-disposition": `inline; filename="${filename}"`
+      "content-disposition": `attachment; filename="${filename}"`
     }
   });
 });
@@ -2870,7 +3170,46 @@ const normalizeAccessList = (raw: unknown): string[] => {
   return Array.from(unique.values());
 };
 
+const hasAccess = (user: UserRow, accessList: string[], required?: string) => {
+  if (!required) return true;
+  if ((user.role || adminRole) === adminRole) return true;
+  const normalized = new Set(accessList.map((item) => item.trim().toLowerCase()).filter(Boolean));
+  return normalized.has(required);
+};
+
+const requireAccess = (c: Context, accessId?: string) => {
+  if (!accessId) return null;
+  const user = c.get("currentUser") as UserRow | undefined;
+  const accessList = (c.get("accessList") as string[] | undefined) ?? [];
+  if (!user || !hasAccess(user, accessList, accessId)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+  return null;
+};
+
+const requireAdminUser = (c: Context) => {
+  const user = c.get("currentUser") as UserRow | undefined;
+  if (!user || user.role !== adminRole) {
+    return c.json({ error: "Admin access required" }, 403);
+  }
+  return null;
+};
+
 const encoder = new TextEncoder();
+
+const PASSWORD_HASH_PREFIX = "pbkdf2";
+const PASSWORD_HASH_ITERATIONS = 120_000;
+
+const hexToBytes = (hex: string) => {
+  const cleaned = hex.trim();
+  const pairs = cleaned.match(/.{1,2}/g) ?? [];
+  return new Uint8Array(pairs.map((byte) => Number.parseInt(byte, 16)));
+};
+
+const bytesToHex = (bytes: Uint8Array) =>
+  Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 
 const randomSalt = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(16));
@@ -2879,16 +3218,40 @@ const randomSalt = () => {
     .join("");
 };
 
-const hashPassword = async (password: string, salt: string) => {
-  const data = encoder.encode(`${salt}:${password}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+const hashPassword = async (password: string, salt: string, iterations = PASSWORD_HASH_ITERATIONS) => {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const derived = await crypto.subtle.deriveBits(
+    {
+      name: "PBKDF2",
+      hash: "SHA-256",
+      salt: hexToBytes(salt),
+      iterations
+    },
+    key,
+    256
+  );
+  const hash = bytesToHex(new Uint8Array(derived));
+  return `${PASSWORD_HASH_PREFIX}$${iterations}$${hash}`;
 };
 
-const verifyPassword = async (password: string, salt: string, hash: string) =>
-  hashPassword(password, salt).then((computed) => computed === hash);
+const hashPasswordLegacy = async (password: string, salt: string) => {
+  const data = encoder.encode(`${salt}:${password}`);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return bytesToHex(new Uint8Array(digest));
+};
+
+const verifyPassword = async (password: string, salt: string, hash: string) => {
+  if (!hash) return false;
+  if (hash.startsWith(`${PASSWORD_HASH_PREFIX}$`)) {
+    const [, iterPart, stored] = hash.split("$");
+    const iterations = Number.parseInt(iterPart, 10);
+    if (!Number.isFinite(iterations) || iterations <= 0) return false;
+    const computed = await hashPassword(password, salt, iterations);
+    return computed === hash;
+  }
+  const legacy = await hashPasswordLegacy(password, salt);
+  return legacy === hash;
+};
 
 const buildUserResponse = (row: UserRow) => {
   const accessList = normalizeAccessList(row.access_list ?? row.access);
