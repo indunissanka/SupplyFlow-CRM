@@ -9,7 +9,7 @@ assets = { binding = "ASSETS", directory = "./public" }
 [[d1_databases]]
 binding = "DB"
 database_name = "crmforall-db"
-database_id = "68cd9034-6e88-420c-8584-3a521726e26a"
+database_id = "42f5b376-0e32-49d9-8f8f-f22028f4c26d"
 
 [[r2_buckets]]
 binding = "FILES"
