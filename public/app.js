@@ -1335,9 +1335,18 @@ function initNavigation() {
   console.log('navItems count after init:', navItems.length);
   applyAccessRestrictions();
   navItems.forEach((item) => {
+    const external = item.dataset.external;
+    const section = item.dataset.section;
+    if (external) {
+      item.addEventListener("click", (event) => {
+        event.preventDefault();
+        window.location.href = external;
+      });
+      return;
+    }
+    if (!section) return;
     item.addEventListener("click", () => {
-      console.log('Nav item clicked', item.dataset.section);
-      const section = item.dataset.section;
+      console.log('Nav item clicked', section);
       if (!canAccessSection(section)) {
         showToast("Access restricted. Ask an admin for access.");
         return;

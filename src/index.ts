@@ -2,6 +2,18 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Context } from "hono";
 import { batchInChunks, buildCacheRequest, cacheJson, getReadSession } from "./db";
+import {
+  buildForecast,
+  fillSeries,
+  getBreakdown,
+  getDataQuality,
+  getForecastSeries,
+  getKpis,
+  getTimeSeries,
+  parseAnalyticsFilters,
+  parseDateRange,
+  type ForecastMetric
+} from "./analytics";
 import type { D1Queryable } from "./db";
 
 type Env = {
@@ -52,6 +64,7 @@ const cacheableTables = new Set<string>([
 const CACHE_TTL_SECONDS = 20;
 const DASHBOARD_CACHE_TTL_SECONDS = 15;
 const SITE_CONFIG_CACHE_TTL_SECONDS = 20;
+const ANALYTICS_CACHE_TTL_SECONDS = 20;
 const AUTH_TOKEN_TTL_SECONDS = 60 * 60 * 12;
 const LOGIN_RATE_LIMIT_WINDOW_SECONDS = 5 * 60;
 const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
@@ -176,7 +189,7 @@ const securityHeaders = {
 
 const contentSecurityPolicy = [
   "default-src 'self'",
-  "script-src 'self' https://unpkg.com",
+  "script-src 'self' https://unpkg.com https://cdn.tailwindcss.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src https://fonts.gstatic.com",
   "img-src 'self' data:",
@@ -1524,6 +1537,222 @@ app.get("/api/dashboard", async (c) => {
       const pipeline = await getPipeline(readDb, ownerEmail);
       const activity = await getActivity(readDb, ownerEmail);
       return { stats, pipeline, activity };
+    }
+  });
+});
+
+app.get("/api/kpis", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const ownerError = validateOwnerParam(ownerEmail, searchParams);
+  if (ownerError) return c.json({ error: ownerError }, 403);
+  const range = parseDateRange(searchParams, 120);
+  const filters = parseAnalyticsFilters(searchParams);
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/kpis?owner=${encodeURIComponent(ownerEmail)}&${searchParams.toString()}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: ANALYTICS_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const kpis = await getKpis(readDb, ownerEmail, range, filters);
+      return { range, ...kpis };
+    }
+  });
+});
+
+app.get("/api/timeseries", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const ownerError = validateOwnerParam(ownerEmail, searchParams);
+  if (ownerError) return c.json({ error: ownerError }, 403);
+  const metric = (c.req.query("metric") || "revenue").toLowerCase();
+  const grain = (c.req.query("grain") || "week").toLowerCase();
+  if (!["revenue", "orders", "invoices", "quotations", "samples", "tasks", "shipping"].includes(metric)) {
+    return c.json({ error: "Invalid metric" }, 400);
+  }
+  if (!["day", "week", "month"].includes(grain)) {
+    return c.json({ error: "Invalid grain" }, 400);
+  }
+  const range = parseDateRange(searchParams, 120);
+  const filters = parseAnalyticsFilters(searchParams);
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/timeseries?owner=${encodeURIComponent(ownerEmail)}&${searchParams.toString()}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: ANALYTICS_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const series = await getTimeSeries(
+        readDb,
+        ownerEmail,
+        metric as "revenue" | "orders" | "invoices" | "quotations" | "samples" | "tasks" | "shipping",
+        grain as "day" | "week" | "month",
+        range,
+        filters
+      );
+      return { range, metric, grain, data: series };
+    }
+  });
+});
+
+app.get("/api/breakdown", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const ownerError = validateOwnerParam(ownerEmail, searchParams);
+  if (ownerError) return c.json({ error: ownerError }, 403);
+  const entity = (c.req.query("entity") || "status").toLowerCase();
+  const metric = (c.req.query("metric") || "count").toLowerCase();
+  if (!["company", "product_category", "status", "assignee"].includes(entity)) {
+    return c.json({ error: "Invalid entity" }, 400);
+  }
+  if (!["revenue", "count"].includes(metric)) {
+    return c.json({ error: "Invalid metric" }, 400);
+  }
+  const range = parseDateRange(searchParams, 120);
+  const filters = parseAnalyticsFilters(searchParams);
+  const source = (c.req.query("source") || "").trim();
+  const field = (c.req.query("field") || "").trim();
+  const requiresQuotation = c.req.query("requires_quotation") === "1";
+  const limitRaw = Number(c.req.query("limit") || "10");
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 10;
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/breakdown?owner=${encodeURIComponent(ownerEmail)}&${searchParams.toString()}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: ANALYTICS_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const data = await getBreakdown(
+        readDb,
+        ownerEmail,
+        entity as "company" | "product_category" | "status" | "assignee",
+        metric as "revenue" | "count",
+        range,
+        filters,
+        {
+          source: source || undefined,
+          field: field || undefined,
+          limit,
+          requireQuotation: requiresQuotation
+        }
+      );
+      return {
+        range,
+        entity,
+        metric,
+        source: source || null,
+        field: field || null,
+        requires_quotation: requiresQuotation || null,
+        data
+      };
+    }
+  });
+});
+
+app.get("/api/forecast", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const ownerError = validateOwnerParam(ownerEmail, searchParams);
+  if (ownerError) return c.json({ error: ownerError }, 403);
+  const metric = (c.req.query("metric") || "revenue").toLowerCase();
+  const grain = (c.req.query("grain") || "month").toLowerCase();
+  if (
+    ![
+      "revenue",
+      "orders",
+      "invoices",
+      "quotations",
+      "tasks",
+      "shipping",
+      "open_invoices",
+      "overdue_invoices"
+    ].includes(metric)
+  ) {
+    return c.json({ error: "Invalid metric" }, 400);
+  }
+  if (!["week", "month"].includes(grain)) {
+    return c.json({ error: "Invalid grain" }, 400);
+  }
+  const horizonRaw = Number(c.req.query("horizon") || "12");
+  const horizon = Number.isFinite(horizonRaw) ? Math.min(Math.max(horizonRaw, 1), 36) : 12;
+  const fallbackDays = grain === "month" ? 540 : 365;
+  const range = parseDateRange(searchParams, fallbackDays);
+  const filters = parseAnalyticsFilters(searchParams);
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/forecast?owner=${encodeURIComponent(ownerEmail)}&${searchParams.toString()}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: ANALYTICS_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const baseSeries = await getForecastSeries(
+        readDb,
+        ownerEmail,
+        metric as ForecastMetric,
+        grain as "week" | "month",
+        range,
+        filters
+      );
+      const series = fillSeries(baseSeries, range, grain as "week" | "month");
+      const countMetrics = new Set([
+        "orders",
+        "invoices",
+        "quotations",
+        "tasks",
+        "shipping",
+        "open_invoices",
+        "overdue_invoices"
+      ]);
+      const forecast = buildForecast(series, grain as "week" | "month", horizon, countMetrics.has(metric));
+      return {
+        range,
+        metric,
+        grain,
+        horizon,
+        series,
+        forecast: forecast.forecast,
+        confidence: forecast.confidence,
+        backtest: forecast.backtest
+      };
+    }
+  });
+});
+
+app.get("/api/data-quality", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const searchParams = new URL(c.req.url).searchParams;
+  const ownerError = validateOwnerParam(ownerEmail, searchParams);
+  if (ownerError) return c.json({ error: ownerError }, 403);
+  const cacheBypass = c.req.query("cache") === "0";
+  const cacheKey = buildCacheRequest(
+    `https://cache.local/api/data-quality?owner=${encodeURIComponent(ownerEmail)}&${searchParams.toString()}`
+  );
+  return cacheJson({
+    cacheKey,
+    ttlSeconds: ANALYTICS_CACHE_TTL_SECONDS,
+    request: c.req.raw,
+    bypass: cacheBypass,
+    data: async () => {
+      const readDb = getReadSession(c.env.DB);
+      const data = await getDataQuality(readDb, ownerEmail);
+      return { data };
     }
   });
 });
@@ -3199,6 +3428,16 @@ type UserRow = {
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();
 
+const validateOwnerParam = (ownerEmail: string, searchParams: URLSearchParams) => {
+  const ownerParam = searchParams.get("owner_email");
+  if (!ownerParam) return null;
+  const normalized = normalizeEmail(ownerParam);
+  if (normalized !== ownerEmail) {
+    return "Owner mismatch";
+  }
+  return null;
+};
+
 const parseAccessListRaw = (raw: unknown): string[] => {
   if (!raw) return [];
   if (Array.isArray(raw)) {
@@ -3497,7 +3736,12 @@ async function hasColumn(db: D1Database, table: string, column: string) {
 
 async function serveAsset(c: Context<{ Bindings: Env; Variables: { ownerEmail: string; currentUser: UserRow; accessList: string[]; } }>) {
   const url = new URL(c.req.url);
-  const path = url.pathname === "/" ? "/index.html" : url.pathname;
+  const rawPath = url.pathname;
+  const isAnalytics = rawPath.startsWith("/analytics");
+  let path = rawPath === "/" ? "/index.html" : rawPath;
+  if (isAnalytics && (rawPath === "/analytics" || rawPath === "/analytics/")) {
+    path = "/analytics/index.html";
+  }
 
   const assetRequest = new Request(new URL(path, url.origin).toString(), {
     method: "GET",
@@ -3505,12 +3749,21 @@ async function serveAsset(c: Context<{ Bindings: Env; Variables: { ownerEmail: s
   });
 
   const assetResponse = await c.env.ASSETS.fetch(assetRequest);
-  if (assetResponse.status === 404 && path !== "/index.html") {
-    const fallbackRequest = new Request(new URL("/index.html", url.origin).toString(), {
-      method: "GET",
-      headers: c.req.raw.headers
-    });
-    return c.env.ASSETS.fetch(fallbackRequest);
+  if (assetResponse.status === 404) {
+    if (isAnalytics) {
+      const analyticsFallback = new Request(new URL("/analytics/index.html", url.origin).toString(), {
+        method: "GET",
+        headers: c.req.raw.headers
+      });
+      return c.env.ASSETS.fetch(analyticsFallback);
+    }
+    if (path !== "/index.html") {
+      const fallbackRequest = new Request(new URL("/index.html", url.origin).toString(), {
+        method: "GET",
+        headers: c.req.raw.headers
+      });
+      return c.env.ASSETS.fetch(fallbackRequest);
+    }
   }
 
   return assetResponse;

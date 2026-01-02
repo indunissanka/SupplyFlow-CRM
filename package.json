@@ -5,10 +5,11 @@
   "main": "dist/worker.js",
   "scripts": {
     "dev": "wrangler dev --local --ip 0.0.0.0",
-    "deploy": "wrangler deploy -c wrangler.toml",
-    "deploy:full": "bash scripts/deploy.sh",
+    "deploy": "npm run build:analytics && wrangler deploy -c wrangler.toml",
+    "deploy:full": "npm run build:analytics && bash scripts/deploy.sh",
     "deploy:container": "wrangler deploy -c wrangler-container.toml",
     "check": "tsc --noEmit",
+    "build:analytics": "tsc -p tsconfig.analytics.json",
     "db:local": "wrangler d1 execute crmforall-db --local --file ./schema.sql",
     "test": "vitest run",
     "test:watch": "vitest",

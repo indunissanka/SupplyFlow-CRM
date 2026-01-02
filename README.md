@@ -10,6 +10,45 @@ A full-stack CRM application built with Cloudflare Workers (Node.js/TypeScript) 
 - **Frontend**: Modern web interface with HTML, CSS, and JavaScript
 - **Authentication**: User login and session management
 - **CRM Functionality**: Companies, contacts, quotations, and file management
+- **Analytics Dashboard**: KPI, operations, finance, and forecasting analytics at `/analytics`
+
+## Analytics Dashboard
+
+The analytics UI lives in `public/analytics/` and is built with React + TypeScript + Tailwind (CDN) using ECharts. It reads the existing JWT from localStorage after you log in to the main CRM UI.
+
+### Build Analytics UI
+
+```bash
+npm run build:analytics
+```
+
+This compiles `public/analytics/app.ts` into `public/analytics/dist/app.js`. The `dist/` bundle is ignored in git and rebuilt on deploy. Run this before `npm run dev` if you want the analytics page locally.
+
+SQL query reference lives in `analytics_queries.sql`.
+
+### Analytics API Endpoints
+
+All analytics endpoints require authentication and are scoped by `owner_email` (must match the JWT subject).
+
+1) **GET `/api/kpis`**
+   - Query: `owner_email`, `start`, `end`, optional filters `company_id`, `currency`, `status`, `assignee`
+   - Returns core KPI cards + quotation pipeline + invoice aging buckets
+
+2) **GET `/api/timeseries`**
+   - Query: `owner_email`, `metric=revenue|orders|invoices|quotations|samples|tasks|shipping`, `grain=day|week|month`, `start`, `end`
+   - Returns array of `{ date, value }`
+
+3) **GET `/api/breakdown`**
+   - Query: `owner_email`, `entity=company|product_category|status|assignee`, `metric=revenue|count`, `start`, `end`
+   - Optional: `source=orders|quotations|invoices|tasks|shipping_schedules|sample_shipments`, `field=status|courier|carrier`, `limit`, `requires_quotation=1`
+
+4) **GET `/api/forecast`**
+   - Query: `owner_email`, `metric=revenue|orders|invoices|quotations|tasks|shipping|open_invoices|overdue_invoices`, `grain=week|month`, `horizon`
+   - Returns forecast series + confidence band + backtest MAPE
+
+5) **GET `/api/data-quality`**
+   - Query: `owner_email`
+   - Returns missing fields, orphans, duplicate contacts, and freshness timestamps
 
 ## Project Structure
 

@@ -69,6 +69,7 @@ button {
   border-radius: 10px;
   color: var(--sidebar-text);
   text-align: left;
+  text-decoration: none;
   transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
 }
 
