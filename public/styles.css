@@ -200,6 +200,10 @@ button {
   display: none;
 }
 
+.nav-toggle-label {
+  display: none;
+}
+
 .drawer-backdrop {
   position: fixed;
   inset: 0;
