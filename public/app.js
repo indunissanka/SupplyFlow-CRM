@@ -61,6 +61,7 @@ let navDrawer = null;
 let navBackdrop = null;
 let navDrawerOpen = false;
 let navLastFocus = null;
+const navCompactMediaQuery = "(max-width: 1024px), (max-width: 1366px) and (pointer: coarse)";
 
 const loginScreen = document.querySelector(".login-screen");
 const appShell = document.querySelector(".app-shell");
@@ -1343,9 +1344,13 @@ function getNavFocusableItems() {
   ).filter((el) => !el.hasAttribute("disabled"));
 }
 
+function isCompactViewport() {
+  return window.matchMedia(navCompactMediaQuery).matches;
+}
+
 function syncNavDrawerState(isOpen) {
   navDrawerOpen = isOpen;
-  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  const isCompact = isCompactViewport();
   if (isCompact) {
     document.body.classList.toggle("nav-open", isOpen);
   } else {
@@ -1364,7 +1369,7 @@ function syncNavDrawerState(isOpen) {
 }
 
 function openNavDrawer() {
-  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  const isCompact = isCompactViewport();
   if (!isCompact) return;
   if (navDrawerOpen) return;
   navLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -1385,7 +1390,7 @@ function closeNavDrawer() {
 }
 
 function toggleNavDrawer() {
-  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  const isCompact = isCompactViewport();
   if (!isCompact) return;
   if (navDrawerOpen) {
     closeNavDrawer();
@@ -1426,7 +1431,7 @@ function initNavDrawer() {
   navBackdrop?.addEventListener("click", () => closeNavDrawer());
   document.addEventListener("keydown", handleNavDrawerKeydown);
   window.addEventListener("resize", () => {
-    if (window.innerWidth > 1024) {
+    if (!isCompactViewport()) {
       closeNavDrawer();
     }
   });
