@@ -31,6 +31,7 @@ const accessOptions = [
   { id: "contacts", label: "Contacts", aliases: ["contact", "contacts"] },
   { id: "products", label: "Products", aliases: ["product", "products"] },
   { id: "pricing", label: "Pricing", aliases: ["pricing", "plan", "plans"] },
+  { id: "analytics", label: "Analytics", aliases: ["analytics", "reports", "reporting"] },
   { id: "orders", label: "Orders", aliases: ["order", "orders"] },
   { id: "quotations", label: "Quotations", aliases: ["quotation", "quotations", "quote", "quotes"] },
   { id: "invoices", label: "Invoices", aliases: ["invoice", "invoices"] },
@@ -869,6 +870,7 @@ function renderPrivilegeList(listElement) {
 
 const sectionRenderers = {
   dashboard: renderDashboard,
+  analytics: renderAnalytics,
   companies: renderCompanies,
   contacts: renderContacts,
   products: renderProducts,
@@ -1510,6 +1512,481 @@ async function renderDashboard() {
           .join("")}
       </div>
     `;
+  }
+}
+
+const analyticsState = (() => {
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 90);
+  const toInput = (value) => value.toISOString().slice(0, 10);
+  return {
+    start: toInput(start),
+    end: toInput(end),
+    currency: "",
+    status: "",
+    assignee: "",
+    companyId: ""
+  };
+})();
+
+let analyticsCharts = {};
+let analyticsResizeAttached = false;
+
+function formatCount(value) {
+  const numeric = Number(value) || 0;
+  return numeric.toLocaleString();
+}
+
+function buildAnalyticsQuery(params) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === "") return;
+    search.set(key, String(value));
+  });
+  return search.toString();
+}
+
+async function fetchAnalyticsJson(path, params) {
+  const query = buildAnalyticsQuery(params);
+  const url = query ? `${path}?${query}` : path;
+  const res = await apiFetch(url);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to load analytics data"));
+  }
+  return res.json();
+}
+
+function buildAnalyticsLineOption(series, label, color) {
+  const labels = series.map((point) => point.date);
+  const values = series.map((point) => point.value);
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: 36, right: 24, top: 26, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: labels,
+      axisLabel: { color: "#6b7280" },
+      axisLine: { lineStyle: { color: "#e5e7eb" } }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#6b7280" },
+      splitLine: { lineStyle: { color: "#f1f5f9" } }
+    },
+    series: [
+      {
+        name: label,
+        type: "line",
+        data: values,
+        smooth: true,
+        symbol: "circle",
+        symbolSize: 6,
+        lineStyle: { color, width: 3 },
+        itemStyle: { color },
+        areaStyle: { color: `${color}33` }
+      }
+    ]
+  };
+}
+
+function buildAnalyticsBarOption(items, label, color) {
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: 36, right: 24, top: 26, bottom: 70 },
+    xAxis: {
+      type: "category",
+      data: items.map((item) => item.label),
+      axisLabel: { color: "#6b7280", rotate: 20 },
+      axisLine: { lineStyle: { color: "#e5e7eb" } }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#6b7280" },
+      splitLine: { lineStyle: { color: "#f1f5f9" } }
+    },
+    series: [
+      {
+        name: label,
+        type: "bar",
+        data: items.map((item) => item.value),
+        itemStyle: { color },
+        barMaxWidth: 30
+      }
+    ]
+  };
+}
+
+function buildAnalyticsForecastOption(payload, label, color) {
+  const actual = payload.series || [];
+  const forecast = payload.forecast || [];
+  const confidence = payload.confidence || [];
+  const labels = [...actual.map((point) => point.date), ...forecast.map((point) => point.date)];
+  const actualValues = actual.map((point) => point.value).concat(new Array(forecast.length).fill(null));
+  const forecastValues = new Array(actual.length).fill(null).concat(forecast.map((point) => point.value));
+  const lower = new Array(actual.length).fill(null).concat(confidence.map((point) => point.lower));
+  const upper = new Array(actual.length).fill(null).concat(confidence.map((point) => point.upper));
+  const upperOffset = upper.map((value, index) => {
+    if (value === null || lower[index] === null) return null;
+    return value - lower[index];
+  });
+
+  return {
+    tooltip: { trigger: "axis" },
+    grid: { left: 36, right: 24, top: 26, bottom: 28 },
+    xAxis: {
+      type: "category",
+      data: labels,
+      axisLabel: { color: "#6b7280" },
+      axisLine: { lineStyle: { color: "#e5e7eb" } }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#6b7280" },
+      splitLine: { lineStyle: { color: "#f1f5f9" } }
+    },
+    series: [
+      {
+        name: "Confidence",
+        type: "line",
+        data: lower,
+        lineStyle: { opacity: 0 },
+        stack: "confidence",
+        areaStyle: { color: `${color}22` },
+        symbol: "none"
+      },
+      {
+        name: "Confidence Range",
+        type: "line",
+        data: upperOffset,
+        lineStyle: { opacity: 0 },
+        stack: "confidence",
+        areaStyle: { color: `${color}33` },
+        symbol: "none"
+      },
+      {
+        name: `${label} (Actual)`,
+        type: "line",
+        data: actualValues,
+        smooth: true,
+        lineStyle: { color, width: 3 },
+        itemStyle: { color },
+        symbol: "circle",
+        symbolSize: 6
+      },
+      {
+        name: `${label} (Forecast)`,
+        type: "line",
+        data: forecastValues,
+        smooth: true,
+        lineStyle: { color: "#f97316", width: 3, type: "dashed" },
+        itemStyle: { color: "#f97316" },
+        symbol: "triangle",
+        symbolSize: 7
+      }
+    ]
+  };
+}
+
+function initAnalyticsChart(id, option) {
+  const el = document.getElementById(id);
+  if (!el || !window.echarts) return;
+  const chart = echarts.init(el);
+  chart.setOption(option, true);
+  analyticsCharts[id] = chart;
+}
+
+function destroyAnalyticsCharts() {
+  Object.values(analyticsCharts).forEach((chart) => {
+    if (chart && typeof chart.dispose === "function") {
+      chart.dispose();
+    }
+  });
+  analyticsCharts = {};
+}
+
+function attachAnalyticsResize() {
+  if (analyticsResizeAttached) return;
+  analyticsResizeAttached = true;
+  window.addEventListener("resize", () => {
+    Object.values(analyticsCharts).forEach((chart) => chart.resize());
+  });
+}
+
+async function renderAnalytics() {
+  destroyAnalyticsCharts();
+  sectionTitle.textContent = "Analytics";
+  sectionContent.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="eyebrow">Insights</div>
+        <h2 class="page-title">Analytics</h2>
+        <div class="page-meta">Core KPIs, operational trends, and forecasts.</div>
+      </div>
+      <div class="actions">
+        <button class="btn" id="refresh-analytics">
+          <i data-lucide="refresh-ccw"></i>
+          Refresh
+        </button>
+      </div>
+    </div>
+    <div class="analytics-filters">
+      <div class="analytics-filter">
+        <label for="analytics-start">Start date</label>
+        <input type="date" id="analytics-start" />
+      </div>
+      <div class="analytics-filter">
+        <label for="analytics-end">End date</label>
+        <input type="date" id="analytics-end" />
+      </div>
+      <div class="analytics-filter">
+        <label for="analytics-company">Company ID</label>
+        <input type="number" id="analytics-company" placeholder="Optional" />
+      </div>
+      <div class="analytics-filter">
+        <label for="analytics-currency">Currency</label>
+        <input type="text" id="analytics-currency" placeholder="USD" />
+      </div>
+      <div class="analytics-filter">
+        <label for="analytics-status">Status</label>
+        <input type="text" id="analytics-status" placeholder="Open" />
+      </div>
+      <div class="analytics-filter">
+        <label for="analytics-assignee">Assignee</label>
+        <input type="text" id="analytics-assignee" placeholder="Owner" />
+      </div>
+      <div class="analytics-filter">
+        <label>&nbsp;</label>
+        <button class="btn primary" id="analytics-apply">Apply filters</button>
+      </div>
+    </div>
+    <div class="stat-grid" id="analytics-kpis"></div>
+    <div class="analytics-grid">
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Revenue trend</h3>
+          <div class="stat-label">Weekly totals</div>
+        </div>
+        <div class="analytics-chart" id="analytics-revenue-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Open invoices trend</h3>
+          <div class="stat-label">Weekly open invoice count</div>
+        </div>
+        <div class="analytics-chart" id="analytics-open-invoices-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Quotation pipeline</h3>
+          <div class="stat-label">By status (amount)</div>
+        </div>
+        <div class="analytics-chart" id="analytics-pipeline-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Tasks by status</h3>
+          <div class="stat-label">Current workload</div>
+        </div>
+        <div class="analytics-chart" id="analytics-tasks-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Shipping status</h3>
+          <div class="stat-label">Schedules by status</div>
+        </div>
+        <div class="analytics-chart" id="analytics-shipping-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title">Samples shipped</h3>
+          <div class="stat-label">Weekly volume</div>
+        </div>
+        <div class="analytics-chart" id="analytics-samples-chart"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h3 class="panel-title">Forecasts</h3>
+        <div class="stat-label">Next 12 months</div>
+      </div>
+      <div class="analytics-grid">
+        <div class="analytics-chart" id="analytics-forecast-revenue"></div>
+        <div class="analytics-chart" id="analytics-forecast-tasks"></div>
+        <div class="analytics-chart" id="analytics-forecast-shipping"></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h3 class="panel-title">Data quality</h3>
+        <div class="stat-label">Missing fields & orphans</div>
+      </div>
+      <div id="analytics-quality"></div>
+    </div>
+  `;
+
+  const startInput = document.getElementById("analytics-start");
+  const endInput = document.getElementById("analytics-end");
+  const companyInput = document.getElementById("analytics-company");
+  const currencyInput = document.getElementById("analytics-currency");
+  const statusInput = document.getElementById("analytics-status");
+  const assigneeInput = document.getElementById("analytics-assignee");
+  if (startInput) startInput.value = analyticsState.start;
+  if (endInput) endInput.value = analyticsState.end;
+  if (companyInput) companyInput.value = analyticsState.companyId;
+  if (currencyInput) currencyInput.value = analyticsState.currency;
+  if (statusInput) statusInput.value = analyticsState.status;
+  if (assigneeInput) assigneeInput.value = analyticsState.assignee;
+
+  document.getElementById("analytics-apply")?.addEventListener("click", () => {
+    analyticsState.start = startInput?.value || analyticsState.start;
+    analyticsState.end = endInput?.value || analyticsState.end;
+    analyticsState.companyId = (companyInput?.value || "").trim();
+    analyticsState.currency = (currencyInput?.value || "").trim().toUpperCase();
+    analyticsState.status = (statusInput?.value || "").trim();
+    analyticsState.assignee = (assigneeInput?.value || "").trim();
+    renderAnalytics();
+  });
+
+  document.getElementById("refresh-analytics")?.addEventListener("click", () => renderAnalytics());
+
+  const baseParams = {
+    start: analyticsState.start,
+    end: analyticsState.end,
+    company_id: analyticsState.companyId || undefined,
+    currency: analyticsState.currency || undefined,
+    status: analyticsState.status || undefined,
+    assignee: analyticsState.assignee || undefined
+  };
+
+  try {
+    const [
+      kpis,
+      revenueSeries,
+      openInvoicesSeries,
+      pipeline,
+      tasksStatus,
+      shippingStatus,
+      samplesSeries,
+      forecastRevenue,
+      forecastTasks,
+      forecastShipping,
+      dataQualityPayload
+    ] = await Promise.all([
+      fetchAnalyticsJson("/api/kpis", baseParams),
+      fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "revenue", grain: "week" }),
+      fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "invoices", grain: "week", status: "Open" }),
+      fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "quotations", metric: "revenue" }),
+      fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "tasks", metric: "count" }),
+      fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "shipping_schedules", metric: "count" }),
+      fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "samples", grain: "week" }),
+      fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "revenue", grain: "month", horizon: 12 }),
+      fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "tasks", grain: "month", horizon: 12 }),
+      fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "shipping", grain: "month", horizon: 12 }),
+      fetchAnalyticsJson("/api/data-quality", {})
+    ]);
+
+    const currency = analyticsState.currency || "USD";
+    const kpiCards = [
+      { label: "Total revenue", value: formatCurrency(kpis.total_revenue, currency) },
+      { label: "Open invoices", value: formatCurrency(kpis.invoice_total_open, currency) },
+      { label: "Quotation pipeline", value: formatCurrency(kpis.quotation_pipeline, currency) },
+      { label: "Orders", value: formatCount(kpis.order_count) },
+      { label: "Invoices", value: formatCount(kpis.invoice_count) },
+      { label: "Quotations", value: formatCount(kpis.quotation_count) },
+      { label: "Active companies", value: formatCount(kpis.company_count_active) },
+      { label: "Overdue invoices", value: formatCount(kpis.overdue_invoice_count) },
+      { label: "Tasks due 7d", value: formatCount(kpis.tasks_due_7d) },
+      { label: "Tasks overdue", value: formatCount(kpis.tasks_overdue) }
+    ];
+
+    const kpiSlot = document.getElementById("analytics-kpis");
+    if (kpiSlot) {
+      kpiSlot.innerHTML = kpiCards
+        .map(
+          (card) => `
+            <div class="stat-card">
+              <div class="stat-label">${card.label}</div>
+              <div class="stat-value">${card.value}</div>
+              <div class="stat-pill">
+                <span class="badge-dot" style="background:${accentColor(card.label)}"></span>
+                Updated
+              </div>
+            </div>
+          `
+        )
+        .join("");
+    }
+
+    destroyAnalyticsCharts();
+    attachAnalyticsResize();
+    initAnalyticsChart(
+      "analytics-revenue-chart",
+      buildAnalyticsLineOption(revenueSeries.data || [], "Revenue", "#2563eb")
+    );
+    initAnalyticsChart(
+      "analytics-open-invoices-chart",
+      buildAnalyticsLineOption(openInvoicesSeries.data || [], "Open invoices", "#f97316")
+    );
+    initAnalyticsChart(
+      "analytics-pipeline-chart",
+      buildAnalyticsBarOption(pipeline.data || [], "Pipeline", "#22d3ee")
+    );
+    initAnalyticsChart(
+      "analytics-tasks-chart",
+      buildAnalyticsBarOption(tasksStatus.data || [], "Tasks", "#16a34a")
+    );
+    initAnalyticsChart(
+      "analytics-shipping-chart",
+      buildAnalyticsBarOption(shippingStatus.data || [], "Shipping", "#f59e0b")
+    );
+    initAnalyticsChart(
+      "analytics-samples-chart",
+      buildAnalyticsLineOption(samplesSeries.data || [], "Samples", "#8b5cf6")
+    );
+    initAnalyticsChart(
+      "analytics-forecast-revenue",
+      buildAnalyticsForecastOption(forecastRevenue, "Revenue", "#2563eb")
+    );
+    initAnalyticsChart(
+      "analytics-forecast-tasks",
+      buildAnalyticsForecastOption(forecastTasks, "Tasks", "#22c55e")
+    );
+    initAnalyticsChart(
+      "analytics-forecast-shipping",
+      buildAnalyticsForecastOption(forecastShipping, "Shipping", "#f97316")
+    );
+
+    const quality = dataQualityPayload.data || {};
+    const qualitySlot = document.getElementById("analytics-quality");
+    if (qualitySlot) {
+      const missing = quality.missing_fields || {};
+      const orphans = quality.orphans || {};
+      qualitySlot.innerHTML = `
+        <div class="analytics-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h4 class="panel-title">Missing fields</h4>
+            </div>
+            <div class="stat-label">${Object.entries(missing)
+              .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
+              .join("<br />")}</div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h4 class="panel-title">Orphans</h4>
+            </div>
+            <div class="stat-label">${Object.entries(orphans)
+              .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
+              .join("<br />")}</div>
+          </div>
+        </div>
+      `;
+    }
+  } catch (error) {
+    console.error("Analytics error", error);
+    showToast("Analytics data unavailable. Try again.");
+    destroyAnalyticsCharts();
   }
 }
 

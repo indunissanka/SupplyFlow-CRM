@@ -79,6 +79,7 @@ const defaultAccessList = [
   "contacts",
   "products",
   "pricing",
+  "analytics",
   "orders",
   "quotations",
   "invoices",

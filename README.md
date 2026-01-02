@@ -10,7 +10,7 @@ A full-stack CRM application built with Cloudflare Workers (Node.js/TypeScript) 
 - **Frontend**: Modern web interface with HTML, CSS, and JavaScript
 - **Authentication**: User login and session management
 - **CRM Functionality**: Companies, contacts, quotations, and file management
-- **Analytics Dashboard**: KPI, operations, finance, and forecasting analytics at `/analytics`
+- **Analytics Dashboard**: KPI, operations, finance, and forecasting analytics in the main app (Analytics section) and at `/analytics`
 
 ## Analytics Dashboard
 
