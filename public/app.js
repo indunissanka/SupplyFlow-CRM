@@ -1396,6 +1396,7 @@ async function renderSection(section) {
 
   await renderer();
   attachFormHandlers();
+  decorateFormIcons(sectionContent);
   lucide?.createIcons();
 }
 
@@ -1418,14 +1419,20 @@ async function renderDashboard() {
     <div class="stat-grid" id="stat-grid"></div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Pipeline Snapshot</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="bar-chart-3"></i>
+          Pipeline Snapshot
+        </h3>
         <div class="stat-label">Recent orders and invoices</div>
       </div>
       <div id="pipeline-table"></div>
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Activity</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="activity"></i>
+          Activity
+        </h3>
         <div class="stat-label">Latest updates across the workspace</div>
       </div>
       <div id="activity-feed"></div>
@@ -1467,18 +1474,27 @@ async function renderDashboard() {
       { label: "Invoices", value: stats.invoices },
       { label: "Open Tasks", value: stats.tasksOpen }
     ]
-      .map(
-        (stat) => `
-          <div class="stat-card">
-            <div class="stat-label">${stat.label}</div>
-            <div class="stat-value">${stat.value}</div>
+      .map((stat) => {
+        const color = accentColor(stat.label);
+        const icon = iconForStatLabel(stat.label);
+        return `
+          <div class="stat-card stat-card-icon">
+            <div class="stat-card-head">
+              <div class="stat-icon" style="background:${soften(color)};color:${color}">
+                <i data-lucide="${icon}"></i>
+              </div>
+              <div>
+                <div class="stat-label">${stat.label}</div>
+                <div class="stat-value">${stat.value}</div>
+              </div>
+            </div>
             <div class="stat-pill">
-              <span class="badge-dot" style="background:${accentColor(stat.label)}"></span>
+              <span class="badge-dot" style="background:${color}"></span>
               Synced from D1
             </div>
           </div>
-        `
-      )
+        `;
+      })
       .join("");
   }
 
@@ -1764,42 +1780,60 @@ async function renderAnalytics() {
     <div class="analytics-grid">
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Revenue trend</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="bar-chart-3"></i>
+            Revenue trend
+          </h3>
           <div class="stat-label">Weekly totals</div>
         </div>
         <div class="analytics-chart" id="analytics-revenue-chart"></div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Open invoices trend</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="receipt"></i>
+            Open invoices trend
+          </h3>
           <div class="stat-label">Weekly open invoice count</div>
         </div>
         <div class="analytics-chart" id="analytics-open-invoices-chart"></div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Quotation pipeline</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="file-box"></i>
+            Quotation pipeline
+          </h3>
           <div class="stat-label">By status (amount)</div>
         </div>
         <div class="analytics-chart" id="analytics-pipeline-chart"></div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Tasks by status</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="check-square"></i>
+            Tasks by status
+          </h3>
           <div class="stat-label">Current workload</div>
         </div>
         <div class="analytics-chart" id="analytics-tasks-chart"></div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Shipping status</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="truck"></i>
+            Shipping status
+          </h3>
           <div class="stat-label">Schedules by status</div>
         </div>
         <div class="analytics-chart" id="analytics-shipping-chart"></div>
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Samples shipped</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="send"></i>
+            Samples shipped
+          </h3>
           <div class="stat-label">Weekly volume</div>
         </div>
         <div class="analytics-chart" id="analytics-samples-chart"></div>
@@ -1807,7 +1841,10 @@ async function renderAnalytics() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Forecasts</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="bar-chart-3"></i>
+          Forecasts
+        </h3>
         <div class="stat-label">Next 12 months</div>
       </div>
       <div class="analytics-grid">
@@ -1818,7 +1855,10 @@ async function renderAnalytics() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Data quality</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="notebook"></i>
+          Data quality
+        </h3>
         <div class="stat-label">Missing fields & orphans</div>
       </div>
       <div id="analytics-quality"></div>
@@ -1903,18 +1943,27 @@ async function renderAnalytics() {
     const kpiSlot = document.getElementById("analytics-kpis");
     if (kpiSlot) {
       kpiSlot.innerHTML = kpiCards
-        .map(
-          (card) => `
-            <div class="stat-card">
-              <div class="stat-label">${card.label}</div>
-              <div class="stat-value">${card.value}</div>
+        .map((card) => {
+          const color = accentColor(card.label);
+          const icon = iconForStatLabel(card.label);
+          return `
+            <div class="stat-card stat-card-icon">
+              <div class="stat-card-head">
+                <div class="stat-icon" style="background:${soften(color)};color:${color}">
+                  <i data-lucide="${icon}"></i>
+                </div>
+                <div>
+                  <div class="stat-label">${card.label}</div>
+                  <div class="stat-value">${card.value}</div>
+                </div>
+              </div>
               <div class="stat-pill">
-                <span class="badge-dot" style="background:${accentColor(card.label)}"></span>
+                <span class="badge-dot" style="background:${color}"></span>
                 Updated
               </div>
             </div>
-          `
-        )
+          `;
+        })
         .join("");
     }
 
@@ -1966,7 +2015,10 @@ async function renderAnalytics() {
         <div class="analytics-grid">
           <div class="panel">
             <div class="panel-header">
-              <h4 class="panel-title">Missing fields</h4>
+              <h4 class="panel-title panel-title-icon">
+                <i data-lucide="notebook"></i>
+                Missing fields
+              </h4>
             </div>
             <div class="stat-label">${Object.entries(missing)
               .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
@@ -1974,7 +2026,10 @@ async function renderAnalytics() {
           </div>
           <div class="panel">
             <div class="panel-header">
-              <h4 class="panel-title">Orphans</h4>
+              <h4 class="panel-title panel-title-icon">
+                <i data-lucide="alert-triangle"></i>
+                Orphans
+              </h4>
             </div>
             <div class="stat-label">${Object.entries(orphans)
               .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
@@ -1988,6 +2043,7 @@ async function renderAnalytics() {
     showToast("Analytics data unavailable. Try again.");
     destroyAnalyticsCharts();
   }
+  lucide?.createIcons();
 }
 
 async function renderCompanies() {
@@ -2027,7 +2083,10 @@ async function renderCompanies() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Bulk Actions</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="layers"></i>
+          Bulk Actions
+        </h3>
         <div class="stat-label">Import or export companies as CSV.</div>
       </div>
       <div class="bulk-actions">
@@ -2062,7 +2121,10 @@ async function renderCompanies() {
     <div class="panel">
       <div class="panel-header">
         <div>
-          <h3 class="panel-title">All Companies</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="building-2"></i>
+            All Companies
+          </h3>
           <div class="stat-label">Synced from D1, editable inline.</div>
         </div>
       <div class="table-actions">
@@ -2124,7 +2186,10 @@ async function renderContacts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Bulk Actions</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="layers"></i>
+          Bulk Actions
+        </h3>
         <div class="stat-label">Import or export contacts as CSV.</div>
       </div>
       <div class="bulk-actions">
@@ -2141,7 +2206,10 @@ async function renderContacts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">People Directory</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="users"></i>
+          People Directory
+        </h3>
         <div class="stat-label">Filter by role, company, or status.</div>
       </div>
       ${renderPaginatedTable(["Name", "Company", "Role", "Email", "Phone", "Status"], rows, "contacts")}
@@ -2208,7 +2276,10 @@ async function renderProducts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Bulk Actions</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="layers"></i>
+          Bulk Actions
+        </h3>
         <div class="stat-label">Import or export products as CSV.</div>
       </div>
       <div class="bulk-actions">
@@ -2225,7 +2296,10 @@ async function renderProducts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Catalog</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="package"></i>
+          Catalog
+        </h3>
         <div class="stat-label">Pricing synced to quotations and invoices.</div>
       </div>
       ${renderPaginatedTable(["Name", "SKU", "Category", "Price", "Currency", "Status"], rows, "products")}
@@ -2289,7 +2363,10 @@ async function renderPricing() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Quotation line items</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="clipboard-list"></i>
+          Quotation line items
+        </h3>
         <div class="stat-label">Grouped by quote with company and date context.</div>
       </div>
       <div class="doc-filter-bar">
@@ -2623,7 +2700,10 @@ async function renderOrders() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Order Board</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="shopping-cart"></i>
+          Order Board
+        </h3>
         <div class="stat-label">Statuses sync to shipping schedules automatically.</div>
       </div>
       ${renderPaginatedTable(["Order #", "Company", "Contact", "Status", "Total", "Updated"], rows, "orders")}
@@ -2669,7 +2749,10 @@ async function renderQuotations() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Quotes</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="file-box"></i>
+          Quotes
+        </h3>
         <div class="stat-label">Convert to orders with one click.</div>
       </div>
       ${renderPaginatedTable(["Quote #", "Title", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
@@ -2718,7 +2801,10 @@ async function renderInvoices() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Receivables</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="receipt"></i>
+          Receivables
+        </h3>
         <div class="stat-label">Overdue invoices surface alerts.</div>
       </div>
       ${renderPaginatedTable(["Invoice #", "Company", "Total", "Due Date", "Status", "Owner"], rows, "invoices")}
@@ -2933,12 +3019,12 @@ async function renderDocuments() {
         const checked = selectedDocKeys.has(docKey) ? "checked" : "";
         const downloadUrl = getDocumentUrl(doc);
         const downloadAction = downloadUrl
-          ? `<button class="btn ghost" type="button" data-doc-download="${idx}">Download</button>`
-          : `<button class="btn ghost" type="button" disabled>Download</button>`;
+          ? `<button class="btn ghost small" type="button" data-doc-download="${idx}"><i data-lucide="download"></i>Download</button>`
+          : `<button class="btn ghost small" type="button" disabled><i data-lucide="download"></i>Download</button>`;
         const canDelete = Number.isFinite(Number(doc.id));
         const deleteAction = canDelete
-          ? `<button class="btn danger ghost" data-action="delete" data-entity="documents" data-row-index="${idx}">Delete</button>`
-          : `<button class="btn danger ghost" type="button" disabled>Delete</button>`;
+          ? `<button class="btn danger ghost small" data-action="delete" data-entity="documents" data-row-index="${idx}"><i data-lucide="trash-2"></i>Delete</button>`
+          : `<button class="btn danger ghost small" type="button" disabled><i data-lucide="trash-2"></i>Delete</button>`;
         return `
           <tr>
             <td class="doc-select-cell">
@@ -2951,8 +3037,8 @@ async function renderDocuments() {
             <td>${tagMarkup}</td>
             <td>${sanitizeText(getDocDate(doc))}</td>
             <td class="doc-actions">
-              <button class="btn ghost" data-action="preview" data-entity="documents" data-row-index="${idx}">Preview</button>
-              <button class="btn ghost" data-action="edit" data-entity="documents" data-row-index="${idx}">Edit</button>
+              <button class="btn ghost small" data-action="preview" data-entity="documents" data-row-index="${idx}"><i data-lucide="eye"></i>Preview</button>
+              <button class="btn ghost small" data-action="edit" data-entity="documents" data-row-index="${idx}"><i data-lucide="edit-3"></i>Edit</button>
               ${downloadAction}
               ${deleteAction}
             </td>
@@ -2960,6 +3046,7 @@ async function renderDocuments() {
         `;
       })
       .join("");
+    lucide?.createIcons();
   };
 
   let visibleItems = [];
@@ -3216,7 +3303,10 @@ async function renderShipping() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Timeline</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="truck"></i>
+          Timeline
+        </h3>
         <div class="stat-label">Auto-sync from orders.</div>
       </div>
       ${renderPaginatedTable(["Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
@@ -3265,7 +3355,10 @@ async function renderSampleShipments() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Recent Samples</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="send"></i>
+          Recent Samples
+        </h3>
         <div class="stat-label">Includes receiving contact, product, and courier info.</div>
       </div>
       ${renderPaginatedTable(["Company", "Receiving Address", "Tel", "Product", "Qty", "Waybill #", "Courier", "Status"], rows, "sample_shipments")}
@@ -3303,7 +3396,10 @@ async function renderTasks() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Task List</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="check-square"></i>
+          Task List
+        </h3>
         <div class="stat-label">Sortable by due date.</div>
       </div>
       ${renderPaginatedTable(["Task", "Owner", "Due", "Status", "Related To"], rows, "tasks")}
@@ -3340,7 +3436,10 @@ async function renderNotes() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Latest</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="notebook"></i>
+          Latest
+        </h3>
       </div>
       <div class="note-grid"></div>
       <div class="table-pagination" data-notes-pagination></div>
@@ -3384,14 +3483,24 @@ async function renderNotes() {
             <div class="note-meta">${note[3]} - ${note[1]}</div>
             <div class="stat-label">Related: ${note[2]}</div>
             <div class="note-actions">
-              <button class="btn ghost" data-action="preview" data-entity="notes" data-row-index="${idx + start}">Preview</button>
-              <button class="btn ghost" data-action="edit" data-entity="notes" data-row-index="${idx + start}">Edit</button>
-              <button class="btn danger ghost" data-action="delete" data-entity="notes" data-row-index="${idx + start}">Delete</button>
+              <button class="btn ghost small" data-action="preview" data-entity="notes" data-row-index="${idx + start}">
+                <i data-lucide="eye"></i>
+                Preview
+              </button>
+              <button class="btn ghost small" data-action="edit" data-entity="notes" data-row-index="${idx + start}">
+                <i data-lucide="edit-3"></i>
+                Edit
+              </button>
+              <button class="btn danger ghost small" data-action="delete" data-entity="notes" data-row-index="${idx + start}">
+                <i data-lucide="trash-2"></i>
+                Delete
+              </button>
             </div>
           </div>
         `
       )
       .join("");
+    lucide?.createIcons();
     renderNotesPagination(totalPages, currentPage);
   };
 
@@ -3427,11 +3536,17 @@ async function renderTags() {
     <div class="two-col">
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Tags</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="tags"></i>
+            Tags
+          </h3>
         </div>
         <form id="tag-form" class="inline-form">
           <input type="text" name="name" placeholder="Tag name" required />
-          <button class="btn primary" type="submit">Create tag</button>
+          <button class="btn primary" type="submit">
+            <i data-lucide="plus"></i>
+            Create tag
+          </button>
         </form>
         <div id="tag-list" class="pill-list">
           ${renderPillList(tags, "tag")}
@@ -3439,11 +3554,17 @@ async function renderTags() {
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Document Types</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="file-text"></i>
+            Document Types
+          </h3>
         </div>
         <form id="doctype-form" class="inline-form">
           <input type="text" name="name" placeholder="Document type name" required />
-          <button class="btn primary" type="submit">Create document type</button>
+          <button class="btn primary" type="submit">
+            <i data-lucide="plus"></i>
+            Create document type
+          </button>
         </form>
         <div id="doctype-list" class="pill-list">
           ${renderPillList(docTypes, "doctype")}
@@ -3451,12 +3572,18 @@ async function renderTags() {
       </div>
       <div class="panel">
         <div class="panel-header">
-          <h3 class="panel-title">Bank Charge Methods</h3>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="credit-card"></i>
+            Bank Charge Methods
+          </h3>
           <div class="stat-label">Options that show on quotations.</div>
         </div>
         <form id="bankcharge-form" class="inline-form">
           <input type="text" name="method" placeholder="e.g. Shared / We pay" required />
-          <button class="btn primary" type="submit">Add method</button>
+          <button class="btn primary" type="submit">
+            <i data-lucide="plus"></i>
+            Add method
+          </button>
         </form>
         <div id="bankcharge-list" class="pill-list">
           ${renderBankChargePills(bankMethods)}
@@ -3558,7 +3685,10 @@ async function renderSettings() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title">Cloudflare Bindings</h3>
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="cloud"></i>
+          Cloudflare Bindings
+        </h3>
         <div class="stat-label">D1 for relational data, R2 for documents.</div>
       </div>
       <div class="stat-grid">
@@ -3599,7 +3729,10 @@ async function renderSettings() {
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
             <div class="panel-header">
-              <h3 class="panel-title">Site configuration</h3>
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="settings"></i>
+                Site configuration
+              </h3>
               <div class="stat-label">Fine-tune the brand, locale, and invoice defaults.</div>
             </div>
             <form id="site-config-form" class="form-grid">
@@ -3653,7 +3786,10 @@ async function renderSettings() {
                 <input name="showFooter" type="checkbox" ${siteConfigState.showFooter ? "checked" : ""} />
               </label>
               <div class="form-actions">
-                <button type="submit" class="btn primary gradient">Save settings</button>
+                <button type="submit" class="btn primary gradient">
+                  <i data-lucide="check"></i>
+                  Save settings
+                </button>
               </div>
             </form>
           </div>
@@ -3662,7 +3798,10 @@ async function renderSettings() {
         <div class="tab-content" id="add-user">
           <div class="panel add-user-panel">
             <div class="panel-header">
-              <h3 class="panel-title">Add user</h3>
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="user-plus"></i>
+                Add user
+              </h3>
               <div class="stat-label">Grant access and keep the roster up to date.</div>
             </div>
             <form id="add-user-form" class="form-grid">
@@ -3704,7 +3843,10 @@ async function renderSettings() {
                 </div>
               </label>
               <div class="form-actions">
-                <button type="submit" class="btn primary">Add to privileged list</button>
+                <button type="submit" class="btn primary">
+                  <i data-lucide="check"></i>
+                  Add to privileged list
+                </button>
               </div>
             </form>
           </div>
@@ -3713,7 +3855,10 @@ async function renderSettings() {
         <div class="tab-content" id="change-password">
           <div class="panel password-panel">
             <div class="panel-header">
-              <h3 class="panel-title">Change password</h3>
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="key"></i>
+                Change password
+              </h3>
               <div class="stat-label">Keep your account secure by updating your password regularly.</div>
             </div>
             <form id="password-form" class="password-form">
@@ -3739,8 +3884,14 @@ async function renderSettings() {
                 <input type="password" name="confirm" placeholder="Re-enter new password" autocomplete="new-password" />
               </label>
               <div class="password-actions">
-                <button type="submit" class="btn primary gradient">Update Password</button>
-                <button type="button" class="btn cancel" data-action="cancel">Cancel</button>
+                <button type="submit" class="btn primary gradient">
+                  <i data-lucide="check"></i>
+                  Update Password
+                </button>
+                <button type="button" class="btn cancel" data-action="cancel">
+                  <i data-lucide="x"></i>
+                  Cancel
+                </button>
               </div>
             </form>
           </div>
@@ -3749,7 +3900,10 @@ async function renderSettings() {
         <div class="tab-content" id="users-privilege">
           <div class="panel privilege-panel">
             <div class="panel-header">
-              <h3 class="panel-title">Users with privilege</h3>
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="shield"></i>
+                Users with privilege
+              </h3>
               <div class="stat-label">Review who currently has elevated access.</div>
             </div>
             <div class="privilege-list">
@@ -4588,7 +4742,10 @@ function renderPillList(items, type) {
       (item) => `
         <div class="pill-row">
           <span>${item.name}</span>
-          <button class="btn danger" data-delete="${type}" data-id="${item.id ?? ""}">Delete</button>
+          <button class="btn danger small" data-delete="${type}" data-id="${item.id ?? ""}">
+            <i data-lucide="trash-2"></i>
+            Delete
+          </button>
         </div>
       `
     )
@@ -4658,7 +4815,10 @@ function renderBankChargePills(methods) {
       (m) => `
         <div class="pill-row">
           <span>${m}</span>
-          <button class="btn danger" data-bank-method="${m}">Delete</button>
+          <button class="btn danger small" data-bank-method="${m}">
+            <i data-lucide="trash-2"></i>
+            Delete
+          </button>
         </div>
       `
     )
@@ -4696,7 +4856,11 @@ function renderTable(columns, rows, tableKey = "", includeActions = true, rowInd
       (row, idx) => {
         return `<tr data-row-index="${idx + rowIndexOffset}">${row.map((cell) => `<td>${cell}</td>`).join("")}${
           includeActions
-            ? `<td class="actions-col"><button class="btn ghost" data-action="preview">Preview</button><button class="btn ghost" data-action="edit">Edit</button><button class="btn danger ghost" data-action="delete">Delete</button></td>`
+            ? `<td class="actions-col">
+                <button class="btn ghost small" data-action="preview"><i data-lucide="eye"></i>Preview</button>
+                <button class="btn ghost small" data-action="edit"><i data-lucide="edit-3"></i>Edit</button>
+                <button class="btn danger ghost small" data-action="delete"><i data-lucide="trash-2"></i>Delete</button>
+              </td>`
             : ""
         }</tr>`;
       }
@@ -6721,6 +6885,7 @@ sectionContent.addEventListener("click", (e) => {
     state.currentPage += 1;
   }
   wrapper.innerHTML = buildPaginatedTableInner(state);
+  lucide?.createIcons();
 });
 
 sectionContent.addEventListener("click", (e) => {
@@ -6768,10 +6933,11 @@ function openForm(key, options = {}) {
             const base = `name="${field.name}" ${field.required ? "required" : ""} placeholder="${field.placeholder || ""}" ${field.disabled ? "disabled" : ""}`;
             const selectOptions =
               field.name === "bank_charge_method" ? getBankChargeOptions() : Array.isArray(field.options) ? field.options : [];
-    if (field.type === "select") {
+            const fieldIcon = iconForField(field);
+            if (field.type === "select") {
               return `
-                <label>
-                  <span>${field.label}</span>
+                <label class="form-field">
+                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
                   <select ${base} ${field.multiple ? "multiple" : ""}>
                     ${selectOptions.map((opt) => `<option value="${opt === "-- Select option --" ? "" : opt}">${opt}</option>`).join("")}
                   </select>
@@ -6780,29 +6946,36 @@ function openForm(key, options = {}) {
             }
             if (field.type === "textarea") {
               return `
-                <label>
-                  <span>${field.label}</span>
+                <label class="form-field">
+                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
                   <textarea ${base}></textarea>
                 </label>
               `;
             }
-              return `
-                <label>
-                  <span>${field.label}</span>
-                  <input ${base} ${field.multiple ? "multiple" : ""} type="${field.type || "text"}" ${field.step ? `step="${field.step}"` : ""} ${field.disabled ? "disabled" : ""}/>
-                </label>
-              `;
+            return `
+              <label class="form-field">
+                <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
+                <input ${base} ${field.multiple ? "multiple" : ""} type="${field.type || "text"}" ${field.step ? `step="${field.step}"` : ""} ${field.disabled ? "disabled" : ""}/>
+              </label>
+            `;
           })
           .join("")}
         <div class="form-actions">
-          <button type="button" class="btn" data-close>Cancel</button>
-          <button type="submit" class="btn primary">Save</button>
+          <button type="button" class="btn" data-close>
+            <i data-lucide="x"></i>
+            Cancel
+          </button>
+          <button type="submit" class="btn primary">
+            <i data-lucide="check"></i>
+            Save
+          </button>
         </div>
       </form>
     </div>
   `;
 
   document.body.appendChild(overlay);
+  lucide?.createIcons();
   overlay.querySelector(".btn-close")?.addEventListener("click", () => overlay.remove());
   overlay.querySelector("[data-close]")?.addEventListener("click", () => overlay.remove());
 
@@ -8414,6 +8587,61 @@ function accentColor(label) {
 
 function soften(color) {
   return `${color}1a`;
+}
+
+function iconForStatLabel(label) {
+  const key = String(label || "").toLowerCase();
+  if (key.includes("revenue")) return "dollar-sign";
+  if (key.includes("open invoices")) return "receipt";
+  if (key.includes("invoice")) return "file-text";
+  if (key.includes("quotation") || key.includes("quote") || key.includes("pipeline")) return "file-box";
+  if (key.includes("order")) return "shopping-cart";
+  if (key.includes("company")) return "building-2";
+  if (key.includes("contact")) return "users";
+  if (key.includes("overdue")) return "alert-triangle";
+  if (key.includes("task")) return "check-square";
+  if (key.includes("shipping") || key.includes("shipment")) return "truck";
+  return "bar-chart-3";
+}
+
+function iconForField(field) {
+  const key = String(field?.name || field?.label || "").toLowerCase();
+  if (key.includes("email")) return "mail";
+  if (key.includes("phone")) return "phone";
+  if (key.includes("website")) return "globe";
+  if (key.includes("address")) return "map-pin";
+  if (key.includes("company")) return "building-2";
+  if (key.includes("contact")) return "users";
+  if (key.includes("owner") || key.includes("assignee") || key.includes("author")) return "user";
+  if (key.includes("role")) return "user-cog";
+  if (key.includes("industry")) return "briefcase";
+  if (key.includes("status")) return "activity";
+  if (key.includes("date") || key.includes("due") || key.includes("eta") || key.includes("etd") || key.includes("etc")) return "calendar";
+  if (key.includes("amount") || key.includes("price") || key.includes("total") || key.includes("tax")) return "dollar-sign";
+  if (key.includes("currency")) return "coins";
+  if (key.includes("reference")) return "hash";
+  if (key.includes("note") || key.includes("description")) return "align-left";
+  if (key.includes("qty") || key.includes("quantity")) return "hash";
+  if (key.includes("tracking")) return "map-pin";
+  if (key.includes("carrier") || key.includes("courier")) return "truck";
+  if (key.includes("attachment") || key.includes("document")) return "paperclip";
+  if (key.includes("bank") || key.includes("charge")) return "credit-card";
+  if (key.includes("title") || key.includes("name")) return "type";
+  return "file-text";
+}
+
+function decorateFormIcons(root = document) {
+  if (!root) return;
+  const labels = root.querySelectorAll(".form-grid label > span, .password-form label > span");
+  labels.forEach((span) => {
+    if (span.querySelector("i") || span.querySelector("svg")) return;
+    const labelText = span.textContent?.trim() || "";
+    const field = span.parentElement?.querySelector("input, select, textarea");
+    const name = field?.getAttribute("name") || "";
+    const icon = iconForField({ name, label: labelText });
+    span.classList.add("form-label-text");
+    span.innerHTML = `<i data-lucide="${icon}"></i>${labelText}`;
+  });
 }
 
 function num(value) {

@@ -1,15 +1,20 @@
 :root {
-  --sidebar-bg: #0b1c46;
-  --sidebar-hover: #122759;
-  --sidebar-active: #1a306b;
-  --sidebar-text: #dbe2f7;
-  --primary: #1f3f8a;
-  --primary-soft: #e8edff;
-  --text: #0f172a;
-  --muted: #607193;
-  --border: #e5e7eb;
+  --sidebar-bg: #0a1b3d;
+  --sidebar-hover: #162f6d;
+  --sidebar-active: #1f3f8a;
+  --sidebar-text: #dce6ff;
+  --primary: #2149a6;
+  --primary-soft: #e7edff;
+  --text: #0b1427;
+  --muted: #64748b;
+  --border: #e2e8f0;
   --card-bg: #ffffff;
-  --bg: #f6f7fb;
+  --bg: #f4f6fb;
+  --bg-elevated: #f8faff;
+  --shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-card: 0 12px 32px rgba(15, 23, 42, 0.1);
+  --shadow-float: 0 18px 45px rgba(15, 23, 42, 0.16);
+  --ring: rgba(33, 73, 166, 0.35);
 }
 
 *,
@@ -21,8 +26,10 @@
 body {
   margin: 0;
   font-family: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--bg);
+  background: radial-gradient(circle at 15% 0%, rgba(33, 73, 166, 0.12), transparent 45%), var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 button {
@@ -40,12 +47,14 @@ button {
 }
 
 .sidebar {
-  background: var(--sidebar-bg);
+  background: linear-gradient(180deg, #0a1b3d 0%, #0b214b 100%);
   color: var(--sidebar-text);
   display: flex;
   flex-direction: column;
   padding: 24px 20px;
   gap: 18px;
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 18px 36px rgba(9, 19, 55, 0.35);
 }
 
 .brand {
@@ -78,9 +87,19 @@ button {
   height: 20px;
 }
 
+.nav-item svg {
+  width: 20px;
+  height: 20px;
+}
+
 .nav-item:hover {
   background: var(--sidebar-hover);
   transform: translateX(2px);
+}
+
+.nav-item:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
 }
 
 .nav-item.active {
@@ -111,6 +130,11 @@ button {
   gap: 12px;
   align-items: flex-end;
   margin-bottom: 18px;
+  padding: 14px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-soft);
 }
 
 .analytics-filter {
@@ -135,6 +159,13 @@ button {
   font-size: 13px;
 }
 
+.analytics-filter input:focus,
+.analytics-filter select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(33, 73, 166, 0.15);
+}
+
 .analytics-chart {
   width: 100%;
   height: 280px;
@@ -153,14 +184,14 @@ button {
 }
 
 .topbar {
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.96);
   border-bottom: 1px solid var(--border);
   padding: 18px 28px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  box-shadow: 0 2px 10px rgba(12, 23, 69, 0.04);
+  box-shadow: var(--shadow-soft);
 }
 
 .topbar h1 {
@@ -604,7 +635,7 @@ body.salesperson-mode .content {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 18px;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
+  box-shadow: var(--shadow-card);
 }
 
 .panel-header {
@@ -619,6 +650,18 @@ body.salesperson-mode .content {
   font-size: 16px;
   font-weight: 700;
   margin: 0;
+}
+
+.panel-title-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-title-icon svg {
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
 }
 
 .table-actions {
@@ -639,7 +682,33 @@ body.salesperson-mode .content {
   padding: 14px;
   display: grid;
   gap: 6px;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--shadow-soft);
+}
+
+.stat-card-icon {
+  gap: 10px;
+}
+
+.stat-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.stat-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  background: var(--primary-soft);
+  color: var(--primary);
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.12);
+}
+
+.stat-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .stat-label {
@@ -686,7 +755,7 @@ th {
 }
 
 tr:hover td {
-  background: #f5f7ff;
+  background: #eff4ff;
 }
 
 .pill {
@@ -741,7 +810,13 @@ tr:hover td {
   background: #ffffff;
   color: var(--text);
   font-weight: 600;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.04);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+}
+
+.btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .btn.ghost {
@@ -755,7 +830,7 @@ tr:hover td {
   background: var(--primary);
   color: #ffffff;
   border-color: var(--primary);
-  box-shadow: 0 8px 18px rgba(31, 63, 138, 0.25);
+  box-shadow: 0 10px 22px rgba(31, 63, 138, 0.28);
 }
 
 .btn.danger {
@@ -770,8 +845,25 @@ tr:hover td {
 }
 
 .btn:hover {
-  border-color: #1e3a8a;
-  background: rgba(37, 99, 235, 0.18);
+  border-color: rgba(37, 99, 235, 0.45);
+  background: rgba(37, 99, 235, 0.12);
+}
+
+.btn.primary:hover {
+  background: #1b3b8a;
+  border-color: #1b3b8a;
+  box-shadow: 0 12px 26px rgba(31, 63, 138, 0.32);
+  transform: translateY(-1px);
+}
+
+.btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(37, 99, 235, 0.45);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 .badge-dot {
@@ -911,6 +1003,33 @@ tr:hover td {
 .table-wrapper {
   width: 100%;
   overflow-x: auto;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  box-shadow: var(--shadow-soft);
+}
+
+.table-wrapper table {
+  margin-top: 0;
+}
+
+.table-wrapper thead th {
+  background: #f8fafc;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-size: 12px;
+}
+
+.actions-col {
+  white-space: nowrap;
+}
+
+.actions-col .btn {
+  margin-right: 6px;
+}
+
+.actions-col .btn:last-child {
+  margin-right: 0;
 }
 
 .doc-table th,
@@ -963,6 +1082,13 @@ tr:hover td {
   box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
 }
 
+.note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .note-title {
   font-weight: 700;
   margin-bottom: 6px;
@@ -1000,6 +1126,12 @@ tr:hover td {
   display: flex;
   gap: 10px;
   margin-bottom: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-soft);
+  align-items: center;
 }
 
 .inline-form input {
@@ -1008,6 +1140,12 @@ tr:hover td {
   border: 1px solid var(--border);
   border-radius: 10px;
   font: inherit;
+}
+
+.inline-form input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(33, 73, 166, 0.18);
 }
 
 .pill-list {
@@ -1031,11 +1169,41 @@ tr:hover td {
   gap: 12px;
 }
 
+.modal .form-grid {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--shadow-soft);
+}
+
 .form-grid label {
   display: grid;
   gap: 6px;
   font-weight: 600;
   color: var(--text);
+}
+
+.form-field {
+  display: grid;
+  gap: 8px;
+}
+
+.form-label-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.form-label-text svg {
+  width: 14px;
+  height: 14px;
+  color: var(--primary);
 }
 
 .form-grid textarea {
@@ -1089,7 +1257,7 @@ tr:hover td {
   font-size: 13px;
 }
 
-.form-grid span {
+.form-grid span:not(.form-label-text) {
   font-size: 13px;
   color: var(--muted);
   font-weight: 600;
@@ -1103,6 +1271,16 @@ tr:hover td {
   border: 1px solid var(--border);
   font: inherit;
   background: #fff;
+  transition: border 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: inset 0 1px 0 rgba(15, 23, 42, 0.03);
+}
+
+.form-grid input:focus,
+.form-grid select:focus,
+.form-grid textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(33, 73, 166, 0.18);
 }
 
 .role-field .role-row {
@@ -2445,4 +2623,49 @@ body.salesperson-mode .sales-form-actions .btn.ghost {
 body.salesperson-mode .sales-empty {
   padding: 18px;
   border-radius: 16px;
+}
+
+/* Visual polish + performance tweaks */
+.doc-card,
+.note-card,
+.tag-card,
+.pill-row,
+.sales-card,
+.privilege-item,
+.preview-card {
+  background: var(--card-bg);
+  box-shadow: var(--shadow-soft);
+}
+
+.sales-panel,
+.preview-card,
+.password-form {
+  box-shadow: var(--shadow-card);
+}
+
+@supports (content-visibility: auto) {
+  .doc-card,
+  .note-card,
+  .tag-card,
+  .pill-row,
+  .sales-card,
+  .privilege-item {
+    content-visibility: auto;
+    contain-intrinsic-size: 120px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .nav-item:hover,
+  .btn:hover {
+    transform: none;
+  }
 }
