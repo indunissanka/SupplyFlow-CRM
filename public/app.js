@@ -61,7 +61,7 @@ let navDrawer = null;
 let navBackdrop = null;
 let navDrawerOpen = false;
 let navLastFocus = null;
-const navCompactMediaQuery = "(max-width: 1024px), (max-width: 1366px) and (pointer: coarse)";
+const navCompactMediaQuery = "(max-width: 1024px), (hover: none) and (pointer: coarse)";
 
 const loginScreen = document.querySelector(".login-screen");
 const appShell = document.querySelector(".app-shell");
