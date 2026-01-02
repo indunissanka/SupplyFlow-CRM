@@ -36,11 +36,11 @@
     </div>
   </div>
   <div class="app-shell hidden">
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar-drawer" aria-label="Primary navigation">
       <div class="brand">
         <span class="brand-title">SL CRM</span>
       </div>
-      <nav class="nav">
+      <nav class="nav" id="app-nav">
         <button class="nav-item active" data-section="dashboard">
           <i data-lucide="home"></i>
           <span>Dashboard</span>
@@ -111,6 +111,7 @@
         <div class="footer-name">Mark Nissanka</div>
       </div>
     </aside>
+    <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
     <main class="main">
       <div id="sales-workspace" class="sales-workspace hidden">
         <div class="sales-panel">
@@ -144,6 +145,9 @@
         </div>
       </div>
       <header class="topbar">
+        <button id="nav-toggle" class="btn ghost small nav-toggle" aria-label="Open navigation menu" aria-controls="sidebar-drawer" aria-expanded="false">
+          <i data-lucide="menu"></i>
+        </button>
         <h1 id="section-title">Dashboard</h1>
         <div class="topbar-meta">
           <div class="chip">Cloudflare D1 · R2</div>

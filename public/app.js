@@ -56,6 +56,11 @@ let currentAccessList = [];
 let currentAuthToken = "";
 let salesContentItems = [];
 let navItems = [];
+let navToggleButton = null;
+let navDrawer = null;
+let navBackdrop = null;
+let navDrawerOpen = false;
+let navLastFocus = null;
 
 const loginScreen = document.querySelector(".login-screen");
 const appShell = document.querySelector(".app-shell");
@@ -1331,17 +1336,116 @@ const formConfigs = {
   }
 };
 
+function getNavFocusableItems() {
+  if (!navDrawer) return [];
+  return Array.from(
+    navDrawer.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
+  ).filter((el) => !el.hasAttribute("disabled"));
+}
+
+function syncNavDrawerState(isOpen) {
+  navDrawerOpen = isOpen;
+  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  if (isCompact) {
+    document.body.classList.toggle("nav-open", isOpen);
+  } else {
+    document.body.classList.remove("nav-open");
+  }
+  if (navToggleButton) {
+    navToggleButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    navToggleButton.setAttribute("aria-label", isOpen ? "Close navigation menu" : "Open navigation menu");
+  }
+  if (navDrawer) {
+    navDrawer.setAttribute("aria-hidden", isCompact ? (isOpen ? "false" : "true") : "false");
+  }
+  if (navBackdrop) {
+    navBackdrop.hidden = !(isOpen && isCompact);
+  }
+}
+
+function openNavDrawer() {
+  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  if (!isCompact) return;
+  if (navDrawerOpen) return;
+  navLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  syncNavDrawerState(true);
+  const focusable = getNavFocusableItems();
+  if (focusable.length) {
+    focusable[0].focus();
+  }
+}
+
+function closeNavDrawer() {
+  if (!navDrawerOpen) return;
+  syncNavDrawerState(false);
+  if (navLastFocus && typeof navLastFocus.focus === "function") {
+    navLastFocus.focus();
+  }
+  navLastFocus = null;
+}
+
+function toggleNavDrawer() {
+  const isCompact = window.matchMedia("(max-width: 1024px)").matches;
+  if (!isCompact) return;
+  if (navDrawerOpen) {
+    closeNavDrawer();
+  } else {
+    openNavDrawer();
+  }
+}
+
+function handleNavDrawerKeydown(event) {
+  if (!navDrawerOpen) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeNavDrawer();
+    return;
+  }
+  if (event.key !== "Tab") return;
+  const focusable = getNavFocusableItems();
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
+function initNavDrawer() {
+  if (navToggleButton || navDrawer) return;
+  navToggleButton = document.getElementById("nav-toggle");
+  navDrawer = document.getElementById("sidebar-drawer");
+  navBackdrop = document.getElementById("drawer-backdrop");
+  if (!navToggleButton || !navDrawer) return;
+  navToggleButton.addEventListener("click", () => toggleNavDrawer());
+  navBackdrop?.addEventListener("click", () => closeNavDrawer());
+  document.addEventListener("keydown", handleNavDrawerKeydown);
+  window.addEventListener("resize", () => {
+    if (window.innerWidth > 1024) {
+      closeNavDrawer();
+    }
+  });
+  syncNavDrawerState(false);
+}
+
 function initNavigation() {
   // Re-query nav items after DOM is ready
   navItems = Array.from(document.querySelectorAll(".nav-item"));
   console.log('navItems count after init:', navItems.length);
   applyAccessRestrictions();
+  initNavDrawer();
   navItems.forEach((item) => {
     const external = item.dataset.external;
     const section = item.dataset.section;
     if (external) {
       item.addEventListener("click", (event) => {
         event.preventDefault();
+        closeNavDrawer();
         window.location.href = external;
       });
       return;
@@ -1353,6 +1457,7 @@ function initNavigation() {
         showToast("Access restricted. Ask an admin for access.");
         return;
       }
+      closeNavDrawer();
       setActiveNav(section);
       setTimeout(() => {
         renderSection(section);
