@@ -331,6 +331,38 @@ const statDefaults = {
   tasksOpen: 0
 };
 
+const dashboardSearchSectionMap = {
+  companies: "companies",
+  contacts: "contacts",
+  products: "products",
+  orders: "orders",
+  quotations: "quotations",
+  invoices: "invoices",
+  documents: "documents",
+  shipping_schedules: "shipping",
+  sample_shipments: "sample_shipments",
+  tasks: "tasks",
+  notes: "notes",
+  tags: "tags",
+  doc_types: "tags"
+};
+
+const dashboardSearchTypeLabels = {
+  companies: "Company",
+  contacts: "Contact",
+  products: "Product",
+  orders: "Order",
+  quotations: "Quotation",
+  invoices: "Invoice",
+  documents: "Document",
+  shipping_schedules: "Shipping",
+  sample_shipments: "Sample",
+  tasks: "Task",
+  notes: "Note",
+  tags: "Tag",
+  doc_types: "Doc Type"
+};
+
 let privilegedUsers = [];
 
 const timezoneOptions = [
@@ -1510,6 +1542,133 @@ async function renderSection(section) {
   lucide?.createIcons();
 }
 
+function formatSearchTypeLabel(table) {
+  return dashboardSearchTypeLabels[table]
+    || String(table || "")
+      .replace(/_/g, " ")
+      .replace(/\b[a-z]/g, (match) => match.toUpperCase());
+}
+
+function shortenSearchText(value, maxLength = 72) {
+  const text = String(value || "").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+function joinSearchMeta(...parts) {
+  return parts
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function getSearchResultTitle(table, record) {
+  switch (table) {
+    case "companies":
+      return record.name || record.company_code || `Company #${record.id || ""}`;
+    case "contacts":
+      return `${record.first_name || ""} ${record.last_name || ""}`.trim() || record.email || `Contact #${record.id || ""}`;
+    case "products":
+      return record.name || record.sku || `Product #${record.id || ""}`;
+    case "orders":
+      return record.reference || `Order #${record.id || ""}`;
+    case "quotations":
+      return record.reference || record.title || `Quotation #${record.id || ""}`;
+    case "invoices":
+      return record.reference || `Invoice #${record.id || ""}`;
+    case "documents":
+      return record.title || record.storage_key || `Document #${record.id || ""}`;
+    case "shipping_schedules":
+      return record.tracking_number || `Shipping #${record.id || ""}`;
+    case "sample_shipments":
+      return record.waybill_number || `Sample #${record.id || ""}`;
+    case "tasks":
+      return record.title || `Task #${record.id || ""}`;
+    case "notes":
+      return shortenSearchText(record.body || `Note #${record.id || ""}`, 60);
+    case "tags":
+      return record.name || `Tag #${record.id || ""}`;
+    case "doc_types":
+      return record.name || `Doc Type #${record.id || ""}`;
+    default:
+      return record.name || record.title || record.reference || `${formatSearchTypeLabel(table)} #${record.id || ""}`;
+  }
+}
+
+function getSearchResultMeta(table, record) {
+  switch (table) {
+    case "companies":
+      return joinSearchMeta(record.industry, record.status, record.website || record.email || record.phone);
+    case "contacts":
+      return joinSearchMeta(record.company_name, record.role, record.email || record.phone);
+    case "products":
+      return joinSearchMeta(record.sku ? `SKU ${record.sku}` : "", record.category, record.status);
+    case "orders":
+      return joinSearchMeta(record.company_name, record.status, record.total_amount ? formatCurrency(record.total_amount, record.currency) : "");
+    case "quotations":
+      return joinSearchMeta(record.company_name, record.status, record.amount ? formatCurrency(record.amount, record.currency) : "");
+    case "invoices":
+      return joinSearchMeta(record.company_name, record.status, record.total_amount ? formatCurrency(record.total_amount, record.currency) : "");
+    case "documents":
+      return joinSearchMeta(record.doc_type_name, record.content_type, record.storage_key);
+    case "shipping_schedules":
+      return joinSearchMeta(record.carrier, record.status, record.eta || record.etd || "");
+    case "sample_shipments":
+      return joinSearchMeta(record.courier, record.status, record.receiving_address);
+    case "tasks":
+      return joinSearchMeta(record.status, record.assignee, record.due_date);
+    case "notes":
+      return joinSearchMeta(record.author, record.note_date || record.created_at);
+    case "tags":
+      return joinSearchMeta(record.color);
+    case "doc_types":
+      return "";
+    default:
+      return "";
+  }
+}
+
+async function fetchSearchResults(query, limit, signal) {
+  const params = new URLSearchParams();
+  params.set("q", query);
+  params.set("limit", String(limit));
+  const res = await apiFetch(`/api/search?${params.toString()}`, { signal });
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to search the workspace"));
+  }
+  const data = await res.json().catch(() => ({}));
+  return Array.isArray(data.results) ? data.results : [];
+}
+
+function renderDashboardSearchResults(results) {
+  if (!results.length) {
+    return `<div class="search-empty">No matches found.</div>`;
+  }
+  return results
+    .map((result, index) => {
+      const record = result.record || {};
+      const table = result.table || "";
+      const section = dashboardSearchSectionMap[table] || "";
+      const title = escapeHtml(String(getSearchResultTitle(table, record)));
+      const meta = escapeHtml(String(getSearchResultMeta(table, record)));
+      const typeLabel = escapeHtml(String(formatSearchTypeLabel(table)));
+      return `
+        <div class="search-result" data-search-index="${index}">
+          <div class="search-result-main">
+            <span class="search-result-type">${typeLabel}</span>
+            <div class="search-result-title">${title}</div>
+            ${meta ? `<div class="search-result-meta">${meta}</div>` : ""}
+          </div>
+          <div class="search-result-actions">
+            <button class="btn ghost small" data-search-action="preview" data-search-index="${index}">Preview</button>
+            ${section ? `<button class="btn ghost small" data-search-action="open" data-section="${section}">Open</button>` : ""}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+}
+
 async function renderDashboard() {
   sectionTitle.textContent = "Dashboard";
   sectionContent.innerHTML = `
@@ -1524,6 +1683,23 @@ async function renderDashboard() {
           <i data-lucide="refresh-ccw"></i>
           Refresh
         </button>
+      </div>
+    </div>
+    <div class="panel dashboard-search-panel">
+      <div class="panel-header">
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="search"></i>
+          Site-wide search
+        </h3>
+        <div class="stat-label">Search across companies, contacts, orders, documents, and more.</div>
+      </div>
+      <div class="dashboard-search">
+        <label class="document-search-field dashboard-search-field">
+          <span>Search the workspace</span>
+          <input id="dashboard-search-input" type="search" placeholder="Company, contact, order ref, invoice..." autocomplete="off" />
+        </label>
+        <div id="dashboard-search-status" class="search-status" role="status">Type at least 2 characters to search.</div>
+        <div id="dashboard-search-results" class="search-results"></div>
       </div>
     </div>
     <div class="stat-grid" id="stat-grid"></div>
@@ -1573,6 +1749,101 @@ async function renderDashboard() {
   }
 
   document.getElementById("refresh-dashboard")?.addEventListener("click", () => renderSection("dashboard"));
+
+  const searchInput = document.getElementById("dashboard-search-input");
+  const searchResults = document.getElementById("dashboard-search-results");
+  const searchStatus = document.getElementById("dashboard-search-status");
+  if (searchInput && searchResults && searchStatus) {
+    let searchTimer = null;
+    let searchAbort = null;
+    let searchItems = [];
+    const minLength = 2;
+    const perTableLimit = 5;
+
+    const setStatus = (message) => {
+      searchStatus.textContent = message;
+    };
+
+    const setResults = (items, query) => {
+      searchItems = items;
+      if (!query || query.length < minLength) {
+        searchResults.innerHTML = "";
+        setStatus("Type at least 2 characters to search.");
+        return;
+      }
+      if (!items.length) {
+        searchResults.innerHTML = `<div class="search-empty">No matches for "${escapeHtml(query)}".</div>`;
+        setStatus("No matches found.");
+        return;
+      }
+      searchResults.innerHTML = renderDashboardSearchResults(items);
+      const label = items.length === 1 ? "result" : "results";
+      setStatus(`${items.length} ${label} found.`);
+    };
+
+    const runSearch = async () => {
+      const query = searchInput.value.trim();
+      if (query.length < minLength) {
+        setResults([], query);
+        return;
+      }
+      if (searchAbort) {
+        searchAbort.abort();
+      }
+      searchAbort = new AbortController();
+      setStatus("Searching...");
+      try {
+        const items = await fetchSearchResults(query, perTableLimit, searchAbort.signal);
+        setResults(items, query);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        console.error("Search failed", error);
+        searchResults.innerHTML = `<div class="search-empty">Search failed. Try again.</div>`;
+        setStatus("Search failed.");
+      }
+    };
+
+    searchInput.addEventListener("input", () => {
+      if (searchTimer) {
+        clearTimeout(searchTimer);
+      }
+      searchTimer = setTimeout(runSearch, 250);
+    });
+
+    searchInput.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      if (searchTimer) {
+        clearTimeout(searchTimer);
+      }
+      runSearch();
+    });
+
+    searchResults.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const actionBtn = target.closest("[data-search-action]");
+      if (!actionBtn) return;
+      const action = actionBtn.dataset.searchAction;
+      if (action === "preview") {
+        const idx = Number(actionBtn.dataset.searchIndex);
+        const item = Number.isFinite(idx) ? searchItems[idx] : null;
+        if (!item) return;
+        openPreviewModal(item.table, item.record).catch((err) => {
+          console.error(err);
+          showToast("Unable to load preview");
+        });
+        return;
+      }
+      if (action === "open") {
+        const section = actionBtn.dataset.section;
+        if (!section) return;
+        setActiveNav(section);
+        renderSection(section);
+        closeNavDrawer();
+      }
+    });
+  }
 
   const statGrid = document.getElementById("stat-grid");
   if (statGrid) {

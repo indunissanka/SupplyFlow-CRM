@@ -406,6 +406,22 @@ const filterableFields: Record<string, string[]> = {
   quotation_items: ["quotation_id", "product_id"]
 };
 
+const searchableFields: Record<string, string[]> = {
+  companies: ["name", "company_code", "email", "phone", "website", "owner", "industry", "status", "address"],
+  contacts: ["first_name", "last_name", "email", "phone", "role", "status"],
+  products: ["name", "sku", "category", "status", "description"],
+  orders: ["reference", "status", "currency"],
+  quotations: ["reference", "title", "status"],
+  invoices: ["reference", "status"],
+  documents: ["title", "storage_key"],
+  shipping_schedules: ["tracking_number", "carrier", "status", "notes"],
+  sample_shipments: ["waybill_number", "courier", "status", "receiving_address", "notes"],
+  tasks: ["title", "status", "assignee"],
+  notes: ["body", "author"],
+  tags: ["name"],
+  doc_types: ["name"]
+};
+
 const selectColumns = (alias: string, columns: string[]) => columns.map((col) => `${alias}.${col}`).join(", ");
 
 const parseFilters = (table: string, searchParams: URLSearchParams) => {
@@ -461,6 +477,13 @@ const buildWhereClause = (
     params.push(filter.value);
   }
   return { clause: parts.join(" AND "), params };
+};
+
+const getSearchOrderColumn = (table: string) => {
+  const columns = tableColumns[table] ?? [];
+  if (columns.includes("updated_at")) return "updated_at";
+  if (columns.includes("note_date")) return "note_date";
+  return "created_at";
 };
 
 type JwtPayload = {
@@ -1540,6 +1563,43 @@ app.get("/api/dashboard", async (c) => {
       return { stats, pipeline, activity };
     }
   });
+});
+
+app.get("/api/search", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const query = (c.req.query("q") || "").trim();
+  const limitRaw = Number(c.req.query("limit") || "5");
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 20) : 5;
+  if (query.length < 2) {
+    return c.json({ query, results: [] });
+  }
+  const user = c.get("currentUser") as UserRow | undefined;
+  const accessList = (c.get("accessList") as string[] | undefined) ?? [];
+  if (!user) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  const readDb = getReadSession(c.env.DB);
+  const results: Array<{ table: string; record: Record<string, unknown> }> = [];
+  const likeValue = `%${query}%`;
+  for (const [table, fields] of Object.entries(searchableFields)) {
+    const accessId = accessByTable[table];
+    if (!accessId || !hasAccess(user, accessList, accessId)) continue;
+    const columns = tableColumns[table];
+    if (!columns?.length) continue;
+    const orderColumn = getSearchOrderColumn(table);
+    const whereParts = fields.map((field) => `${field} LIKE ? COLLATE NOCASE`);
+    const sql = `SELECT ${columns.join(", ")} FROM ${table} WHERE owner_email = ? AND (${whereParts.join(
+      " OR "
+    )}) ORDER BY ${orderColumn} DESC LIMIT ?`;
+    const params = [ownerEmail, ...fields.map(() => likeValue), limit];
+    const response = await readDb.prepare(sql).bind(...params).all<Record<string, unknown>>();
+    (response.results ?? []).forEach((row) => {
+      results.push({ table, record: row });
+    });
+  }
+
+  return c.json({ query, results });
 });
 
 app.get("/api/kpis", async (c) => {
