@@ -768,12 +768,32 @@ async function apiFetch(input, init = {}) {
     headers.set("authorization", `Bearer ${currentAuthToken}`);
   }
 
-  if (input instanceof Request) {
-    const request = new Request(input, { ...init, headers });
-    return baseFetch(request);
-  }
+  const request = input instanceof Request ? new Request(input, { ...init, headers }) : new Request(url, { ...init, headers });
+  const response = await baseFetch(request);
+  handleAuthFailure(response).catch((err) => {
+    console.warn("Auth failure handler error", err);
+  });
+  return response;
+}
 
-  return baseFetch(url, { ...init, headers });
+async function handleAuthFailure(response) {
+  if (!response || response.status !== 401) return;
+  const hasSession = Boolean(currentAuthToken || safeLocalStorageGet(authTokenKey) === "true");
+  if (!hasSession) return;
+  let message = "Session expired. Please log in again.";
+  try {
+    const payload = await response.clone().json();
+    if (payload?.error) {
+      const errorText = String(payload.error);
+      if (errorText) {
+        message = errorText;
+      }
+    }
+  } catch {
+    // ignore parse errors
+  }
+  handleLogout();
+  showToast(message);
 }
 
 function renderSalesContent() {
