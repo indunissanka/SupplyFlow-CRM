@@ -6294,8 +6294,7 @@ async function updateRecord(table, id, payload) {
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || "Update failed");
+    throw new Error(await readApiError(res, "Update failed"));
   }
   cacheBypassTables.add(table);
   return res.json().catch(() => ({}));
@@ -6305,8 +6304,7 @@ async function deleteRecord(table, id) {
   if (!id) throw new Error("Missing id");
   const res = await apiFetch(`/api/${table}/${id}`, { method: "DELETE" });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || "Delete failed");
+    throw new Error(await readApiError(res, "Delete failed"));
   }
   cacheBypassTables.add(table);
   return res.json().catch(() => ({}));
@@ -8956,7 +8954,8 @@ function openForm(key, options = {}) {
       renderSection(currentSection);
     } catch (err) {
       console.error("Form submit failed", err);
-      showToast("Save failed");
+      const message = err instanceof Error && err.message ? err.message : "Save failed";
+      showToast(message);
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = "Save";
@@ -9304,8 +9303,7 @@ async function submitJson(endpoint, payload) {
     body: JSON.stringify(payload)
   });
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || res.statusText || "Request failed");
+    throw new Error(await readApiError(res, "Request failed"));
   }
   return res.json().catch(() => ({}));
 }

@@ -1159,7 +1159,7 @@ app.use(
       return isOriginAllowed(origin, requestOrigin, allowlist) ? origin : "";
     },
     allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowHeaders: ["content-type", "authorization"],
+    allowHeaders: ["content-type", "authorization", "x-user-email"],
     maxAge: 86400
   })
 );
