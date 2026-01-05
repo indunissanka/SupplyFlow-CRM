@@ -43,6 +43,26 @@ const allowedTables = [
   "quotation_items"
 ];
 
+const backupTables = [
+  "companies",
+  "contacts",
+  "products",
+  "orders",
+  "quotations",
+  "invoices",
+  "documents",
+  "shipping_schedules",
+  "sample_shipments",
+  "tasks",
+  "notes",
+  "tags",
+  "tag_links",
+  "doc_types",
+  "quotation_items",
+  "site_config",
+  "users"
+];
+
 const cacheableTables = new Set<string>([
   "companies",
   "contacts",
@@ -371,7 +391,35 @@ const tableColumns: Record<string, string[]> = {
     "updated_at"
   ],
   tags: ["id", "owner_email", "name", "color", "created_at"],
+  tag_links: ["id", "owner_email", "tag_id", "entity_type", "entity_id", "created_at"],
   doc_types: ["id", "owner_email", "name", "created_at"],
+  site_config: [
+    "owner_email",
+    "site_name",
+    "base_company",
+    "region",
+    "timezone",
+    "theme",
+    "active_theme",
+    "invoice_name",
+    "invoice_address",
+    "invoice_phone",
+    "show_footer",
+    "updated_at"
+  ],
+  users: [
+    "id",
+    "email",
+    "name",
+    "role",
+    "access",
+    "access_list",
+    "password_hash",
+    "password_salt",
+    "enabled",
+    "created_at",
+    "updated_at"
+  ],
   quotation_items: [
     "id",
     "owner_email",
@@ -484,6 +532,15 @@ const getSearchOrderColumn = (table: string) => {
   if (columns.includes("updated_at")) return "updated_at";
   if (columns.includes("note_date")) return "note_date";
   return "created_at";
+};
+
+const getBackupOrderColumn = (table: string) => {
+  const columns = tableColumns[table] ?? [];
+  if (columns.includes("id")) return "id";
+  if (columns.includes("created_at")) return "created_at";
+  if (columns.includes("updated_at")) return "updated_at";
+  if (columns.includes("owner_email")) return "owner_email";
+  return "rowid";
 };
 
 type JwtPayload = {
@@ -1563,6 +1620,186 @@ app.get("/api/dashboard", async (c) => {
       return { stats, pipeline, activity };
     }
   });
+});
+
+app.get("/api/backup/manifest", async (c) => {
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
+  const ownerEmail = c.get("ownerEmail");
+  const readDb = getReadSession(c.env.DB);
+  const tables = [];
+  for (const table of backupTables) {
+    const hasOwner = ownerEmailTables.includes(table);
+    const sql = hasOwner
+      ? `SELECT COUNT(*) as count FROM ${table} WHERE owner_email = ?`
+      : `SELECT COUNT(*) as count FROM ${table}`;
+    const stmt = readDb.prepare(sql);
+    const row = hasOwner ? await stmt.bind(ownerEmail).first<{ count?: number }>() : await stmt.first<{ count?: number }>();
+    tables.push({ name: table, count: row?.count ?? 0 });
+  }
+
+  const fileRows = await readDb
+    .prepare(
+      `SELECT storage_key as key, content_type, size, created_at, updated_at, 'documents' as source
+       FROM documents
+       WHERE owner_email = ? AND storage_key IS NOT NULL AND storage_key <> ''
+       UNION
+       SELECT attachment_key as key, NULL as content_type, NULL as size, created_at, updated_at, 'quotations' as source
+       FROM quotations
+       WHERE owner_email = ? AND attachment_key IS NOT NULL AND attachment_key <> ''
+       UNION
+       SELECT attachment_key as key, NULL as content_type, NULL as size, created_at, updated_at, 'invoices' as source
+       FROM invoices
+       WHERE owner_email = ? AND attachment_key IS NOT NULL AND attachment_key <> ''`
+    )
+    .bind(ownerEmail, ownerEmail, ownerEmail)
+    .all<{ key?: string; content_type?: string | null; size?: number | null; created_at?: string | null; updated_at?: string | null; source?: string | null }>();
+
+  const fileMap = new Map<string, {
+    key: string;
+    sources: string[];
+    content_type: string | null;
+    size: number | null;
+    created_at: string | null;
+    updated_at: string | null;
+  }>();
+  (fileRows.results ?? []).forEach((row) => {
+    const key = (row.key || "").trim();
+    if (!key) return;
+    if (!fileMap.has(key)) {
+      fileMap.set(key, {
+        key,
+        sources: [],
+        content_type: row.content_type ?? null,
+        size: typeof row.size === "number" ? row.size : null,
+        created_at: row.created_at ?? null,
+        updated_at: row.updated_at ?? null
+      });
+    }
+    const entry = fileMap.get(key);
+    const source = row.source ? row.source.toString() : "";
+    if (entry && source && !entry.sources.includes(source)) {
+      entry.sources.push(source);
+    }
+  });
+
+  return c.json({
+    generated_at: new Date().toISOString(),
+    owner_email: ownerEmail,
+    tables,
+    files: Array.from(fileMap.values())
+  });
+});
+
+app.get("/api/backup/table/:table", async (c) => {
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
+  const table = c.req.param("table");
+  if (!backupTables.includes(table)) {
+    return c.json({ error: "Unknown table" }, 404);
+  }
+  const ownerEmail = c.get("ownerEmail");
+  const limitRaw = Number.parseInt(c.req.query("limit") || "500", 10);
+  const offsetRaw = Number.parseInt(c.req.query("offset") || "0", 10);
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 1000) : 500;
+  const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
+  const columns = tableColumns[table] ?? ["*"];
+  const orderColumn = getBackupOrderColumn(table);
+  let sql = `SELECT ${columns.join(", ")} FROM ${table}`;
+  const params: Array<string | number> = [];
+  if (ownerEmailTables.includes(table)) {
+    sql += " WHERE owner_email = ?";
+    params.push(ownerEmail);
+  }
+  sql += ` ORDER BY ${orderColumn} ASC LIMIT ? OFFSET ?`;
+  params.push(limit, offset);
+  const readDb = getReadSession(c.env.DB);
+  const result = await readDb.prepare(sql).bind(...params).all();
+  return c.json({ table, rows: result.results ?? [], limit, offset });
+});
+
+app.post("/api/backup/restore/table/:table", async (c) => {
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
+  const table = c.req.param("table");
+  if (!backupTables.includes(table)) {
+    return c.json({ error: "Unknown table" }, 404);
+  }
+  const payload = await c.req.json<{ rows?: Array<Record<string, unknown>>; clear?: boolean }>().catch(() => ({}));
+  const rows = Array.isArray(payload.rows) ? payload.rows : null;
+  if (!rows) {
+    return c.json({ error: "Rows array required" }, 400);
+  }
+  const ownerEmail = c.get("ownerEmail");
+  const clear = payload.clear === true || c.req.query("clear") === "1";
+  const columns = tableColumns[table] ?? [];
+  if (!columns.length) {
+    return c.json({ error: "No columns configured" }, 400);
+  }
+  const isOwnerScoped = ownerEmailTables.includes(table);
+
+  if (clear) {
+    const clearSql = isOwnerScoped ? `DELETE FROM ${table} WHERE owner_email = ?` : `DELETE FROM ${table}`;
+    const clearStmt = c.env.DB.prepare(clearSql);
+    if (isOwnerScoped) {
+      await clearStmt.bind(ownerEmail).run();
+    } else {
+      await clearStmt.run();
+    }
+  }
+
+  if (rows.length) {
+    const placeholders = columns.map(() => "?").join(", ");
+    const insertSql = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${placeholders})`;
+    const baseStmt = c.env.DB.prepare(insertSql);
+    const statements: D1PreparedStatement[] = [];
+    for (const row of rows) {
+      const values = columns.map((column) => {
+        if (isOwnerScoped && column === "owner_email") {
+          return ownerEmail;
+        }
+        if (Object.prototype.hasOwnProperty.call(row, column)) {
+          return (row as Record<string, unknown>)[column] ?? null;
+        }
+        return null;
+      });
+      statements.push(baseStmt.bind(...values));
+    }
+    await batchInChunks(c.env.DB, statements);
+  }
+
+  await bumpCacheVersion(c.env, ownerEmail, table);
+  return c.json({ ok: true, table, rows: rows.length, cleared: clear });
+});
+
+app.put("/api/backup/files/:key{.+}", async (c) => {
+  const adminError = requireAdminUser(c);
+  if (adminError) return adminError;
+  const keyParam = c.req.param("key");
+  const key = decodeURIComponent(keyParam || "");
+  if (!key || key.includes("..") || key.startsWith("/")) {
+    return c.text("Missing file key", 400);
+  }
+
+  let body: ArrayBuffer | null = null;
+  try {
+    body = await c.req.arrayBuffer();
+  } catch (err) {
+    console.error("Failed to read upload body", err);
+    return c.text("Invalid file body", 400);
+  }
+
+  if (!body || !body.byteLength) {
+    return c.text("Missing file body", 400);
+  }
+
+  const contentType = normalizeContentType(c.req.header("content-type"));
+  if (!allowedUploadContentTypes.has(contentType)) {
+    return c.text("Unsupported file type", 415);
+  }
+  await c.env.FILES.put(key, body, { httpMetadata: { contentType } });
+
+  return c.json({ key });
 });
 
 app.get("/api/search", async (c) => {
@@ -2983,12 +3220,23 @@ app.get("/api/files/:key{.+}", async (c) => {
   }
 
   const readDb = getReadSession(c.env.DB);
-  const record = await readDb
+  let record = await readDb
     .prepare("SELECT id FROM documents WHERE storage_key = ? AND owner_email = ?")
     .bind(key, ownerEmail)
     .first();
   if (!record) {
-    return c.notFound();
+    const attachment = await readDb
+      .prepare(
+        `SELECT id FROM quotations WHERE attachment_key = ? AND owner_email = ?
+         UNION
+         SELECT id FROM invoices WHERE attachment_key = ? AND owner_email = ?
+         LIMIT 1`
+      )
+      .bind(key, ownerEmail, key, ownerEmail)
+      .first();
+    if (!attachment) {
+      return c.notFound();
+    }
   }
 
   const object = await c.env.FILES.get(key);

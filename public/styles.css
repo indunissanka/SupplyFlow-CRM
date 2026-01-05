@@ -649,6 +649,52 @@ body.salesperson-mode .content {
   gap: 10px;
 }
 
+.backup-body {
+  display: grid;
+  gap: 12px;
+}
+
+.backup-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.backup-restore {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.backup-file {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.backup-file input[type="file"] {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 13px;
+}
+
+.backup-warning {
+  font-size: 12px;
+  color: #b91c1c;
+}
+
+.backup-status {
+  font-size: 13px;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+}
+
 .dashboard-search {
   display: grid;
   gap: 12px;

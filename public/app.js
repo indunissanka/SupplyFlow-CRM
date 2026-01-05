@@ -4043,6 +4043,272 @@ async function renderTags() {
   });
 }
 
+function formatBackupFilename() {
+  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+  return `crm-backup-${stamp}.zip`;
+}
+
+const backupRestoreOrder = [
+  "users",
+  "site_config",
+  "companies",
+  "contacts",
+  "products",
+  "quotations",
+  "orders",
+  "invoices",
+  "doc_types",
+  "documents",
+  "shipping_schedules",
+  "quotation_items",
+  "sample_shipments",
+  "tasks",
+  "notes",
+  "tags",
+  "tag_links"
+];
+
+async function fetchBackupManifest() {
+  const res = await apiFetch("/api/backup/manifest");
+  if (!res.ok) {
+    throw new Error(await readApiError(res, "Unable to prepare backup manifest"));
+  }
+  return res.json().catch(() => ({}));
+}
+
+async function fetchBackupTablePage(table, limit, offset) {
+  const params = new URLSearchParams();
+  params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  const res = await apiFetch(`/api/backup/table/${table}?${params.toString()}`);
+  if (!res.ok) {
+    throw new Error(await readApiError(res, `Unable to export ${table}`));
+  }
+  return res.json().catch(() => ({}));
+}
+
+async function fetchBackupTableAll(table, limit, onStatus) {
+  const rows = [];
+  let offset = 0;
+  while (true) {
+    if (typeof onStatus === "function") {
+      onStatus(`Exporting ${table}...`);
+    }
+    const payload = await fetchBackupTablePage(table, limit, offset);
+    const batch = Array.isArray(payload.rows) ? payload.rows : [];
+    rows.push(...batch);
+    if (batch.length < limit) break;
+    offset += batch.length;
+  }
+  return rows;
+}
+
+async function buildBackupZip(onStatus) {
+  if (!window.JSZip) {
+    throw new Error("Zip download is unavailable");
+  }
+
+  if (typeof onStatus === "function") {
+    onStatus("Preparing backup manifest...");
+  }
+  const manifest = await fetchBackupManifest();
+  const tables = Array.isArray(manifest.tables) ? manifest.tables : [];
+  const files = Array.isArray(manifest.files) ? manifest.files : [];
+
+  const zip = new window.JSZip();
+  const normalizedTables = tables.map((table) => {
+    if (typeof table === "string") {
+      return { name: table, count: null };
+    }
+    return { name: table?.name || "", count: table?.count ?? null };
+  });
+
+  const meta = {
+    generated_at: manifest.generated_at || new Date().toISOString(),
+    owner_email: manifest.owner_email || currentUserEmail || "",
+    tables: normalizedTables,
+    file_count: files.length
+  };
+  zip.file("backup.json", JSON.stringify(meta, null, 2));
+
+  const d1Folder = zip.folder("d1");
+  d1Folder.file("tables.json", JSON.stringify(normalizedTables.map((table) => table.name), null, 2));
+  d1Folder.file("row_counts.json", JSON.stringify(normalizedTables, null, 2));
+
+  const tableLimit = 500;
+  for (let i = 0; i < tables.length; i += 1) {
+    const tableName = typeof tables[i] === "string" ? tables[i] : tables[i]?.name;
+    if (!tableName) continue;
+    if (typeof onStatus === "function") {
+      onStatus(`Exporting ${tableName} (${i + 1}/${tables.length})`);
+    }
+    const rows = await fetchBackupTableAll(tableName, tableLimit, onStatus);
+    d1Folder.file(`${tableName}.json`, JSON.stringify(rows, null, 2));
+  }
+
+  const docsFolder = zip.folder("documents");
+  const objectsFolder = docsFolder.folder("objects");
+  const fileManifest = files.map((file) => ({
+    key: file.key || "",
+    sources: Array.isArray(file.sources) ? file.sources : [],
+    content_type: file.content_type ?? null,
+    size: typeof file.size === "number" ? file.size : null,
+    created_at: file.created_at ?? null,
+    updated_at: file.updated_at ?? null,
+    status: "pending"
+  }));
+
+  for (let i = 0; i < fileManifest.length; i += 1) {
+    const item = fileManifest[i];
+    if (typeof onStatus === "function") {
+      onStatus(`Downloading files ${i + 1}/${fileManifest.length}`);
+    }
+    if (!item.key) {
+      item.status = "missing_key";
+      continue;
+    }
+    const fileUrl = getFileUrl(item.key);
+    if (!fileUrl) {
+      item.status = "missing_key";
+      continue;
+    }
+    try {
+      const res = await apiFetch(fileUrl);
+      if (!res.ok) {
+        item.status = "missing_or_error";
+        continue;
+      }
+      const buffer = await res.arrayBuffer();
+      if (!buffer || buffer.byteLength === 0) {
+        item.status = "missing_or_error";
+        continue;
+      }
+      objectsFolder.file(item.key, buffer);
+      item.status = "downloaded";
+    } catch (err) {
+      console.debug("Backup file download failed", err);
+      item.status = "missing_or_error";
+    }
+  }
+
+  docsFolder.file("manifest.json", JSON.stringify(fileManifest, null, 2));
+  return zip;
+}
+
+async function readZipJson(zip, path) {
+  const entry = zip.file(path);
+  if (!entry) return null;
+  const text = await entry.async("string");
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.error("Backup JSON parse failed", path, error);
+    return null;
+  }
+}
+
+async function restoreBackupTable(table, rows, onStatus) {
+  const pageSize = 200;
+  let offset = 0;
+  let isFirst = true;
+  while (offset < rows.length) {
+    const batch = rows.slice(offset, offset + pageSize);
+    if (typeof onStatus === "function") {
+      onStatus(`Restoring ${table} (${Math.min(offset + batch.length, rows.length)}/${rows.length})`);
+    }
+    const res = await apiFetch(`/api/backup/restore/table/${table}?clear=${isFirst ? "1" : "0"}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rows: batch, clear: isFirst })
+    });
+    if (!res.ok) {
+      throw new Error(await readApiError(res, `Restore failed for ${table}`));
+    }
+    offset += batch.length;
+    isFirst = false;
+  }
+  if (isFirst) {
+    await apiFetch(`/api/backup/restore/table/${table}?clear=1`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ rows: [], clear: true })
+    });
+  }
+}
+
+async function restoreBackupZip(file, onStatus) {
+  if (!window.JSZip) {
+    throw new Error("Zip restore is unavailable");
+  }
+  if (typeof onStatus === "function") {
+    onStatus("Reading backup zip...");
+  }
+  const zip = await window.JSZip.loadAsync(file);
+  const tablesFromZip = await readZipJson(zip, "d1/tables.json");
+  const tables = Array.isArray(tablesFromZip)
+    ? tablesFromZip.filter((name) => typeof name === "string")
+    : [];
+  const availableTables = tables.length
+    ? tables
+    : backupRestoreOrder.filter((name) => zip.file(`d1/${name}.json`));
+
+  const orderedTables = backupRestoreOrder.filter((name) => availableTables.includes(name));
+  for (let i = 0; i < orderedTables.length; i += 1) {
+    const table = orderedTables[i];
+    const rows = await readZipJson(zip, `d1/${table}.json`);
+    if (!Array.isArray(rows)) {
+      if (typeof onStatus === "function") {
+        onStatus(`Skipping ${table} (missing or invalid)`);
+      }
+      continue;
+    }
+    if (typeof onStatus === "function") {
+      onStatus(`Restoring ${table} (${i + 1}/${orderedTables.length})`);
+    }
+    await restoreBackupTable(table, rows, onStatus);
+  }
+
+  const manifest = await readZipJson(zip, "documents/manifest.json");
+  const items = Array.isArray(manifest) ? manifest : [];
+  let uploaded = 0;
+  let failed = 0;
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i] || {};
+    const key = item.key ? String(item.key) : "";
+    if (!key) {
+      failed += 1;
+      continue;
+    }
+    if (typeof onStatus === "function") {
+      onStatus(`Uploading files ${i + 1}/${items.length}`);
+    }
+    const entry = zip.file(`documents/objects/${key}`);
+    if (!entry) {
+      failed += 1;
+      continue;
+    }
+    try {
+      const buffer = await entry.async("arraybuffer");
+      const contentType = item.content_type || "application/octet-stream";
+      const res = await apiFetch(`/api/backup/files/${normalizeFileKey(key)}`, {
+        method: "PUT",
+        headers: { "content-type": contentType },
+        body: buffer
+      });
+      if (!res.ok) {
+        failed += 1;
+      } else {
+        uploaded += 1;
+      }
+    } catch (error) {
+      console.debug("Backup file upload failed", error);
+      failed += 1;
+    }
+  }
+
+  return { tables: orderedTables.length, files: items.length, uploaded, failed };
+}
+
 async function renderSettings() {
   const canManageUsers = currentRole === adminRole;
   if (canManageUsers) {
@@ -4105,6 +4371,7 @@ async function renderSettings() {
           <button class="tab active" data-tab="site-config">Site configuration</button>
           ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
+          ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
@@ -4277,6 +4544,39 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
+        <div class="tab-content" id="backups">
+          <div class="panel backup-panel">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="archive"></i>
+                Backup export
+              </h3>
+              <div class="stat-label">Download D1 data, users, site config, and R2 files in one zip.</div>
+            </div>
+            <div class="backup-body">
+              <div class="backup-actions">
+                <button type="button" class="btn primary" id="backup-download">
+                  <i data-lucide="download"></i>
+                  Download backup zip
+                </button>
+              </div>
+              <div class="backup-restore">
+                <label class="backup-file">
+                  <span>Restore zip</span>
+                  <input type="file" id="backup-file" accept=".zip" />
+                </label>
+                <button type="button" class="btn danger" id="backup-restore">
+                  <i data-lucide="rotate-ccw"></i>
+                  Restore backup
+                </button>
+              </div>
+              <div class="backup-warning">Restoring replaces current data and users. Download a backup first.</div>
+              <div class="backup-status" id="backup-status" role="status">Ready to create a backup.</div>
+            </div>
+          </div>
+        </div>
+        ` : ""}
         ${canManageUsers ? `
         <div class="tab-content" id="users-privilege">
           <div class="panel privilege-panel">
@@ -4700,6 +5000,106 @@ async function renderSettings() {
     } catch (error) {
       console.warn("Unable to sync site config", error);
       showToast("Saved locally. Unable to sync settings.");
+    }
+  });
+
+  const backupButton = document.getElementById("backup-download");
+  const backupStatus = document.getElementById("backup-status");
+  const backupFileInput = document.getElementById("backup-file");
+  const backupRestoreButton = document.getElementById("backup-restore");
+  const setBackupStatus = (message) => {
+    if (backupStatus) {
+      backupStatus.textContent = message;
+    }
+  };
+
+  backupButton?.addEventListener("click", async () => {
+    if (currentRole !== adminRole) {
+      showToast("Only admins can download backups");
+      return;
+    }
+    if (!window.JSZip) {
+      showToast("Zip download is unavailable");
+      return;
+    }
+    if (backupButton instanceof HTMLButtonElement) {
+      backupButton.disabled = true;
+    }
+    setBackupStatus("Preparing backup...");
+    try {
+      const zip = await buildBackupZip(setBackupStatus);
+      setBackupStatus("Creating zip file...");
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = formatBackupFilename();
+      link.click();
+      URL.revokeObjectURL(url);
+      setBackupStatus("Backup ready.");
+      showToast("Backup downloaded");
+    } catch (error) {
+      console.error(error);
+      setBackupStatus("Backup failed.");
+      showToast(error instanceof Error ? error.message : "Backup failed");
+    } finally {
+      if (backupButton instanceof HTMLButtonElement) {
+        backupButton.disabled = false;
+      }
+    }
+  });
+
+  backupRestoreButton?.addEventListener("click", async () => {
+    if (currentRole !== adminRole) {
+      showToast("Only admins can restore backups");
+      return;
+    }
+    if (!window.JSZip) {
+      showToast("Zip restore is unavailable");
+      return;
+    }
+    if (!(backupFileInput instanceof HTMLInputElement)) {
+      showToast("Select a backup zip");
+      return;
+    }
+    const file = backupFileInput.files?.[0];
+    if (!file) {
+      showToast("Select a backup zip");
+      return;
+    }
+    const confirmed = window.confirm("This will replace current data and users. Continue?");
+    if (!confirmed) return;
+    if (backupRestoreButton instanceof HTMLButtonElement) {
+      backupRestoreButton.disabled = true;
+    }
+    if (backupButton instanceof HTMLButtonElement) {
+      backupButton.disabled = true;
+    }
+    if (backupFileInput) {
+      backupFileInput.disabled = true;
+    }
+    setBackupStatus("Restoring backup...");
+    try {
+      const summary = await restoreBackupZip(file, setBackupStatus);
+      setBackupStatus(
+        `Restore complete. Tables: ${summary.tables}. Files: ${summary.uploaded}/${summary.files} uploaded.`
+      );
+      showToast("Restore complete. Refresh the page.");
+    } catch (error) {
+      console.error(error);
+      setBackupStatus("Restore failed.");
+      showToast(error instanceof Error ? error.message : "Restore failed");
+    } finally {
+      if (backupRestoreButton instanceof HTMLButtonElement) {
+        backupRestoreButton.disabled = false;
+      }
+      if (backupButton instanceof HTMLButtonElement) {
+        backupButton.disabled = false;
+      }
+      if (backupFileInput) {
+        backupFileInput.disabled = false;
+        backupFileInput.value = "";
+      }
     }
   });
 }
