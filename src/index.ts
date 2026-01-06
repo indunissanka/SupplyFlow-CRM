@@ -2204,6 +2204,38 @@ app.put("/api/:table/:id", async (c) => {
       (body as any).invoice_ids = invoiceIds;
     }
   }
+  if (table === "products") {
+    const rawName = body.name;
+    if (typeof rawName === "string") {
+      const trimmed = rawName.trim();
+      if (!trimmed) {
+        return c.json({ error: "Name required" }, 400);
+      }
+      body.name = trimmed;
+    } else if (rawName !== undefined) {
+      return c.json({ error: "Name required" }, 400);
+    }
+
+    if ("sku" in body) {
+      body.sku = normalizeOptionalText(body.sku as string | null | undefined);
+    }
+    if ("category" in body) {
+      body.category = normalizeOptionalText(body.category as string | null | undefined);
+    }
+    if ("description" in body) {
+      body.description = normalizeOptionalText(body.description as string | null | undefined);
+    }
+    if ("currency" in body) {
+      body.currency = normalizeOptionalText(body.currency as string | null | undefined) ?? "USD";
+    }
+    if ("status" in body) {
+      body.status = normalizeOptionalText(body.status as string | null | undefined) ?? "Active";
+    }
+    if ("price" in body) {
+      const parsed = typeof body.price === "number" ? body.price : Number(body.price);
+      body.price = Number.isFinite(parsed) ? parsed : 0;
+    }
+  }
   const tags = normalizeTags((body as any).tags);
   const entries = Object.entries(body).filter(([key]) => updatableFields[table].includes(key));
 
