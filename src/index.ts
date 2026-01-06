@@ -2578,37 +2578,65 @@ app.post("/api/contacts/bulk", async (c) => {
     return c.json({ error: "No contacts provided" }, 400);
   }
 
-  let companyLookup: Map<string, number> | null = null;
-  if (body.some((contact) => !contact.company_id && contact.company_name)) {
-    companyLookup = await buildCompanyLookup(c.env.DB, ownerEmail);
-  }
+  try {
+    const needsNameLookup = body.some((contact) => !contact.company_id && contact.company_name);
+    const needsIdValidation = body.some((contact) => Number.isFinite(contact.company_id));
+    let companyLookup: Map<string, number> | null = null;
+    let companyIdSet: Set<number> | null = null;
 
-  const inserts = body.map((contact) => {
-    const normalizedName = contact.company_name ? normalizeCompanyName(contact.company_name) : "";
-    const resolvedCompanyId =
-      contact.company_id ??
-      (normalizedName && companyLookup ? companyLookup.get(normalizedName) : null) ??
-      null;
-    return c.env.DB
-      .prepare(
-        `INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    if (needsNameLookup || needsIdValidation) {
+      const { results } = await c.env.DB.prepare(
+        "SELECT id, name FROM companies WHERE owner_email = ?"
       )
-      .bind(
-        resolvedCompanyId,
-        contact.first_name,
-        contact.last_name,
-        contact.email ?? null,
-        contact.phone ?? null,
-        contact.role ?? null,
-        contact.status ?? "Engaged",
-        ownerEmail
-      );
-  });
+        .bind(ownerEmail)
+        .all<{ id: number; name: string }>();
 
-  await batchInChunks(c.env.DB, inserts);
-  await bumpCacheVersion(c.env, ownerEmail, "contacts");
-  return c.json({ inserted: inserts.length });
+      companyIdSet = new Set<number>();
+      companyLookup = new Map<string, number>();
+      (results ?? []).forEach((row) => {
+        if (Number.isFinite(row.id)) {
+          companyIdSet?.add(row.id);
+        }
+        const normalized = normalizeCompanyName(row.name);
+        if (normalized && Number.isFinite(row.id)) {
+          companyLookup?.set(normalized, row.id);
+        }
+      });
+    }
+
+    const inserts = body.map((contact) => {
+      const normalizedName = contact.company_name ? normalizeCompanyName(contact.company_name) : "";
+      const providedId = Number.isFinite(contact.company_id) ? contact.company_id : null;
+      const validCompanyId = providedId && companyIdSet?.has(providedId) ? providedId : null;
+      const resolvedCompanyId =
+        validCompanyId ??
+        (normalizedName && companyLookup ? companyLookup.get(normalizedName) : null) ??
+        null;
+      return c.env.DB
+        .prepare(
+          `INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          resolvedCompanyId,
+          contact.first_name,
+          contact.last_name,
+          contact.email ?? null,
+          contact.phone ?? null,
+          contact.role ?? null,
+          contact.status ?? "Engaged",
+          ownerEmail
+        );
+    });
+
+    await batchInChunks(c.env.DB, inserts);
+    await bumpCacheVersion(c.env, ownerEmail, "contacts");
+    return c.json({ inserted: inserts.length });
+  } catch (err) {
+    console.error("Bulk contact insert failed", err);
+    const message = err instanceof Error ? err.message : "Could not import contacts";
+    return c.json({ error: message }, 400);
+  }
 });
 
 app.get("/api/contacts/csv", async (c) => {
