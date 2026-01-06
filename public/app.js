@@ -7212,6 +7212,10 @@ function openEditModal(tableKey, record) {
     openForm("companies", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "products") {
+    openForm("products", { initialValues: record, mode: "edit" });
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const isQuotation = tableKey === "quotations";
@@ -8555,7 +8559,7 @@ function formatPreviewValue(val, key, record) {
     return `${record.entity_type.charAt(0).toUpperCase() + record.entity_type.slice(1)} #${val}`;
   }
   
-  return String(val);
+  return escapeHtml(String(val));
 }
 
 function formatPreviewLabel(key, record) {
