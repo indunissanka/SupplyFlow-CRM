@@ -10512,7 +10512,8 @@ function attachBulkCsvHandlers({ uploadBtnId, uploadInputId, downloadBtnId, pars
       renderSection(section);
     } catch (err) {
       console.error(err);
-      showToast("Import failed");
+      const message = err instanceof Error && err.message ? err.message : "Import failed";
+      showToast(message.startsWith("Import failed") ? message : `Import failed: ${message}`);
     } finally {
       if (uploadInput) uploadInput.value = "";
     }
