@@ -2020,7 +2020,7 @@ const formConfigs = {
       { name: "receiving_address", label: "Receiving Address", type: "textarea", placeholder: "Street, city, postal code" },
       { name: "phone", label: "Telephone", placeholder: "+1 410 555 0101" },
       { name: "product_id", label: "Product", type: "select", options: ["-- Select product --"] },
-      { name: "quantity", label: "Quantity", type: "number", step: "1", min: "1", placeholder: "1" },
+      { name: "quantity", label: "Quantity", type: "number", step: "any", min: "0", placeholder: "0" },
       { name: "waybill_number", label: "Waybill Number", placeholder: "WB-12345" },
       { name: "document_id", label: "Related Document", type: "select", options: ["-- Select document (optional) --"] },
       { name: "courier", label: "Courier", type: "select", options: ["-- Choose courier --", "DHL", "FedEx", "UPS", "SF Express", "Aramex", "Royal Mail", "Other"] },
@@ -2034,7 +2034,7 @@ const formConfigs = {
         document_id: num(values.document_id),
         receiving_address: values.receiving_address,
         phone: values.phone,
-        quantity: positiveInt(values.quantity),
+        quantity: nonNegativeNumber(values.quantity),
         waybill_number: values.waybill_number,
         courier: values.courier,
         status: values.status || "Preparing",
@@ -2047,9 +2047,9 @@ const formConfigs = {
         showToast(i18nText("Add at least one product", "Add at least one product"));
         return;
       }
-      const invalidLine = lines.find((line) => !positiveInt(line.quantity));
+      const invalidLine = lines.find((line) => nonNegativeNumber(line.quantity) === undefined);
       if (invalidLine) {
-        showToast("Quantity must be a whole number greater than 0");
+        showToast("Quantity must be 0 or greater");
         return;
       }
 
@@ -2065,7 +2065,7 @@ const formConfigs = {
       };
 
       for (const line of lines) {
-        const quantity = positiveInt(line.quantity);
+        const quantity = nonNegativeNumber(line.quantity);
         const payload = {
           ...base,
           product_id: num(line.product_id),
@@ -9089,7 +9089,7 @@ function openForm(key, options = {}) {
         <select class="sample-product-select" data-sample-product>
           ${i18nPlaceholderOption("-- Select product --")}
         </select>
-        <input type="number" min="1" step="1" class="sample-product-qty" data-sample-qty value="${prefill?.quantity ?? initialQuantity ?? 1}" />
+        <input type="number" min="0" step="any" class="sample-product-qty" data-sample-qty value="${prefill?.quantity ?? initialQuantity ?? 0}" />
         ${isEdit ? "" : `<button type="button" class="btn danger ghost" data-remove-sample-product title="${escapeHtml(i18nText("Remove product", "Remove product"))}">${i18nSpan("Remove product")}</button>`}
       `;
       rowsContainer?.appendChild(row);
@@ -10012,9 +10012,9 @@ function openForm(key, options = {}) {
       }
       if (key === "sample_shipments") {
         const lines = Array.isArray(values.sample_lines) ? values.sample_lines : [];
-        const invalidLine = lines.find((line) => !positiveInt(line?.quantity));
+        const invalidLine = lines.find((line) => nonNegativeNumber(line?.quantity) === undefined);
         if (invalidLine) {
-          showToast("Quantity must be a whole number greater than 0");
+          showToast("Quantity must be 0 or greater");
           return;
         }
       }
@@ -10556,10 +10556,10 @@ function num(value) {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function positiveInt(value) {
+function nonNegativeNumber(value) {
   if (value === undefined || value === null || value === "") return undefined;
   const n = Number(value);
-  if (!Number.isInteger(n) || n <= 0) return undefined;
+  if (!Number.isFinite(n) || n < 0) return undefined;
   return n;
 }
 

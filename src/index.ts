@@ -2205,9 +2205,9 @@ app.put("/api/:table/:id", async (c) => {
     }
   }
   if (table === "sample_shipments" && "quantity" in body) {
-    const quantity = normalizePositiveInt((body as any).quantity);
-    if (!quantity) {
-      return c.json({ error: "Quantity must be a whole number greater than 0" }, 400);
+    const quantity = normalizeNonNegativeNumber((body as any).quantity);
+    if (quantity === null) {
+      return c.json({ error: "Quantity must be 0 or greater" }, 400);
     }
     (body as any).quantity = quantity;
   }
@@ -3039,9 +3039,9 @@ app.post("/api/sample_shipments", async (c) => {
     notes?: string;
   }>();
 
-  const quantity = normalizePositiveInt(body.quantity);
-  if (!quantity) {
-    return c.json({ error: "Quantity must be a whole number greater than 0" }, 400);
+  const quantity = normalizeNonNegativeNumber(body.quantity);
+  if (quantity === null) {
+    return c.json({ error: "Quantity must be 0 or greater" }, 400);
   }
 
   const result = await c.env.DB
@@ -3819,9 +3819,12 @@ function normalizeOptionalText(value?: string | null) {
   return trimmed ? trimmed : null;
 }
 
-function normalizePositiveInt(value: unknown) {
+function normalizeNonNegativeNumber(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return null;
+  }
   const numeric = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric <= 0) {
+  if (!Number.isFinite(numeric) || numeric < 0) {
     return null;
   }
   return numeric;
