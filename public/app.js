@@ -2020,7 +2020,7 @@ const formConfigs = {
       { name: "receiving_address", label: "Receiving Address", type: "textarea", placeholder: "Street, city, postal code" },
       { name: "phone", label: "Telephone", placeholder: "+1 410 555 0101" },
       { name: "product_id", label: "Product", type: "select", options: ["-- Select product --"] },
-      { name: "quantity", label: "Quantity", type: "number", step: "1", placeholder: "1" },
+      { name: "quantity", label: "Quantity", type: "number", step: "1", min: "1", placeholder: "1" },
       { name: "waybill_number", label: "Waybill Number", placeholder: "WB-12345" },
       { name: "document_id", label: "Related Document", type: "select", options: ["-- Select document (optional) --"] },
       { name: "courier", label: "Courier", type: "select", options: ["-- Choose courier --", "DHL", "FedEx", "UPS", "SF Express", "Aramex", "Royal Mail", "Other"] },
@@ -2034,7 +2034,7 @@ const formConfigs = {
         document_id: num(values.document_id),
         receiving_address: values.receiving_address,
         phone: values.phone,
-        quantity: num(values.quantity) ?? 0,
+        quantity: positiveInt(values.quantity),
         waybill_number: values.waybill_number,
         courier: values.courier,
         status: values.status || "Preparing",
@@ -2045,6 +2045,11 @@ const formConfigs = {
       const lines = Array.isArray(values.sample_lines) ? values.sample_lines.filter((l) => l?.product_id) : [];
       if (!lines.length) {
         showToast(i18nText("Add at least one product", "Add at least one product"));
+        return;
+      }
+      const invalidLine = lines.find((line) => !positiveInt(line.quantity));
+      if (invalidLine) {
+        showToast("Quantity must be a whole number greater than 0");
         return;
       }
 
@@ -2060,10 +2065,11 @@ const formConfigs = {
       };
 
       for (const line of lines) {
+        const quantity = positiveInt(line.quantity);
         const payload = {
           ...base,
           product_id: num(line.product_id),
-          quantity: num(line.quantity) ?? 0
+          quantity
         };
         await submitJson("/api/sample_shipments", payload);
       }
@@ -8077,6 +8083,9 @@ async function renderQuotationPreview(record) {
     const cached = tableRecords.quotations.find((row) => row.id === record.id);
     tagList = resolveTagList(cached?.tags);
   }
+  if (!tagList.length && record.id) {
+    tagList = await fetchQuotationTags(record.id);
+  }
   const tagText = tagList.length ? tagList.join(", ") : "None";
   const notesText = record.notes ? sanitizeText(record.notes) : "No additional notes provided.";
   const validUntil = record.valid_until ? record.valid_until : "—";
@@ -8143,6 +8152,29 @@ async function renderQuotationPreview(record) {
       ${attachmentBlock}
     </div>
   `;
+}
+
+async function fetchQuotationTags(quotationId) {
+  const limit = 200;
+  let offset = 0;
+  let pages = 0;
+  while (pages < 10) {
+    const params = new URLSearchParams();
+    params.set("limit", String(limit));
+    params.set("cache", "0");
+    if (offset) params.set("offset", String(offset));
+    const res = await apiFetch(`/api/quotations?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    const rows = Array.isArray(data.rows) ? data.rows : [];
+    if (!rows.length) return [];
+    const match = rows.find((row) => String(row.id) === String(quotationId));
+    if (match) return resolveTagList(match.tags);
+    if (rows.length < limit) return [];
+    offset += limit;
+    pages += 1;
+  }
+  return [];
 }
 
 function buildQuotePayloadFromRecord(record, items) {
@@ -8799,7 +8831,7 @@ function openForm(key, options = {}) {
             return `
               <label class="form-field">
                 <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${labelMarkup}</span>
-                <input ${base} ${field.multiple ? "multiple" : ""} type="${field.type || "text"}" ${field.step ? `step="${field.step}"` : ""} ${field.disabled ? "disabled" : ""}/>
+                <input ${base} ${field.multiple ? "multiple" : ""} type="${field.type || "text"}" ${field.step ? `step="${field.step}"` : ""} ${field.min !== undefined ? `min="${field.min}"` : ""} ${field.disabled ? "disabled" : ""}/>
               </label>
             `;
           })
@@ -9057,7 +9089,7 @@ function openForm(key, options = {}) {
         <select class="sample-product-select" data-sample-product>
           ${i18nPlaceholderOption("-- Select product --")}
         </select>
-        <input type="number" min="0" step="1" class="sample-product-qty" data-sample-qty value="${prefill?.quantity ?? initialQuantity ?? 1}" />
+        <input type="number" min="1" step="1" class="sample-product-qty" data-sample-qty value="${prefill?.quantity ?? initialQuantity ?? 1}" />
         ${isEdit ? "" : `<button type="button" class="btn danger ghost" data-remove-sample-product title="${escapeHtml(i18nText("Remove product", "Remove product"))}">${i18nSpan("Remove product")}</button>`}
       `;
       rowsContainer?.appendChild(row);
@@ -9978,6 +10010,14 @@ function openForm(key, options = {}) {
         showToast(i18nText("Add at least one product", "Add at least one product"));
         return;
       }
+      if (key === "sample_shipments") {
+        const lines = Array.isArray(values.sample_lines) ? values.sample_lines : [];
+        const invalidLine = lines.find((line) => !positiveInt(line?.quantity));
+        if (invalidLine) {
+          showToast("Quantity must be a whole number greater than 0");
+          return;
+        }
+      }
 
       form.querySelectorAll("select[multiple]").forEach((select) => {
         if (!select.name) return;
@@ -10514,6 +10554,13 @@ function num(value) {
   if (value === undefined || value === null || value === "") return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
+}
+
+function positiveInt(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n <= 0) return undefined;
+  return n;
 }
 
 function parsePercent(value) {

@@ -2204,6 +2204,13 @@ app.put("/api/:table/:id", async (c) => {
       (body as any).invoice_ids = invoiceIds;
     }
   }
+  if (table === "sample_shipments" && "quantity" in body) {
+    const quantity = normalizePositiveInt((body as any).quantity);
+    if (!quantity) {
+      return c.json({ error: "Quantity must be a whole number greater than 0" }, 400);
+    }
+    (body as any).quantity = quantity;
+  }
   if (table === "products") {
     const rawName = body.name;
     if (typeof rawName === "string") {
@@ -3032,6 +3039,11 @@ app.post("/api/sample_shipments", async (c) => {
     notes?: string;
   }>();
 
+  const quantity = normalizePositiveInt(body.quantity);
+  if (!quantity) {
+    return c.json({ error: "Quantity must be a whole number greater than 0" }, 400);
+  }
+
   const result = await c.env.DB
     .prepare(
       `INSERT INTO sample_shipments (company_id, product_id, document_id, receiving_address, phone, quantity, waybill_number, courier, status, notes, owner_email)
@@ -3043,7 +3055,7 @@ app.post("/api/sample_shipments", async (c) => {
       body.document_id ?? null,
       body.receiving_address ?? null,
       body.phone ?? null,
-      body.quantity ?? 0,
+      quantity,
       body.waybill_number ?? null,
       body.courier ?? null,
       body.status ?? "Preparing",
@@ -3805,6 +3817,14 @@ function normalizeOptionalText(value?: string | null) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+function normalizePositiveInt(value: unknown) {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric) || !Number.isInteger(numeric) || numeric <= 0) {
+    return null;
+  }
+  return numeric;
 }
 
 function normalizeTags(raw: unknown): number[] {
