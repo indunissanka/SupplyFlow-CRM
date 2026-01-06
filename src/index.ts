@@ -2456,22 +2456,45 @@ app.post("/api/companies/bulk", async (c) => {
       if (!name) {
         throw new Error("Name is required for all companies");
       }
-      const code = typeof company.company_code === "string" ? company.company_code.trim() : null;
-      const industry = typeof company.industry === "string" ? company.industry.trim() : null;
+      const normalizeOptional = (value?: string) => {
+        if (typeof value !== "string") return null;
+        const trimmed = value.trim();
+        return trimmed ? trimmed : null;
+      };
+      const code = normalizeOptional(company.company_code);
+      const website = normalizeOptional(company.website);
+      const email = normalizeOptional(company.email);
+      const phone = normalizeOptional(company.phone);
+      const owner = normalizeOptional(company.owner);
+      const industry = normalizeOptional(company.industry);
+      const address = normalizeOptional(company.address);
+      const statusValue = normalizeOptional(company.status);
+      const statusProvided = Boolean(statusValue);
       return c.env.DB.prepare(
         `INSERT INTO companies (name, company_code, website, email, phone, owner, industry, status, address, owner_email)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'Active'), ?, ?)
+         ON CONFLICT(owner_email, company_code) DO UPDATE SET
+           name = excluded.name,
+           website = CASE WHEN excluded.website IS NOT NULL THEN excluded.website ELSE companies.website END,
+           email = CASE WHEN excluded.email IS NOT NULL THEN excluded.email ELSE companies.email END,
+           phone = CASE WHEN excluded.phone IS NOT NULL THEN excluded.phone ELSE companies.phone END,
+           owner = CASE WHEN excluded.owner IS NOT NULL THEN excluded.owner ELSE companies.owner END,
+           industry = CASE WHEN excluded.industry IS NOT NULL THEN excluded.industry ELSE companies.industry END,
+           status = CASE WHEN ? THEN excluded.status ELSE companies.status END,
+           address = CASE WHEN excluded.address IS NOT NULL THEN excluded.address ELSE companies.address END,
+           updated_at = CURRENT_TIMESTAMP`
       ).bind(
         name,
-        code ?? null,
-        company.website ?? null,
-        company.email ?? null,
-        company.phone ?? null,
-        company.owner ?? null,
-        industry ?? null,
-        company.status ?? "Active",
-        company.address ?? null,
-        ownerEmail
+        code,
+        website,
+        email,
+        phone,
+        owner,
+        industry,
+        statusValue,
+        address,
+        ownerEmail,
+        statusProvided ? 1 : 0
       );
     });
 
