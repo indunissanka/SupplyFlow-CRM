@@ -3684,6 +3684,18 @@ async function fetchRows(
       params = [ownerEmail, ...where.params, limit, offset];
       }
       break;
+    case "products":
+      {
+        const where = buildWhereClause(ownerEmail, filters, "p");
+      query = `SELECT ${selectColumns("p", tableColumns.products)}, GROUP_CONCAT(DISTINCT tl.tag_id) as tags
+               FROM products p
+               LEFT JOIN tag_links tl ON tl.entity_type = 'product' AND tl.entity_id = p.id AND tl.owner_email = ?
+               WHERE ${where.clause}
+               GROUP BY p.id
+               ORDER BY p.${orderColumn} DESC LIMIT ? OFFSET ?`;
+      params = [ownerEmail, ...where.params, limit, offset];
+      }
+      break;
     case "orders":
       {
         const where = buildWhereClause(ownerEmail, filters, "o");

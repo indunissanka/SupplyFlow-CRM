@@ -8512,15 +8512,13 @@ async function openAttachmentPreview(record) {
 
 function formatPreviewValue(val, key, record) {
   if (val === null || val === undefined || val === "") return "<span class='stat-label'>—</span>";
-  if (Array.isArray(val)) return val.map((v) => `<span class="badge secondary">${v}</span>`).join(" ");
-  if (key === "tags" && typeof val === "string") {
-    const parts = val
-      .split(",")
-      .map((part) => part.trim())
-      .filter(Boolean);
-    if (parts.length) {
-      return parts.map((v) => `<span class="badge secondary">${v}</span>`).join(" ");
-    }
+  if (key === "tags") {
+    const tags = resolveTagList(val);
+    if (!tags.length) return "<span class='stat-label'>—</span>";
+    return tags.map((tag) => `<span class="badge secondary">${escapeHtml(String(tag))}</span>`).join(" ");
+  }
+  if (Array.isArray(val)) {
+    return val.map((v) => `<span class="badge secondary">${escapeHtml(String(v))}</span>`).join(" ");
   }
   if (
     ["total_amount", "amount", "price", "unit_price", "drums_price", "bank_charge_price", "shipping_price", "customer_commission", "line_total"].includes(key) &&
