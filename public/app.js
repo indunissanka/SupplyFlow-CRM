@@ -100,6 +100,30 @@ const translations = {
     "search.panel.subtitle": "Search across companies, contacts, orders, documents, and more.",
     "search.input.label": "Search the workspace",
     "search.input.placeholder": "Company, contact, order ref, invoice...",
+    "search.companies.label": "Search companies",
+    "search.companies.placeholder": "Search companies...",
+    "search.contacts.label": "Search contacts",
+    "search.contacts.placeholder": "Search contacts...",
+    "search.products.label": "Search products",
+    "search.products.placeholder": "Search products...",
+    "search.pricing.label": "Search pricing",
+    "search.pricing.placeholder": "Search line items...",
+    "search.orders.label": "Search orders",
+    "search.orders.placeholder": "Search orders...",
+    "search.quotations.label": "Search quotations",
+    "search.quotations.placeholder": "Search quotations...",
+    "search.invoices.label": "Search invoices",
+    "search.invoices.placeholder": "Search invoices...",
+    "search.documents.label": "Search documents",
+    "search.documents.placeholder": "Search documents...",
+    "search.shipping.label": "Search shipments",
+    "search.shipping.placeholder": "Search shipments...",
+    "search.samples.label": "Search samples",
+    "search.samples.placeholder": "Search samples...",
+    "search.tasks.label": "Search tasks",
+    "search.tasks.placeholder": "Search tasks...",
+    "search.notes.label": "Search notes",
+    "search.notes.placeholder": "Search notes...",
     "search.status.idle": "Type at least 2 characters to search.",
     "search.status.searching": "Searching...",
     "search.status.failed": "Search failed.",
@@ -389,6 +413,30 @@ const translations = {
     "search.panel.subtitle": "搜尋公司、聯絡人、訂單、文件等。",
     "search.input.label": "搜尋工作區",
     "search.input.placeholder": "公司、聯絡人、訂單編號、發票...",
+    "search.companies.label": "搜尋公司",
+    "search.companies.placeholder": "搜尋公司...",
+    "search.contacts.label": "搜尋聯絡人",
+    "search.contacts.placeholder": "搜尋聯絡人...",
+    "search.products.label": "搜尋產品",
+    "search.products.placeholder": "搜尋產品...",
+    "search.pricing.label": "搜尋報價",
+    "search.pricing.placeholder": "搜尋報價項目...",
+    "search.orders.label": "搜尋訂單",
+    "search.orders.placeholder": "搜尋訂單...",
+    "search.quotations.label": "搜尋報價單",
+    "search.quotations.placeholder": "搜尋報價單...",
+    "search.invoices.label": "搜尋發票",
+    "search.invoices.placeholder": "搜尋發票...",
+    "search.documents.label": "搜尋文件",
+    "search.documents.placeholder": "搜尋文件...",
+    "search.shipping.label": "搜尋出貨",
+    "search.shipping.placeholder": "搜尋出貨...",
+    "search.samples.label": "搜尋樣品",
+    "search.samples.placeholder": "搜尋樣品...",
+    "search.tasks.label": "搜尋任務",
+    "search.tasks.placeholder": "搜尋任務...",
+    "search.notes.label": "搜尋筆記",
+    "search.notes.placeholder": "搜尋筆記...",
     "search.status.idle": "請輸入至少 2 個字元進行搜尋。",
     "search.status.searching": "搜尋中...",
     "search.status.failed": "搜尋失敗。",
@@ -3309,17 +3357,21 @@ async function renderCompanies() {
           </h3>
           <div class="stat-label">Synced from D1, editable inline.</div>
         </div>
-      <div class="table-actions">
-        <button class="btn">
-          <i data-lucide="filter"></i>
-          Filter
-        </button>
-        <button class="btn">
-          <i data-lucide="download"></i>
-          Export
-        </button>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.companies.label", "Search companies")}
+            <input id="companies-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.companies.placeholder")} autocomplete="off" />
+          </label>
+          <button class="btn">
+            <i data-lucide="filter"></i>
+            Filter
+          </button>
+          <button class="btn">
+            <i data-lucide="download"></i>
+            Export
+          </button>
+        </div>
       </div>
-    </div>
       ${renderPaginatedTable(["Code", "Name", "Industry", "Website", "Email", "Phone", "Owner", "Status"], rows, "companies")}
     </div>
   `;
@@ -3333,6 +3385,7 @@ async function renderCompanies() {
     downloadEndpoint: "/api/companies/csv",
     section: "companies"
   });
+  attachTableSearch("companies-search-input", "companies");
 }
 
 async function renderContacts() {
@@ -3388,11 +3441,19 @@ async function renderContacts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="users"></i>
-          People Directory
-        </h3>
-        <div class="stat-label">Filter by role, company, or status.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="users"></i>
+            People Directory
+          </h3>
+          <div class="stat-label">Filter by role, company, or status.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.contacts.label", "Search contacts")}
+            <input id="contacts-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.contacts.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Name", "Company", "Role", "Email", "Phone", "Status"], rows, "contacts")}
     </div>
@@ -3407,6 +3468,7 @@ async function renderContacts() {
     downloadEndpoint: "/api/contacts/csv",
     section: "contacts"
   });
+  attachTableSearch("contacts-search-input", "contacts");
 }
 
 async function renderProducts() {
@@ -3478,11 +3540,19 @@ async function renderProducts() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="package"></i>
-          Catalog
-        </h3>
-        <div class="stat-label">Pricing synced to quotations and invoices.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="package"></i>
+            Catalog
+          </h3>
+          <div class="stat-label">Pricing synced to quotations and invoices.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.products.label", "Search products")}
+            <input id="products-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.products.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Name", "SKU", "Category", "Price", "Currency", "Status"], rows, "products")}
     </div>
@@ -3531,6 +3601,7 @@ async function renderProducts() {
       showToast("Export failed");
     }
   });
+  attachTableSearch("products-search-input", "products");
 }
 
 async function renderPricing() {
@@ -3545,11 +3616,19 @@ async function renderPricing() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="clipboard-list"></i>
-          Quotation line items
-        </h3>
-        <div class="stat-label">Grouped by quote with company and date context.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="clipboard-list"></i>
+            Quotation line items
+          </h3>
+          <div class="stat-label">Grouped by quote with company and date context.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.pricing.label", "Search pricing")}
+            <input id="pricing-filter-search" class="document-search-input" type="search"${i18nPlaceholderAttr("search.pricing.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       <div class="doc-filter-bar">
         <label class="document-filter-field">
@@ -3680,6 +3759,7 @@ async function renderPricing() {
   const tableSlot = sectionContent.querySelector("#pricing-table-slot");
   const companyInput = sectionContent.querySelector("#pricing-filter-company");
   const itemInput = sectionContent.querySelector("#pricing-filter-item");
+  const searchInput = sectionContent.querySelector("#pricing-filter-search");
   const dateFromInput = sectionContent.querySelector("#pricing-filter-date-from");
   const dateToInput = sectionContent.querySelector("#pricing-filter-date-to");
   if (!tableSlot) return;
@@ -3738,11 +3818,16 @@ async function renderPricing() {
   const applyFilters = () => {
     const companyQuery = (companyInput?.value || "").trim().toLowerCase();
     const itemQuery = (itemInput?.value || "").trim().toLowerCase();
+    const searchQuery = normalizeSearchValue(searchInput?.value || "");
     const dateFrom = (dateFromInput?.value || "").trim();
     const dateTo = (dateToInput?.value || "").trim();
     filteredRows = rows.filter((row) => {
       if (companyQuery && row.companyKey !== companyQuery) return false;
       if (itemQuery && row.itemKey !== itemQuery) return false;
+      if (searchQuery) {
+        const rowText = normalizeSearchValue(row.cells.join(" "));
+        if (!rowText.includes(searchQuery)) return false;
+      }
       if (dateFrom && row.dateKey && row.dateKey < dateFrom) return false;
       if (dateTo && row.dateKey && row.dateKey > dateTo) return false;
       if ((dateFrom || dateTo) && !row.dateKey) return false;
@@ -3776,6 +3861,7 @@ async function renderPricing() {
 
   companyInput?.addEventListener("change", applyFilters);
   itemInput?.addEventListener("change", applyFilters);
+  searchInput?.addEventListener("input", applyFilters);
   dateFromInput?.addEventListener("input", applyFilters);
   dateToInput?.addEventListener("input", applyFilters);
   applyFilters();
@@ -3882,15 +3968,24 @@ async function renderOrders() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="shopping-cart"></i>
-          Order Board
-        </h3>
-        <div class="stat-label">Statuses sync to shipping schedules automatically.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="shopping-cart"></i>
+            Order Board
+          </h3>
+          <div class="stat-label">Statuses sync to shipping schedules automatically.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.orders.label", "Search orders")}
+            <input id="orders-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.orders.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Order #", "Company", "Contact", "Status", "Total", "Updated"], rows, "orders")}
     </div>
   `;
+  attachTableSearch("orders-search-input", "orders");
 }
 
 async function renderQuotations() {
@@ -3931,15 +4026,24 @@ async function renderQuotations() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="file-box"></i>
-          Quotes
-        </h3>
-        <div class="stat-label">Convert to orders with one click.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="file-box"></i>
+            Quotes
+          </h3>
+          <div class="stat-label">Convert to orders with one click.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.quotations.label", "Search quotations")}
+            <input id="quotations-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.quotations.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Quote #", "Title", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
     </div>
   `;
+  attachTableSearch("quotations-search-input", "quotations");
 }
 
 async function renderInvoices() {
@@ -3983,15 +4087,24 @@ async function renderInvoices() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="receipt"></i>
-          Receivables
-        </h3>
-        <div class="stat-label">Overdue invoices surface alerts.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="receipt"></i>
+            Receivables
+          </h3>
+          <div class="stat-label">Overdue invoices surface alerts.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.invoices.label", "Search invoices")}
+            <input id="invoices-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.invoices.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Invoice #", "Company", "Total", "Due Date", "Status", "Owner"], rows, "invoices")}
     </div>
   `;
+  attachTableSearch("invoices-search-input", "invoices");
 }
 
 async function renderDocuments() {
@@ -4034,12 +4147,12 @@ async function renderDocuments() {
     <div class="panel">
       <div class="doc-filter-bar">
         <label class="document-search-field">
-          <span>Search documents</span>
+          ${i18nSpan("search.documents.label", "Search documents")}
           <input
             id="document-search-input"
             type="search"
             autocomplete="off"
-            placeholder="Search documents..."
+            class="document-search-input"${i18nPlaceholderAttr("search.documents.placeholder")}
             aria-label="Search documents"
           />
         </label>
@@ -4485,15 +4598,24 @@ async function renderShipping() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="truck"></i>
-          Timeline
-        </h3>
-        <div class="stat-label">Auto-sync from orders.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="truck"></i>
+            Timeline
+          </h3>
+          <div class="stat-label">Auto-sync from orders.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.shipping.label", "Search shipments")}
+            <input id="shipping-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.shipping.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
     </div>
   `;
+  attachTableSearch("shipping-search-input", "shipping_schedules");
 }
 
 function resolveSampleStatusLabel(record) {
@@ -4537,15 +4659,24 @@ async function renderSampleShipments() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="send"></i>
-          Recent Samples
-        </h3>
-        <div class="stat-label">Includes receiving contact, product, and courier info.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="send"></i>
+            Recent Samples
+          </h3>
+          <div class="stat-label">Includes receiving contact, product, and courier info.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.samples.label", "Search samples")}
+            <input id="samples-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.samples.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Company", "Receiving Address", "Tel", "Product", "Qty", "Waybill #", "Courier", "Status"], rows, "sample_shipments")}
     </div>
   `;
+  attachTableSearch("samples-search-input", "sample_shipments");
 }
 
 async function renderTasks() {
@@ -4578,15 +4709,24 @@ async function renderTasks() {
     </div>
     <div class="panel">
       <div class="panel-header">
-        <h3 class="panel-title panel-title-icon">
-          <i data-lucide="check-square"></i>
-          Task List
-        </h3>
-        <div class="stat-label">Sortable by due date.</div>
+        <div>
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="check-square"></i>
+            Task List
+          </h3>
+          <div class="stat-label">Sortable by due date.</div>
+        </div>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.tasks.label", "Search tasks")}
+            <input id="tasks-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.tasks.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       ${renderPaginatedTable(["Task", "Owner", "Due", "Status", "Related To"], rows, "tasks")}
     </div>
   `;
+  attachTableSearch("tasks-search-input", "tasks");
 }
 
 async function renderNotes() {
@@ -4601,6 +4741,8 @@ async function renderNotes() {
     ],
     fallback.notes
   );
+
+  const noteRows = rows.map((row, idx) => ({ row, index: idx }));
 
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -4622,6 +4764,12 @@ async function renderNotes() {
           <i data-lucide="notebook"></i>
           Latest
         </h3>
+        <div class="table-actions">
+          <label class="document-search-field">
+            ${i18nSpan("search.notes.label", "Search notes")}
+            <input id="notes-search-input" class="document-search-input" type="search"${i18nPlaceholderAttr("search.notes.placeholder")} autocomplete="off" />
+          </label>
+        </div>
       </div>
       <div class="note-grid"></div>
       <div class="table-pagination" data-notes-pagination></div>
@@ -4630,8 +4778,10 @@ async function renderNotes() {
 
   const pageSize = 10;
   let currentPage = 1;
+  let filteredRows = noteRows;
   const noteGrid = sectionContent.querySelector(".note-grid");
   const paginationSlot = sectionContent.querySelector("[data-notes-pagination]");
+  const searchInput = sectionContent.querySelector("#notes-search-input");
 
   const renderNotesPagination = (totalPages, page) => {
     if (!paginationSlot) return;
@@ -4648,32 +4798,37 @@ async function renderNotes() {
 
   const renderNotesPage = () => {
     if (!noteGrid) return;
-    if (!rows.length) {
+    if (!noteRows.length) {
       noteGrid.innerHTML = `<div class="empty">No notes yet.</div>`;
       renderNotesPagination(0, 0);
       return;
     }
-    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    if (!filteredRows.length) {
+      noteGrid.innerHTML = `<div class="empty">No matching notes.</div>`;
+      renderNotesPagination(0, 0);
+      return;
+    }
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     if (currentPage > totalPages) currentPage = totalPages;
     const start = (currentPage - 1) * pageSize;
-    const pageRows = rows.slice(start, start + pageSize);
+    const pageRows = filteredRows.slice(start, start + pageSize);
     noteGrid.innerHTML = pageRows
       .map(
-        (note, idx) => `
+        ({ row: note, index }) => `
           <div class="note-card">
             <div class="note-title">${note[0]}</div>
             <div class="note-meta">${note[3]} - ${note[1]}</div>
             <div class="stat-label">Related: ${note[2]}</div>
             <div class="note-actions">
-              <button class="btn ghost small" data-action="preview" data-entity="notes" data-row-index="${idx + start}">
+              <button class="btn ghost small" data-action="preview" data-entity="notes" data-row-index="${index}">
                 <i data-lucide="eye"></i>
                 Preview
               </button>
-              <button class="btn ghost small" data-action="edit" data-entity="notes" data-row-index="${idx + start}">
+              <button class="btn ghost small" data-action="edit" data-entity="notes" data-row-index="${index}">
                 <i data-lucide="edit-3"></i>
                 Edit
               </button>
-              <button class="btn danger ghost small" data-action="delete" data-entity="notes" data-row-index="${idx + start}">
+              <button class="btn danger ghost small" data-action="delete" data-entity="notes" data-row-index="${index}">
                 <i data-lucide="trash-2"></i>
                 Delete
               </button>
@@ -4691,13 +4846,28 @@ async function renderNotes() {
     if (!(target instanceof HTMLElement)) return;
     const action = target.dataset.notePage;
     if (!action) return;
-    const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+    const totalPages = Math.max(1, Math.ceil(filteredRows.length / pageSize));
     if (action === "prev" && currentPage > 1) currentPage -= 1;
     if (action === "next" && currentPage < totalPages) currentPage += 1;
     renderNotesPage();
   });
 
-  renderNotesPage();
+  const applyNotesSearch = () => {
+    const query = normalizeSearchValue(searchInput?.value || "");
+    if (!query) {
+      filteredRows = noteRows;
+    } else {
+      filteredRows = noteRows.filter(({ row }) => {
+        const rowText = normalizeSearchValue(row.join(" "));
+        return rowText.includes(query);
+      });
+    }
+    currentPage = 1;
+    renderNotesPage();
+  };
+
+  searchInput?.addEventListener("input", applyNotesSearch);
+  applyNotesSearch();
 }
 
 async function renderTags() {
@@ -6426,7 +6596,7 @@ function refreshBankChargeSelects(root = document) {
   selects.forEach((sel) => populateBankChargeSelect(sel));
 }
 
-function renderTable(columns, rows, tableKey = "", includeActions = true, rowIndexOffset = 0) {
+function renderTable(columns, rows, tableKey = "", includeActions = true, rowIndexOffset = 0, rowIndexList = null) {
   if (!rows.length) {
     return `<div class="empty">No records yet. Connect D1 to start storing data.</div>`;
   }
@@ -6436,7 +6606,10 @@ function renderTable(columns, rows, tableKey = "", includeActions = true, rowInd
   const body = rows
     .map(
       (row, idx) => {
-        return `<tr data-row-index="${idx + rowIndexOffset}">${row.map((cell) => `<td>${cell}</td>`).join("")}${
+        const rowIndex =
+          Array.isArray(rowIndexList) && Number.isFinite(rowIndexList[idx]) ? rowIndexList[idx] : idx + rowIndexOffset;
+        const cells = Array.isArray(row) ? row : [];
+        return `<tr data-row-index="${rowIndex}">${cells.map((cell) => `<td>${cell}</td>`).join("")}${
           includeActions
             ? `<td class="actions-col">
                 <button class="btn ghost small" data-action="preview"><i data-lucide="eye"></i>Preview</button>
@@ -6464,13 +6637,18 @@ function renderPaginatedTable(columns, rows, tableKey = "", includeActions = tru
   if (!rows.length) {
     return renderTable(columns, rows, tableKey, includeActions);
   }
+  const rowIndices = rows.map((_, idx) => idx);
   const state = {
     columns,
     rows,
+    allRows: rows,
+    rowIndices,
+    allRowIndices: rowIndices,
     tableKey,
     includeActions,
     pageSize,
-    currentPage: 1
+    currentPage: 1,
+    searchQuery: ""
   };
   paginationState.set(tableKey, state);
   return buildPaginatedTableMarkup(state);
@@ -6492,7 +6670,10 @@ function buildPaginatedTableInner(state) {
   const page = Math.min(state.currentPage, totalPages);
   const start = (page - 1) * state.pageSize;
   const pageRows = state.rows.slice(start, start + state.pageSize);
-  const tableHtml = renderTable(state.columns, pageRows, state.tableKey, state.includeActions, start);
+  const pageRowIndices = Array.isArray(state.rowIndices)
+    ? state.rowIndices.slice(start, start + state.pageSize)
+    : null;
+  const tableHtml = renderTable(state.columns, pageRows, state.tableKey, state.includeActions, start, pageRowIndices);
   return `${tableHtml}${renderPaginationControls(totalPages, page)}`;
 }
 
@@ -6502,6 +6683,60 @@ function buildPaginatedTableMarkup(state) {
       ${buildPaginatedTableInner(state)}
     </div>
   `;
+}
+
+function normalizeSearchValue(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function applyTableSearch(tableKey, query) {
+  const state = paginationState.get(tableKey);
+  if (!state) return;
+  const rawQuery = String(query || "");
+  const normalized = normalizeSearchValue(rawQuery);
+  state.searchQuery = rawQuery;
+  if (!state.allRows) {
+    state.allRows = state.rows;
+  }
+  if (!state.allRowIndices) {
+    state.allRowIndices = Array.isArray(state.rowIndices) ? state.rowIndices : state.rows.map((_, idx) => idx);
+  }
+  if (!normalized) {
+    state.rows = state.allRows;
+    state.rowIndices = state.allRowIndices;
+  } else {
+    const nextRows = [];
+    const nextIndices = [];
+    state.allRows.forEach((row, idx) => {
+      const rowText = Array.isArray(row) ? row.map(normalizeSearchValue).join(" ") : normalizeSearchValue(row);
+      if (rowText.includes(normalized)) {
+        nextRows.push(row);
+        nextIndices.push(state.allRowIndices[idx] ?? idx);
+      }
+    });
+    state.rows = nextRows;
+    state.rowIndices = nextIndices;
+  }
+  state.currentPage = 1;
+  const wrapper = document.querySelector(`[data-pagination-table="${tableKey}"]`);
+  if (!wrapper) return;
+  wrapper.innerHTML = buildPaginatedTableInner(state);
+  lucide?.createIcons();
+}
+
+function attachTableSearch(inputId, tableKey) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+  const state = paginationState.get(tableKey);
+  if (state && typeof state.searchQuery === "string") {
+    input.value = state.searchQuery;
+  }
+  input.addEventListener("input", () => applyTableSearch(tableKey, input.value));
 }
 
 async function hydrateRelatedCompany(record) {
@@ -6732,8 +6967,22 @@ function updateSampleStatusCell(record, statusLabel) {
   const state = paginationState.get("sample_shipments");
   const columns = state?.columns || [];
   const statusIndex = columns.indexOf("Status");
-  if (state?.rows?.[rowIndex] && statusIndex !== -1) {
-    state.rows[rowIndex][statusIndex] = badge(statusToneShipping(statusLabel), statusLabel);
+  if (state && statusIndex !== -1) {
+    const nextBadge = badge(statusToneShipping(statusLabel), statusLabel);
+    if (Array.isArray(state.allRows) && Array.isArray(state.allRowIndices)) {
+      const originalIdx = state.allRowIndices.indexOf(rowIndex);
+      if (originalIdx !== -1 && state.allRows[originalIdx]) {
+        state.allRows[originalIdx][statusIndex] = nextBadge;
+      }
+    }
+    if (Array.isArray(state.rowIndices)) {
+      const filteredIdx = state.rowIndices.indexOf(rowIndex);
+      if (filteredIdx !== -1 && state.rows?.[filteredIdx]) {
+        state.rows[filteredIdx][statusIndex] = nextBadge;
+      }
+    } else if (state.rows?.[rowIndex]) {
+      state.rows[rowIndex][statusIndex] = nextBadge;
+    }
   }
   const table = document.querySelector('table[data-table="sample_shipments"]');
   const row = table?.querySelector(`tr[data-row-index="${rowIndex}"]`);
