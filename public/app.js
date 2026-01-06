@@ -8223,12 +8223,40 @@ async function loadQuotationItems() {
   return tableRecords.quotation_items;
 }
 
+async function fetchQuotationItemsForId(quotationId) {
+  if (!quotationId) return [];
+  try {
+    const params = new URLSearchParams();
+    params.set("quotation_id", String(quotationId));
+    params.set("limit", "200");
+    params.set("cache", "0");
+    const res = await apiFetch(`/api/quotation_items?${params.toString()}`);
+    if (!res.ok) return [];
+    const data = await res.json().catch(() => ({}));
+    return Array.isArray(data.rows) ? data.rows : [];
+  } catch (err) {
+    console.debug("Unable to fetch quotation items", err);
+  }
+  return [];
+}
+
 async function getQuotationItems(quotationId) {
+  if (!quotationId) return [];
   if (!quotationItemsPromise) {
     quotationItemsPromise = loadQuotationItems();
   }
   await quotationItemsPromise;
-  return (tableRecords.quotation_items || []).filter((item) => item.quotation_id == quotationId);
+  const cached = (tableRecords.quotation_items || []).filter((item) => item.quotation_id == quotationId);
+  if (cached.length) return cached;
+  const fresh = await fetchQuotationItemsForId(quotationId);
+  if (fresh.length) {
+    const existing = Array.isArray(tableRecords.quotation_items) ? tableRecords.quotation_items : [];
+    const existingIds = new Set(existing.map((item) => String(item.id ?? "")));
+    const merged = existing.concat(fresh.filter((item) => !existingIds.has(String(item.id ?? ""))));
+    tableRecords.quotation_items = merged;
+    return fresh;
+  }
+  return cached;
 }
 
 function sanitizeText(text) {
