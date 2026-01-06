@@ -2612,19 +2612,32 @@ app.post("/api/contacts/bulk", async (c) => {
         validCompanyId ??
         (normalizedName && companyLookup ? companyLookup.get(normalizedName) : null) ??
         null;
+      const email = typeof contact.email === "string" ? contact.email.trim() : "";
+      const normalizedEmail = email ? email.toLowerCase() : null;
+      const phone = typeof contact.phone === "string" ? contact.phone.trim() : null;
+      const role = typeof contact.role === "string" ? contact.role.trim() : null;
+      const status = typeof contact.status === "string" ? contact.status.trim() : null;
       return c.env.DB
         .prepare(
           `INSERT INTO contacts (company_id, first_name, last_name, email, phone, role, status, owner_email)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+           VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, 'Engaged'), ?)
+           ON CONFLICT(owner_email, email) DO UPDATE SET
+             company_id = CASE WHEN excluded.company_id IS NOT NULL THEN excluded.company_id ELSE contacts.company_id END,
+             first_name = excluded.first_name,
+             last_name = excluded.last_name,
+             phone = CASE WHEN excluded.phone IS NOT NULL THEN excluded.phone ELSE contacts.phone END,
+             role = CASE WHEN excluded.role IS NOT NULL THEN excluded.role ELSE contacts.role END,
+             status = CASE WHEN excluded.status IS NOT NULL THEN excluded.status ELSE contacts.status END,
+             updated_at = CURRENT_TIMESTAMP`
         )
         .bind(
           resolvedCompanyId,
           contact.first_name,
           contact.last_name,
-          contact.email ?? null,
-          contact.phone ?? null,
-          contact.role ?? null,
-          contact.status ?? "Engaged",
+          normalizedEmail,
+          phone,
+          role,
+          status,
           ownerEmail
         );
     });
