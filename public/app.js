@@ -20,6 +20,592 @@ const demoCredentials = {
 };
 const salesContentKey = "crm:sales-content";
 const salesStatusCycle = ["New", "In progress", "Ready"];
+const languageKey = "crm:language";
+const supportedLanguages = {
+  en: "English",
+  "zh-TW": "Traditional Chinese (Taiwan)"
+};
+let currentLanguage = "en";
+const translations = {
+  en: {
+    "language.label": "Language",
+    "label.workspace": "Workspace",
+    "label.workspaceSuffix": "Workspace",
+    "login.subtitle": "Authenticate with your workspace credentials.",
+    "login.label.email": "Email",
+    "login.label.password": "Password",
+    "login.label.role": "Role",
+    "login.placeholder.email": "name@example.com",
+    "login.placeholder.password": "••••••••",
+    "login.button": "Log in",
+    "login.error.required": "Email and password are required.",
+    "login.error.missingToken": "Login failed: missing auth token.",
+    "login.error.unreachable": "Unable to reach authentication service.",
+    "role.admin": "Admin",
+    "role.salesperson": "Salesperson",
+    "topbar.menu": "Menu",
+    "topbar.logout": "Logout",
+    "topbar.unknownUser": "Unknown user",
+    "nav.toggle.open": "Open navigation menu",
+    "nav.toggle.close": "Close navigation menu",
+    "nav.dashboard": "Dashboard",
+    "nav.analytics": "Analytics",
+    "nav.companies": "Companies",
+    "nav.contacts": "Contacts",
+    "nav.products": "Products",
+    "nav.pricing": "Pricing",
+    "nav.orders": "Orders",
+    "nav.quotations": "Quotations",
+    "nav.invoices": "Invoices",
+    "nav.documents": "Documents",
+    "nav.shipping": "Shipping Schedules",
+    "nav.samples": "Samples",
+    "nav.tasks": "Tasks",
+    "nav.notes": "Notes",
+    "nav.tags": "Tags",
+    "nav.tagsAndDocTypes": "Tags & Document Types",
+    "nav.settings": "Settings",
+    "footer.developer": "Developer",
+    "sales.workspace.label": "Sales workspace",
+    "sales.workspace.title": "Pitch & capture",
+    "sales.workspace.meta": "Only Salesperson mode can add and manage these notes.",
+    "sales.form.title.label": "Content title",
+    "sales.form.title.placeholder": "New talking point",
+    "sales.form.description.label": "Description",
+    "sales.form.description.placeholder": "Capture what you need",
+    "sales.form.save": "Save content",
+    "sales.form.reset": "Reset",
+    "sales.empty": "No content yet. Capture a new talking point or asset above.",
+    "sales.captured": "Captured {date}",
+    "sales.action.advanceStatus": "Advance status",
+    "sales.action.archive": "Archive",
+    "sales.toast.missing": "Give the content a title and description",
+    "sales.toast.saved": "Sales content saved",
+    "sales.toast.statusMoved": "Status moved to {status}",
+    "sales.toast.archived": "Content archived",
+    "sales.status.new": "New",
+    "sales.status.progress": "In progress",
+    "sales.status.ready": "Ready",
+    "access.restricted.toast": "Access restricted. Ask an admin for access.",
+    "section.unavailable": "No view configured yet.",
+    "section.restricted": "Access restricted. Contact an admin to enable this section.",
+    "dashboard.overview": "Workspace Overview",
+    "dashboard.subtitle": "Live counts from D1 with quick pipeline and activity views.",
+    "dashboard.refresh": "Refresh",
+    "dashboard.pipeline.title": "Pipeline Snapshot",
+    "dashboard.pipeline.subtitle": "Recent orders and invoices",
+    "dashboard.activity.title": "Activity",
+    "dashboard.activity.subtitle": "Latest updates across the workspace",
+    "search.panel.title": "Site-wide search",
+    "search.panel.subtitle": "Search across companies, contacts, orders, documents, and more.",
+    "search.input.label": "Search the workspace",
+    "search.input.placeholder": "Company, contact, order ref, invoice...",
+    "search.status.idle": "Type at least 2 characters to search.",
+    "search.status.searching": "Searching...",
+    "search.status.failed": "Search failed.",
+    "search.empty": "No matches found.",
+    "search.empty.query": "No matches for \"{query}\".",
+    "search.error": "Search failed. Try again.",
+    "search.action.preview": "Preview",
+    "search.action.open": "Open",
+    "search.type.company": "Company",
+    "search.type.contact": "Contact",
+    "search.type.product": "Product",
+    "search.type.order": "Order",
+    "search.type.quotation": "Quotation",
+    "search.type.invoice": "Invoice",
+    "search.type.document": "Document",
+    "search.type.shipping": "Shipping",
+    "search.type.sample": "Sample",
+    "search.type.task": "Task",
+    "search.type.note": "Note",
+    "search.type.tag": "Tag",
+    "search.type.docType": "Doc Type",
+    "auth.sessionExpired": "Session expired. Please log in again.",
+    "#2563eb": "#2563eb",
+    "+1 410 555 0101": "+1 410 555 0101",
+    "-- Choose courier --": "-- Choose courier --",
+    "-- Optional: select an invoice --": "-- Optional: select an invoice --",
+    "-- Optional: select an order --": "-- Optional: select an order --",
+    "-- Select company (optional) --": "-- Select company (optional) --",
+    "-- Select company --": "-- Select company --",
+    "-- Select contact (optional) --": "-- Select contact (optional) --",
+    "-- Select contact --": "-- Select contact --",
+    "-- Select document (optional) --": "-- Select document (optional) --",
+    "-- Select document --": "-- Select document --",
+    "-- Select document type --": "-- Select document type --",
+    "-- Select invoice --": "-- Select invoice --",
+    "-- Select option --": "-- Select option --",
+    "-- Select product --": "-- Select product --",
+    "-- Select quotation --": "-- Select quotation --",
+    "-- Select type --": "-- Select type --",
+    "0": "0",
+    "1": "1",
+    "Accepted": "Accepted",
+    "Acme Corp": "Acme Corp",
+    "Active": "Active",
+    "Add Company": "Add Company",
+    "Add Contact": "Add Contact",
+    "Add Document": "Add Document",
+    "Add Invoice": "Add Invoice",
+    "Add Note": "Add Note",
+    "Add Order": "Add Order",
+    "Add Product": "Add Product",
+    "Add Quotation": "Add Quotation",
+    "Add Sample Shipment": "Add Sample Shipment",
+    "Add Shipping Schedule": "Add Shipping Schedule",
+    "Add Tag": "Add Tag",
+    "Add Task": "Add Task",
+    "Add at least one product": "Add at least one product",
+    "Add one or multiple products to include in this sample shipment.": "Add one or multiple products to include in this sample shipment.",
+    "Add product": "Add product",
+    "Address": "Address",
+    "Aramex": "Aramex",
+    "Assignee": "Assignee",
+    "Author": "Author",
+    "Auto": "Auto",
+    "Autofilled from contact/company": "Autofilled from contact/company",
+    "Bank charge method": "Bank charge method",
+    "Cancel": "Cancel",
+    "Category": "Category",
+    "Choose document (optional)": "Choose document (optional)",
+    "Choose document (optional) for this invoice": "Choose document (optional) for this invoice",
+    "Churn Risk": "Churn Risk",
+    "Close": "Close",
+    "Color": "Color",
+    "Company": "Company",
+    "Company (auto)": "Company (auto)",
+    "Company (optional)": "Company (optional)",
+    "Company Code": "Company Code",
+    "Company ID (manual)": "Company ID (manual)",
+    "Completed": "Completed",
+    "Contact": "Contact",
+    "Contact (optional)": "Contact (optional)",
+    "Contact ID (manual)": "Contact ID (manual)",
+    "Content Type": "Content Type",
+    "Courier": "Courier",
+    "Currency": "Currency",
+    "Customer name": "Customer name",
+    "Customer name (auto-filled if contact/company selected)": "Customer name (auto-filled if contact/company selected)",
+    "Customer pays": "Customer pays",
+    "Cut Off": "Cut Off",
+    "DHL": "DHL",
+    "Delivered": "Delivered",
+    "Description": "Description",
+    "Dispatched": "Dispatched",
+    "Document Type": "Document Type",
+    "Document title": "Document title",
+    "Done": "Done",
+    "Draft": "Draft",
+    "Due Date": "Due Date",
+    "ETA": "ETA",
+    "ETC": "ETC",
+    "ETD": "ETD",
+    "Edit Company": "Edit Company",
+    "Edit Contact": "Edit Contact",
+    "Edit Document": "Edit Document",
+    "Edit Invoice": "Edit Invoice",
+    "Edit Note": "Edit Note",
+    "Edit Order": "Edit Order",
+    "Edit Product": "Edit Product",
+    "Edit Quotation": "Edit Quotation",
+    "Edit Sample Shipment": "Edit Sample Shipment",
+    "Edit Shipping Schedule": "Edit Shipping Schedule",
+    "Edit Tag": "Edit Tag",
+    "Edit Task": "Edit Task",
+    "Email": "Email",
+    "Engaged": "Engaged",
+    "Enter ID": "Enter ID",
+    "Enter ID for other types": "Enter ID for other types",
+    "Enter ID number": "Enter ID number",
+    "Factory exit": "Factory exit",
+    "Factory exit date": "Factory exit date",
+    "FedEx": "FedEx",
+    "Filter the document list before selecting an attachment.": "Filter the document list before selecting an attachment.",
+    "First Name": "First Name",
+    "Form not configured yet": "Form not configured yet",
+    "INV-2025": "INV-2025",
+    "In Progress": "In Progress",
+    "Industry": "Industry",
+    "Invoice (optional)": "Invoice (optional)",
+    "Invoice number (auto-generated if empty)": "Invoice number (auto-generated if empty)",
+    "Last Name": "Last Name",
+    "Link existing invoices (optional)": "Link existing invoices (optional)",
+    "Loading companies...": "Loading companies...",
+    "Name": "Name",
+    "New": "New",
+    "No companies found": "No companies found",
+    "Not Started": "Not Started",
+    "Note Date (optional)": "Note Date (optional)",
+    "Notes": "Notes",
+    "Notes / Terms": "Notes / Terms",
+    "Nurture": "Nurture",
+    "Open": "Open",
+    "Order (optional)": "Order (optional)",
+    "Order Title": "Order Title",
+    "Other": "Other",
+    "Overdue": "Overdue",
+    "Owner": "Owner",
+    "Paid": "Paid",
+    "Payment terms, delivery timelines, or special notes.": "Payment terms, delivery timelines, or special notes.",
+    "Pending": "Pending",
+    "Phone": "Phone",
+    "Please select at least one file to upload": "Please select at least one file to upload",
+    "Preparing": "Preparing",
+    "Price": "Price",
+    "Product": "Product",
+    "Products": "Products",
+    "Prospect": "Prospect",
+    "Quantity": "Quantity",
+    "Quotation (optional)": "Quotation (optional)",
+    "Quote #": "Quote #",
+    "Receiving Address": "Receiving Address",
+    "Related Company": "Related Company",
+    "Related Document": "Related Document",
+    "Related ID": "Related ID",
+    "Related ID (optional)": "Related ID (optional)",
+    "Related Type": "Related Type",
+    "Related Type (optional)": "Related Type (optional)",
+    "Remove product": "Remove product",
+    "Role": "Role",
+    "Royal Mail": "Royal Mail",
+    "SF Express": "SF Express",
+    "SKU": "SKU",
+    "Save": "Save",
+    "Saving...": "Saving...",
+    "Search documents": "Search documents",
+    "Search documents by title or storage key": "Search documents by title or storage key",
+    "Search documents for the invoice": "Search documents for the invoice",
+    "Select Files (multiple allowed)": "Select Files (multiple allowed)",
+    "Select an order or invoice": "Select an order or invoice",
+    "Sent": "Sent",
+    "Shared": "Shared",
+    "Shipment details, vessel, port info, etc.": "Shipment details, vessel, port info, etc.",
+    "Shipped": "Shipped",
+    "Special handling, recipient contact, etc.": "Special handling, recipient contact, etc.",
+    "Status": "Status",
+    "Street, city, postal code": "Street, city, postal code",
+    "Street, city, state, postal code": "Street, city, state, postal code",
+    "Tags (optional)": "Tags (optional)",
+    "Tax rate (%)": "Tax rate (%)",
+    "Telephone": "Telephone",
+    "Text": "Text",
+    "Title": "Title",
+    "Total amount": "Total amount",
+    "UPS": "UPS",
+    "USD": "USD",
+    "Unpaid": "Unpaid",
+    "Valid until": "Valid until",
+    "WB-12345": "WB-12345",
+    "Waybill Number": "Waybill Number",
+    "We pay": "We pay",
+    "Website": "Website",
+    "Write a note": "Write a note",
+    "acme.com": "acme.com",
+    "application/pdf": "application/pdf",
+    "company": "company",
+    "contact": "contact",
+    "document": "document",
+    "e.g. ACME-001": "e.g. ACME-001",
+    "e.g. Manufacturing": "e.g. Manufacturing",
+    "e.g. Q1 Supply": "e.g. Q1 Supply",
+    "e.g. Q1 supply proposal": "e.g. Q1 supply proposal",
+    "invoice": "invoice",
+    "order": "order",
+    "other": "other",
+    "selected": "selected",
+    "— No matching documents —": "— No matching documents —",
+  },
+  "zh-TW": {
+    "language.label": "語言",
+    "label.workspace": "工作區",
+    "label.workspaceSuffix": "工作區",
+    "login.subtitle": "使用工作區帳號登入。",
+    "login.label.email": "電子郵件",
+    "login.label.password": "密碼",
+    "login.label.role": "角色",
+    "login.placeholder.email": "name@example.com",
+    "login.placeholder.password": "••••••••",
+    "login.button": "登入",
+    "login.error.required": "需要電子郵件與密碼。",
+    "login.error.missingToken": "登入失敗：缺少授權權杖。",
+    "login.error.unreachable": "無法連線到驗證服務。",
+    "role.admin": "管理員",
+    "role.salesperson": "業務人員",
+    "topbar.menu": "選單",
+    "topbar.logout": "登出",
+    "topbar.unknownUser": "未知使用者",
+    "nav.toggle.open": "開啟導覽選單",
+    "nav.toggle.close": "關閉導覽選單",
+    "nav.dashboard": "儀表板",
+    "nav.analytics": "分析",
+    "nav.companies": "公司",
+    "nav.contacts": "聯絡人",
+    "nav.products": "產品",
+    "nav.pricing": "定價",
+    "nav.orders": "訂單",
+    "nav.quotations": "報價",
+    "nav.invoices": "發票",
+    "nav.documents": "文件",
+    "nav.shipping": "出貨排程",
+    "nav.samples": "樣品",
+    "nav.tasks": "任務",
+    "nav.notes": "備註",
+    "nav.tags": "標籤",
+    "nav.tagsAndDocTypes": "標籤與文件類型",
+    "nav.settings": "設定",
+    "footer.developer": "開發者",
+    "sales.workspace.label": "業務工作區",
+    "sales.workspace.title": "提案與蒐集",
+    "sales.workspace.meta": "只有業務人員模式可以新增與管理這些筆記。",
+    "sales.form.title.label": "內容標題",
+    "sales.form.title.placeholder": "新的話術重點",
+    "sales.form.description.label": "說明",
+    "sales.form.description.placeholder": "記錄你需要的內容",
+    "sales.form.save": "儲存內容",
+    "sales.form.reset": "重設",
+    "sales.empty": "目前沒有內容。請在上方新增話術重點或素材。",
+    "sales.captured": "已記錄 {date}",
+    "sales.action.advanceStatus": "推進狀態",
+    "sales.action.archive": "封存",
+    "sales.toast.missing": "請輸入內容標題與說明",
+    "sales.toast.saved": "已儲存業務內容",
+    "sales.toast.statusMoved": "狀態已更新為 {status}",
+    "sales.toast.archived": "內容已封存",
+    "sales.status.new": "新建",
+    "sales.status.progress": "進行中",
+    "sales.status.ready": "就緒",
+    "access.restricted.toast": "權限受限。請向管理員申請存取權限。",
+    "section.unavailable": "尚未設定此視圖。",
+    "section.restricted": "權限受限。請聯絡管理員啟用此區塊。",
+    "dashboard.overview": "工作區概覽",
+    "dashboard.subtitle": "即時 D1 統計，搭配管線與活動摘要。",
+    "dashboard.refresh": "重新整理",
+    "dashboard.pipeline.title": "管線快照",
+    "dashboard.pipeline.subtitle": "近期訂單與發票",
+    "dashboard.activity.title": "活動",
+    "dashboard.activity.subtitle": "工作區最新更新",
+    "search.panel.title": "全站搜尋",
+    "search.panel.subtitle": "搜尋公司、聯絡人、訂單、文件等。",
+    "search.input.label": "搜尋工作區",
+    "search.input.placeholder": "公司、聯絡人、訂單編號、發票...",
+    "search.status.idle": "請輸入至少 2 個字元進行搜尋。",
+    "search.status.searching": "搜尋中...",
+    "search.status.failed": "搜尋失敗。",
+    "search.empty": "找不到相符結果。",
+    "search.empty.query": "找不到「{query}」的結果。",
+    "search.error": "搜尋失敗，請再試一次。",
+    "search.action.preview": "預覽",
+    "search.action.open": "開啟",
+    "search.type.company": "公司",
+    "search.type.contact": "聯絡人",
+    "search.type.product": "產品",
+    "search.type.order": "訂單",
+    "search.type.quotation": "報價",
+    "search.type.invoice": "發票",
+    "search.type.document": "文件",
+    "search.type.shipping": "出貨",
+    "search.type.sample": "樣品",
+    "search.type.task": "任務",
+    "search.type.note": "備註",
+    "search.type.tag": "標籤",
+    "search.type.docType": "文件類型",
+    "auth.sessionExpired": "工作階段已過期，請重新登入。",
+    "#2563eb": "#2563eb",
+    "+1 410 555 0101": "+1 410 555 0101",
+    "-- Choose courier --": "-- 選擇快遞 --",
+    "-- Optional: select an invoice --": "-- 選填：選擇發票 --",
+    "-- Optional: select an order --": "-- 選填：選擇訂單 --",
+    "-- Select company (optional) --": "-- 選擇公司（選填） --",
+    "-- Select company --": "-- 選擇公司 --",
+    "-- Select contact (optional) --": "-- 選擇聯絡人（選填） --",
+    "-- Select contact --": "-- 選擇聯絡人 --",
+    "-- Select document (optional) --": "-- 選擇文件（選填） --",
+    "-- Select document --": "-- 選擇文件 --",
+    "-- Select document type --": "-- 選擇文件類型 --",
+    "-- Select invoice --": "-- 選擇發票 --",
+    "-- Select option --": "-- 選擇選項 --",
+    "-- Select product --": "-- 選擇產品 --",
+    "-- Select quotation --": "-- 選擇報價 --",
+    "-- Select type --": "-- 選擇類型 --",
+    "0": "0",
+    "1": "1",
+    "Accepted": "已接受",
+    "Acme Corp": "Acme Corp",
+    "Active": "啟用",
+    "Add Company": "新增公司",
+    "Add Contact": "新增聯絡人",
+    "Add Document": "新增文件",
+    "Add Invoice": "新增發票",
+    "Add Note": "新增備註",
+    "Add Order": "新增訂單",
+    "Add Product": "新增產品",
+    "Add Quotation": "新增報價",
+    "Add Sample Shipment": "新增樣品出貨",
+    "Add Shipping Schedule": "新增出貨排程",
+    "Add Tag": "新增標籤",
+    "Add Task": "新增任務",
+    "Add at least one product": "請至少新增一個產品",
+    "Add one or multiple products to include in this sample shipment.": "新增一或多個產品至此樣品出貨。",
+    "Add product": "新增產品",
+    "Address": "地址",
+    "Aramex": "Aramex",
+    "Assignee": "指派對象",
+    "Author": "作者",
+    "Auto": "自動",
+    "Autofilled from contact/company": "由聯絡人／公司自動帶入",
+    "Bank charge method": "銀行費用方式",
+    "Cancel": "取消",
+    "Category": "類別",
+    "Choose document (optional)": "選擇文件（選填）",
+    "Choose document (optional) for this invoice": "選擇此發票的文件（選填）",
+    "Churn Risk": "流失風險",
+    "Close": "關閉",
+    "Color": "顏色",
+    "Company": "公司",
+    "Company (auto)": "公司（自動）",
+    "Company (optional)": "公司（選填）",
+    "Company Code": "公司代碼",
+    "Company ID (manual)": "公司 ID（手動）",
+    "Completed": "已完成",
+    "Contact": "聯絡人",
+    "Contact (optional)": "聯絡人（選填）",
+    "Contact ID (manual)": "聯絡人 ID（手動）",
+    "Content Type": "內容類型",
+    "Courier": "快遞",
+    "Currency": "幣別",
+    "Customer name": "客戶名稱",
+    "Customer name (auto-filled if contact/company selected)": "客戶名稱（選取聯絡人／公司後自動填入）",
+    "Customer pays": "客戶支付",
+    "Cut Off": "截單",
+    "DHL": "DHL",
+    "Delivered": "已送達",
+    "Description": "說明",
+    "Dispatched": "已派送",
+    "Document Type": "文件類型",
+    "Document title": "文件標題",
+    "Done": "完成",
+    "Draft": "草稿",
+    "Due Date": "到期日",
+    "ETA": "ETA",
+    "ETC": "ETC",
+    "ETD": "ETD",
+    "Edit Company": "編輯公司",
+    "Edit Contact": "編輯聯絡人",
+    "Edit Document": "編輯文件",
+    "Edit Invoice": "編輯發票",
+    "Edit Note": "編輯備註",
+    "Edit Order": "編輯訂單",
+    "Edit Product": "編輯產品",
+    "Edit Quotation": "編輯報價",
+    "Edit Sample Shipment": "編輯樣品出貨",
+    "Edit Shipping Schedule": "編輯出貨排程",
+    "Edit Tag": "編輯標籤",
+    "Edit Task": "編輯任務",
+    "Email": "電子郵件",
+    "Engaged": "已互動",
+    "Enter ID": "請輸入 ID",
+    "Enter ID for other types": "其他類型請輸入 ID",
+    "Enter ID number": "請輸入 ID",
+    "Factory exit": "出廠",
+    "Factory exit date": "出廠日期",
+    "FedEx": "FedEx",
+    "Filter the document list before selecting an attachment.": "先篩選文件清單再選擇附件。",
+    "First Name": "名",
+    "Form not configured yet": "尚未設定此表單。",
+    "INV-2025": "INV-2025",
+    "In Progress": "進行中",
+    "Industry": "產業",
+    "Invoice (optional)": "發票（選填）",
+    "Invoice number (auto-generated if empty)": "發票號碼（空白則自動產生）",
+    "Last Name": "姓",
+    "Link existing invoices (optional)": "連結既有發票（選填）",
+    "Loading companies...": "載入公司中...",
+    "Name": "名稱",
+    "New": "新建",
+    "No companies found": "找不到公司",
+    "Not Started": "未開始",
+    "Note Date (optional)": "備註日期（選填）",
+    "Notes": "備註",
+    "Notes / Terms": "備註／條款",
+    "Nurture": "培育中",
+    "Open": "開放",
+    "Order (optional)": "訂單（選填）",
+    "Order Title": "訂單標題",
+    "Other": "其他",
+    "Overdue": "逾期",
+    "Owner": "負責人",
+    "Paid": "已付款",
+    "Payment terms, delivery timelines, or special notes.": "付款條款、交期或特殊備註。",
+    "Pending": "待處理",
+    "Phone": "電話",
+    "Please select at least one file to upload": "請至少選擇一個檔案上傳",
+    "Preparing": "準備中",
+    "Price": "價格",
+    "Product": "產品",
+    "Products": "產品",
+    "Prospect": "潛在",
+    "Quantity": "數量",
+    "Quotation (optional)": "報價（選填）",
+    "Quote #": "報價編號",
+    "Receiving Address": "收件地址",
+    "Related Company": "關聯公司",
+    "Related Document": "關聯文件",
+    "Related ID": "關聯 ID",
+    "Related ID (optional)": "關聯 ID（選填）",
+    "Related Type": "關聯類型",
+    "Related Type (optional)": "關聯類型（選填）",
+    "Remove product": "移除產品",
+    "Role": "角色",
+    "Royal Mail": "Royal Mail",
+    "SF Express": "順豐",
+    "SKU": "SKU",
+    "Save": "儲存",
+    "Saving...": "儲存中...",
+    "Search documents": "搜尋文件",
+    "Search documents by title or storage key": "依標題或儲存鍵搜尋文件",
+    "Search documents for the invoice": "搜尋此發票的文件",
+    "Select Files (multiple allowed)": "選擇檔案（可多選）",
+    "Select an order or invoice": "選擇訂單或發票",
+    "Sent": "已送出",
+    "Shared": "分攤",
+    "Shipment details, vessel, port info, etc.": "出貨細節、船舶、港口資訊等。",
+    "Shipped": "已出貨",
+    "Special handling, recipient contact, etc.": "特殊處理、收件人聯絡方式等。",
+    "Status": "狀態",
+    "Street, city, postal code": "街道、城市、郵遞區號",
+    "Street, city, state, postal code": "街道、城市、州/省、郵遞區號",
+    "Tags (optional)": "標籤（選填）",
+    "Tax rate (%)": "稅率（%）",
+    "Telephone": "電話",
+    "Text": "內容",
+    "Title": "標題",
+    "Total amount": "總金額",
+    "UPS": "UPS",
+    "USD": "USD",
+    "Unpaid": "未付款",
+    "Valid until": "有效期限",
+    "WB-12345": "WB-12345",
+    "Waybill Number": "運單號碼",
+    "We pay": "我方支付",
+    "Website": "網站",
+    "Write a note": "撰寫備註",
+    "acme.com": "acme.com",
+    "application/pdf": "application/pdf",
+    "company": "公司",
+    "contact": "聯絡人",
+    "document": "文件",
+    "e.g. ACME-001": "例如 ACME-001",
+    "e.g. Manufacturing": "例如 製造業",
+    "e.g. Q1 Supply": "例如 Q1 供應",
+    "e.g. Q1 supply proposal": "例如 Q1 供應報價",
+    "invoice": "發票",
+    "order": "訂單",
+    "other": "其他",
+    "selected": "已選取",
+    "— No matching documents —": "— 沒有符合的文件 —",
+  }
+};
 
 const addUserRoleOptions = [
   "Salesperson"
@@ -118,6 +704,100 @@ function safeLocalStorageJsonSet(key, value) {
   }
 }
 
+function resolveLanguage(value) {
+  if (typeof value !== "string") return "en";
+  const normalized = value.trim();
+  if (!normalized) return "en";
+  if (supportedLanguages[normalized]) return normalized;
+  if (normalized.toLowerCase().startsWith("zh")) return "zh-TW";
+  return "en";
+}
+
+function formatTranslation(template, params) {
+  if (!params) return template;
+  return template.replace(/\{(\w+)\}/g, (match, key) => {
+    if (!Object.prototype.hasOwnProperty.call(params, key)) return "";
+    return String(params[key]);
+  });
+}
+
+function t(key, fallback, params) {
+  const langTable = translations[currentLanguage] || {};
+  const baseTable = translations.en || {};
+  let value = langTable[key];
+  if (typeof value !== "string") {
+    value = baseTable[key];
+  }
+  if (typeof value !== "string") {
+    value = fallback;
+  }
+  if (typeof value !== "string") {
+    value = "";
+  }
+  return formatTranslation(value, params);
+}
+
+function applyTranslations(root = document) {
+  if (!root || typeof root.querySelectorAll !== "function") return;
+  root.querySelectorAll("[data-i18n]").forEach((el) => {
+    const key = el.getAttribute("data-i18n");
+    if (!key) return;
+    const fallback = el.textContent || "";
+    el.textContent = t(key, fallback);
+  });
+  root.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    const key = el.getAttribute("data-i18n-placeholder");
+    if (!key) return;
+    const fallback = el.getAttribute("placeholder") || "";
+    el.setAttribute("placeholder", t(key, fallback));
+  });
+}
+
+function syncLanguageSwitchers() {
+  document.querySelectorAll("[data-language-switcher]").forEach((el) => {
+    if (!(el instanceof HTMLSelectElement)) return;
+    if (el.value !== currentLanguage) {
+      el.value = currentLanguage;
+    }
+  });
+}
+
+function setLanguage(language, { persist = true } = {}) {
+  const resolved = resolveLanguage(language);
+  if (resolved === currentLanguage) return;
+  currentLanguage = resolved;
+  if (persist) {
+    safeLocalStorageSet(languageKey, currentLanguage);
+  }
+  document.documentElement.lang = currentLanguage;
+  applyTranslations(document);
+  applySiteConfig();
+  syncLanguageSwitchers();
+  if (navToggleButton) {
+    syncNavDrawerState(navDrawerOpen);
+  }
+  updateUserDisplay();
+  renderSalesContent();
+}
+
+function initLanguage() {
+  const stored = safeLocalStorageGet(languageKey);
+  currentLanguage = resolveLanguage(stored || navigator.language || "en");
+  document.documentElement.lang = currentLanguage;
+  applyTranslations(document);
+  syncLanguageSwitchers();
+}
+
+function initLanguageSwitchers() {
+  document.querySelectorAll("[data-language-switcher]").forEach((el) => {
+    if (!(el instanceof HTMLSelectElement)) return;
+    el.addEventListener("change", () => {
+      setLanguage(el.value);
+    });
+  });
+  syncLanguageSwitchers();
+}
+
 function getDemoCredentials() {
   let demoEmail = demoCredentials.email;
   let demoPassword = demoCredentials.password;
@@ -139,9 +819,7 @@ function getDemoCredentials() {
 function showAppShell() {
   loginScreen?.classList.add("hidden");
   appShell?.classList.remove("hidden");
-  if (userDisplay) {
-    userDisplay.textContent = currentUserEmail || "Unknown user";
-  }
+  updateUserDisplay();
   applyRoleRestrictions();
 }
 
@@ -149,6 +827,11 @@ function showLoginScreen() {
   loginScreen?.classList.remove("hidden");
   appShell?.classList.add("hidden");
   applyRoleRestrictions();
+}
+
+function updateUserDisplay() {
+  if (!userDisplay) return;
+  userDisplay.textContent = currentUserEmail || t("topbar.unknownUser", "Unknown user");
 }
 
 function handleLogout() {
@@ -211,7 +894,7 @@ if (loginForm) {
     const normalizedEmail = normalizeEmail(email);
     if (!normalizedEmail || !password) {
       if (loginError) {
-        loginError.textContent = "Email and password are required.";
+        loginError.textContent = t("login.error.required", "Email and password are required.");
       }
       return;
     }
@@ -234,7 +917,7 @@ if (loginForm) {
       const token = data.token || "";
       if (!token) {
         if (loginError) {
-          loginError.textContent = "Login failed: missing auth token.";
+        loginError.textContent = t("login.error.missingToken", "Login failed: missing auth token.");
         }
         return;
       }
@@ -257,7 +940,7 @@ if (loginForm) {
     } catch (error) {
       console.error("Login failed", error);
       if (loginError) {
-        loginError.textContent = "Unable to reach authentication service.";
+        loginError.textContent = t("login.error.unreachable", "Unable to reach authentication service.");
       }
     }
   });
@@ -301,6 +984,45 @@ navItems = Array.from(document.querySelectorAll(".nav-item"));
 console.log('app.js loaded, navItems count:', navItems.length);
 const sectionContent = document.getElementById("section-content");
 const sectionTitle = document.getElementById("section-title");
+
+const sectionTitleMap = {
+  dashboard: { key: "nav.dashboard", fallback: "Dashboard" },
+  analytics: { key: "nav.analytics", fallback: "Analytics" },
+  companies: { key: "nav.companies", fallback: "Companies" },
+  contacts: { key: "nav.contacts", fallback: "Contacts" },
+  products: { key: "nav.products", fallback: "Products" },
+  pricing: { key: "nav.pricing", fallback: "Pricing" },
+  orders: { key: "nav.orders", fallback: "Orders" },
+  quotations: { key: "nav.quotations", fallback: "Quotations" },
+  invoices: { key: "nav.invoices", fallback: "Invoices" },
+  documents: { key: "nav.documents", fallback: "Documents" },
+  shipping: { key: "nav.shipping", fallback: "Shipping Schedules" },
+  sample_shipments: { key: "nav.samples", fallback: "Samples" },
+  tasks: { key: "nav.tasks", fallback: "Tasks" },
+  notes: { key: "nav.notes", fallback: "Notes" },
+  tags: { key: "nav.tagsAndDocTypes", fallback: "Tags & Document Types" },
+  settings: { key: "nav.settings", fallback: "Settings" }
+};
+
+function setSectionTitle(key, fallback) {
+  if (!sectionTitle) return;
+  if (key) {
+    sectionTitle.dataset.i18n = key;
+    sectionTitle.textContent = t(key, fallback);
+    return;
+  }
+  sectionTitle.removeAttribute("data-i18n");
+  sectionTitle.textContent = fallback || "";
+}
+
+function setSectionTitleForSection(section) {
+  const entry = sectionTitleMap[section];
+  if (entry) {
+    setSectionTitle(entry.key, entry.fallback);
+  } else {
+    setSectionTitle("", capitalize(section || ""));
+  }
+}
 let currentSection = "dashboard";
 const cacheBypassTables = new Set();
 
@@ -348,19 +1070,19 @@ const dashboardSearchSectionMap = {
 };
 
 const dashboardSearchTypeLabels = {
-  companies: "Company",
-  contacts: "Contact",
-  products: "Product",
-  orders: "Order",
-  quotations: "Quotation",
-  invoices: "Invoice",
-  documents: "Document",
-  shipping_schedules: "Shipping",
-  sample_shipments: "Sample",
-  tasks: "Task",
-  notes: "Note",
-  tags: "Tag",
-  doc_types: "Doc Type"
+  companies: { key: "search.type.company", fallback: "Company" },
+  contacts: { key: "search.type.contact", fallback: "Contact" },
+  products: { key: "search.type.product", fallback: "Product" },
+  orders: { key: "search.type.order", fallback: "Order" },
+  quotations: { key: "search.type.quotation", fallback: "Quotation" },
+  invoices: { key: "search.type.invoice", fallback: "Invoice" },
+  documents: { key: "search.type.document", fallback: "Document" },
+  shipping_schedules: { key: "search.type.shipping", fallback: "Shipping" },
+  sample_shipments: { key: "search.type.sample", fallback: "Sample" },
+  tasks: { key: "search.type.task", fallback: "Task" },
+  notes: { key: "search.type.note", fallback: "Note" },
+  tags: { key: "search.type.tag", fallback: "Tag" },
+  doc_types: { key: "search.type.docType", fallback: "Doc Type" }
 };
 
 let privilegedUsers = [];
@@ -389,7 +1111,7 @@ function deriveSiteNameFromDom() {
   }
   const loginTitle = document.querySelector(".login-title");
   if (loginTitle?.textContent) {
-    const cleaned = loginTitle.textContent.replace(/\s*Workspace\s*$/i, "").trim();
+    const cleaned = loginTitle.textContent.replace(/\s*(Workspace|工作區)\s*$/i, "").trim();
     if (cleaned) return cleaned;
   }
   const titleEl = document.querySelector("title");
@@ -511,8 +1233,8 @@ function applySiteConfig() {
   const loginTitle = document.querySelector(".login-title");
   if (loginTitle) {
     loginTitle.textContent = siteConfigState.siteName
-      ? `${siteConfigState.siteName} Workspace`
-      : "Workspace";
+      ? `${siteConfigState.siteName} ${t("label.workspaceSuffix", "Workspace")}`
+      : t("label.workspace", "Workspace");
   }
   const chip = document.querySelector(".topbar .chip");
   if (chip) {
@@ -530,7 +1252,9 @@ function applySiteConfig() {
   }
 }
 
+initLanguage();
 applySiteConfig();
+initLanguageSwitchers();
 
 function generateTempPassword() {
   return Array.from({ length: 3 }, () => Math.random().toString(36).slice(2, 8)).join("-");
@@ -780,7 +1504,7 @@ async function handleAuthFailure(response) {
   if (!response || response.status !== 401) return;
   const hasSession = Boolean(currentAuthToken || safeLocalStorageGet(authTokenKey) === "true");
   if (!hasSession) return;
-  let message = "Session expired. Please log in again.";
+  let message = t("auth.sessionExpired", "Session expired. Please log in again.");
   try {
     const payload = await response.clone().json();
     if (payload?.error) {
@@ -796,10 +1520,24 @@ async function handleAuthFailure(response) {
   showToast(message);
 }
 
+function formatSalesStatus(status) {
+  const lookup = {
+    "New": "sales.status.new",
+    "In progress": "sales.status.progress",
+    "Ready": "sales.status.ready"
+  };
+  const key = lookup[status];
+  return key ? t(key, status) : status;
+}
+
+function formatSalesCaptured(dateText) {
+  return t("sales.captured", "Captured {date}", { date: dateText });
+}
+
 function renderSalesContent() {
   if (!salesContentList) return;
   if (!salesContentItems.length) {
-    salesContentList.innerHTML = `<div class="sales-empty">No content yet. Capture a new talking point or asset above.</div>`;
+    salesContentList.innerHTML = `<div class="sales-empty">${t("sales.empty", "No content yet. Capture a new talking point or asset above.")}</div>`;
     return;
   }
   salesContentList.innerHTML = salesContentItems
@@ -807,17 +1545,18 @@ function renderSalesContent() {
       const safeTitle = escapeHtml(item.title);
       const safeDescription = escapeHtml(item.description);
       const displayDate = new Date(item.createdAt).toLocaleString();
+      const displayStatus = escapeHtml(formatSalesStatus(item.status));
       return `
         <article class="sales-card" data-id="${item.id}">
           <div class="sales-card-header">
             <h3>${safeTitle}</h3>
-            <span class="sales-card-status" data-status="${item.status}">${item.status}</span>
+            <span class="sales-card-status" data-status="${item.status}">${displayStatus}</span>
           </div>
           <p>${safeDescription}</p>
-          <div class="sales-card-meta">Captured ${displayDate}</div>
+          <div class="sales-card-meta">${escapeHtml(formatSalesCaptured(displayDate))}</div>
           <div class="sales-card-actions">
-            <button type="button" class="btn ghost small" data-action="toggle-status">Advance status</button>
-            <button type="button" class="btn cancel small" data-action="remove">Archive</button>
+            <button type="button" class="btn ghost small" data-action="toggle-status">${t("sales.action.advanceStatus", "Advance status")}</button>
+            <button type="button" class="btn cancel small" data-action="remove">${t("sales.action.archive", "Archive")}</button>
           </div>
         </article>
       `;
@@ -831,7 +1570,7 @@ salesAddForm?.addEventListener("submit", (event) => {
   const title = (data.get("title") || "").toString().trim();
   const description = (data.get("description") || "").toString().trim();
   if (!title || !description) {
-    showToast("Give the content a title and description");
+    showToast(t("sales.toast.missing", "Give the content a title and description"));
     return;
   }
 
@@ -846,7 +1585,7 @@ salesAddForm?.addEventListener("submit", (event) => {
   persistSalesContentState(salesContentItems);
   renderSalesContent();
   salesAddForm.reset();
-  showToast("Sales content saved");
+  showToast(t("sales.toast.saved", "Sales content saved"));
 });
 
 salesContentList?.addEventListener("click", (event) => {
@@ -865,14 +1604,14 @@ salesContentList?.addEventListener("click", (event) => {
     salesContentItems[index].status = nextStatus;
     persistSalesContentState(salesContentItems);
     renderSalesContent();
-    showToast(`Status moved to ${nextStatus}`);
+    showToast(t("sales.toast.statusMoved", "Status moved to {status}", { status: formatSalesStatus(nextStatus) }));
     return;
   }
   if (action === "remove") {
     salesContentItems.splice(index, 1);
     persistSalesContentState(salesContentItems);
     renderSalesContent();
-    showToast("Content archived");
+    showToast(t("sales.toast.archived", "Content archived"));
   }
 });
 
@@ -1192,7 +1931,7 @@ const formConfigs = {
       const tags = Array.isArray(values.tags) ? values.tags.map((t) => Number(t)).filter((n) => Number.isFinite(n)) : [];
 
       if (!files.length) {
-        showToast("Please select at least one file to upload");
+        showToast(i18nText("Please select at least one file to upload", "Please select at least one file to upload"));
         return;
       }
 
@@ -1257,7 +1996,7 @@ const formConfigs = {
     async submit(values) {
       const lines = Array.isArray(values.sample_lines) ? values.sample_lines.filter((l) => l?.product_id) : [];
       if (!lines.length) {
-        showToast("Add at least one product");
+        showToast(i18nText("Add at least one product", "Add at least one product"));
         return;
       }
 
@@ -1389,6 +2128,39 @@ const formConfigs = {
   }
 };
 
+function i18nText(key, fallback = key) {
+  const safeKey = typeof key === "string" ? key : "";
+  const safeFallback = typeof fallback === "string" ? fallback : safeKey;
+  return t(safeKey, safeFallback);
+}
+
+function i18nSpan(key, fallback = key) {
+  const safeKey = typeof key === "string" ? key : "";
+  const text = escapeHtml(i18nText(safeKey, fallback));
+  const attr = escapeHtml(safeKey);
+  return `<span data-i18n="${attr}">${text}</span>`;
+}
+
+function i18nPlaceholderAttr(key) {
+  if (!key) return "";
+  const safeKey = typeof key === "string" ? key : "";
+  const text = escapeHtml(i18nText(safeKey, safeKey));
+  const attr = escapeHtml(safeKey);
+  return ` placeholder="${text}" data-i18n-placeholder="${attr}"`;
+}
+
+function i18nOption(label, value = label, { disabled = false } = {}) {
+  const key = typeof label === "string" ? label : "";
+  const text = escapeHtml(i18nText(key, key));
+  const keyAttr = key ? ` data-i18n="${escapeHtml(key)}"` : "";
+  const safeValue = escapeHtml(value === undefined || value === null ? "" : String(value));
+  return `<option value="${safeValue}"${disabled ? " disabled" : ""}${keyAttr}>${text}</option>`;
+}
+
+function i18nPlaceholderOption(label, options = {}) {
+  return i18nOption(label, "", options);
+}
+
 function getNavFocusableItems() {
   if (!navDrawer) return [];
   return Array.from(
@@ -1410,7 +2182,12 @@ function syncNavDrawerState(isOpen) {
   }
   if (navToggleButton) {
     navToggleButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
-    navToggleButton.setAttribute("aria-label", isOpen ? "Close navigation menu" : "Open navigation menu");
+    navToggleButton.setAttribute(
+      "aria-label",
+      isOpen
+        ? t("nav.toggle.close", "Close navigation menu")
+        : t("nav.toggle.open", "Open navigation menu")
+    );
   }
   if (navDrawer) {
     navDrawer.setAttribute("aria-hidden", isCompact ? (isOpen ? "false" : "true") : "false");
@@ -1511,7 +2288,7 @@ function initNavigation() {
     item.addEventListener("click", () => {
       console.log('Nav item clicked', section);
       if (!canAccessSection(section)) {
-        showToast("Access restricted. Ask an admin for access.");
+        showToast(t("access.restricted.toast", "Access restricted. Ask an admin for access."));
         return;
       }
       closeNavDrawer();
@@ -1535,13 +2312,13 @@ function setActiveNav(section) {
   navItems.forEach((btn) => {
     btn.classList.toggle("active", btn.dataset.section === section);
   });
-  sectionTitle.textContent = capitalize(section);
+  setSectionTitleForSection(section);
 }
 
 async function renderSection(section) {
   const renderer = sectionRenderers[section];
   if (!renderer) {
-    sectionContent.innerHTML = `<div class="panel"><div class="empty">No view configured yet.</div></div>`;
+    sectionContent.innerHTML = `<div class="panel"><div class="empty">${t("section.unavailable", "No view configured yet.")}</div></div>`;
     lucide?.createIcons();
     return;
   }
@@ -1549,7 +2326,7 @@ async function renderSection(section) {
   if (!canAccessSection(section)) {
     sectionContent.innerHTML = `
       <div class="panel">
-        <div class="empty">Access restricted. Contact an admin to enable this section.</div>
+        <div class="empty">${t("section.restricted", "Access restricted. Contact an admin to enable this section.")}</div>
       </div>
     `;
     lucide?.createIcons();
@@ -1557,16 +2334,20 @@ async function renderSection(section) {
   }
 
   await renderer();
+  applyTranslations(sectionContent);
   attachFormHandlers();
   decorateFormIcons(sectionContent);
   lucide?.createIcons();
 }
 
 function formatSearchTypeLabel(table) {
-  return dashboardSearchTypeLabels[table]
-    || String(table || "")
-      .replace(/_/g, " ")
-      .replace(/\b[a-z]/g, (match) => match.toUpperCase());
+  const entry = dashboardSearchTypeLabels[table];
+  if (entry) {
+    return t(entry.key, entry.fallback);
+  }
+  return String(table || "")
+    .replace(/_/g, " ")
+    .replace(/\b[a-z]/g, (match) => match.toUpperCase());
 }
 
 function shortenSearchText(value, maxLength = 72) {
@@ -1662,7 +2443,7 @@ async function fetchSearchResults(query, limit, signal) {
 
 function renderDashboardSearchResults(results) {
   if (!results.length) {
-    return `<div class="search-empty">No matches found.</div>`;
+    return `<div class="search-empty">${t("search.empty", "No matches found.")}</div>`;
   }
   return results
     .map((result, index) => {
@@ -1680,8 +2461,8 @@ function renderDashboardSearchResults(results) {
             ${meta ? `<div class="search-result-meta">${meta}</div>` : ""}
           </div>
           <div class="search-result-actions">
-            <button class="btn ghost small" data-search-action="preview" data-search-index="${index}">Preview</button>
-            ${section ? `<button class="btn ghost small" data-search-action="open" data-section="${section}">Open</button>` : ""}
+            <button class="btn ghost small" data-search-action="preview" data-search-index="${index}">${t("search.action.preview", "Preview")}</button>
+            ${section ? `<button class="btn ghost small" data-search-action="open" data-section="${section}">${t("search.action.open", "Open")}</button>` : ""}
           </div>
         </div>
       `;
@@ -1690,18 +2471,18 @@ function renderDashboardSearchResults(results) {
 }
 
 async function renderDashboard() {
-  sectionTitle.textContent = "Dashboard";
+  setSectionTitleForSection("dashboard");
   sectionContent.innerHTML = `
     <div class="page-header">
       <div>
-        <div class="eyebrow">Workspace Overview</div>
-        <h2 class="page-title">Dashboard</h2>
-        <div class="page-meta">Live counts from D1 with quick pipeline and activity views.</div>
+        <div class="eyebrow" data-i18n="dashboard.overview">Workspace Overview</div>
+        <h2 class="page-title" data-i18n="nav.dashboard">Dashboard</h2>
+        <div class="page-meta" data-i18n="dashboard.subtitle">Live counts from D1 with quick pipeline and activity views.</div>
       </div>
       <div class="actions">
         <button class="btn" id="refresh-dashboard">
           <i data-lucide="refresh-ccw"></i>
-          Refresh
+          <span data-i18n="dashboard.refresh">Refresh</span>
         </button>
       </div>
     </div>
@@ -1709,16 +2490,16 @@ async function renderDashboard() {
       <div class="panel-header">
         <h3 class="panel-title panel-title-icon">
           <i data-lucide="search"></i>
-          Site-wide search
+          <span data-i18n="search.panel.title">Site-wide search</span>
         </h3>
-        <div class="stat-label">Search across companies, contacts, orders, documents, and more.</div>
+        <div class="stat-label" data-i18n="search.panel.subtitle">Search across companies, contacts, orders, documents, and more.</div>
       </div>
       <div class="dashboard-search">
         <label class="document-search-field dashboard-search-field">
-          <span>Search the workspace</span>
-          <input id="dashboard-search-input" type="search" placeholder="Company, contact, order ref, invoice..." autocomplete="off" />
+          <span data-i18n="search.input.label">Search the workspace</span>
+          <input id="dashboard-search-input" type="search" placeholder="Company, contact, order ref, invoice..." data-i18n-placeholder="search.input.placeholder" autocomplete="off" />
         </label>
-        <div id="dashboard-search-status" class="search-status" role="status">Type at least 2 characters to search.</div>
+        <div id="dashboard-search-status" class="search-status" role="status" data-i18n="search.status.idle">Type at least 2 characters to search.</div>
         <div id="dashboard-search-results" class="search-results"></div>
       </div>
     </div>
@@ -1727,9 +2508,9 @@ async function renderDashboard() {
       <div class="panel-header">
         <h3 class="panel-title panel-title-icon">
           <i data-lucide="bar-chart-3"></i>
-          Pipeline Snapshot
+          <span data-i18n="dashboard.pipeline.title">Pipeline Snapshot</span>
         </h3>
-        <div class="stat-label">Recent orders and invoices</div>
+        <div class="stat-label" data-i18n="dashboard.pipeline.subtitle">Recent orders and invoices</div>
       </div>
       <div id="pipeline-table"></div>
     </div>
@@ -1737,9 +2518,9 @@ async function renderDashboard() {
       <div class="panel-header">
         <h3 class="panel-title panel-title-icon">
           <i data-lucide="activity"></i>
-          Activity
+          <span data-i18n="dashboard.activity.title">Activity</span>
         </h3>
-        <div class="stat-label">Latest updates across the workspace</div>
+        <div class="stat-label" data-i18n="dashboard.activity.subtitle">Latest updates across the workspace</div>
       </div>
       <div id="activity-feed"></div>
     </div>
@@ -1788,12 +2569,12 @@ async function renderDashboard() {
       searchItems = items;
       if (!query || query.length < minLength) {
         searchResults.innerHTML = "";
-        setStatus("Type at least 2 characters to search.");
+        setStatus(t("search.status.idle", "Type at least 2 characters to search."));
         return;
       }
       if (!items.length) {
-        searchResults.innerHTML = `<div class="search-empty">No matches for "${escapeHtml(query)}".</div>`;
-        setStatus("No matches found.");
+        searchResults.innerHTML = `<div class="search-empty">${t("search.empty.query", "No matches for \"{query}\".", { query: escapeHtml(query) })}</div>`;
+        setStatus(t("search.empty", "No matches found."));
         return;
       }
       searchResults.innerHTML = renderDashboardSearchResults(items);
@@ -1811,15 +2592,15 @@ async function renderDashboard() {
         searchAbort.abort();
       }
       searchAbort = new AbortController();
-      setStatus("Searching...");
+      setStatus(t("search.status.searching", "Searching..."));
       try {
         const items = await fetchSearchResults(query, perTableLimit, searchAbort.signal);
         setResults(items, query);
       } catch (error) {
         if (error?.name === "AbortError") return;
         console.error("Search failed", error);
-        searchResults.innerHTML = `<div class="search-empty">Search failed. Try again.</div>`;
-        setStatus("Search failed.");
+        searchResults.innerHTML = `<div class="search-empty">${t("search.error", "Search failed. Try again.")}</div>`;
+        setStatus(t("search.status.failed", "Search failed."));
       }
     };
 
@@ -2132,7 +2913,7 @@ function attachAnalyticsResize() {
 
 async function renderAnalytics() {
   destroyAnalyticsCharts();
-  sectionTitle.textContent = "Analytics";
+  setSectionTitleForSection("analytics");
   sectionContent.innerHTML = `
     <div class="page-header">
       <div>
@@ -2448,7 +3229,7 @@ async function renderAnalytics() {
 }
 
 async function renderCompanies() {
-  sectionTitle.textContent = "Companies";
+  setSectionTitleForSection("companies");
   const rows = await loadTableFromApi(
     "companies",
     (r) => [
@@ -2555,7 +3336,7 @@ async function renderCompanies() {
 }
 
 async function renderContacts() {
-  sectionTitle.textContent = "Contacts";
+  setSectionTitleForSection("contacts");
   const companies = await fetchCompaniesList();
   const companyLookup = new Map(companies.map((company) => [String(company.id), company.name]));
   const rows = await loadTableFromApi(
@@ -2629,7 +3410,7 @@ async function renderContacts() {
 }
 
 async function renderProducts() {
-  sectionTitle.textContent = "Products";
+  setSectionTitleForSection("products");
   const rows = await loadTableFromApi(
     "products",
     (r) => [
@@ -2753,7 +3534,7 @@ async function renderProducts() {
 }
 
 async function renderPricing() {
-  sectionTitle.textContent = "Pricing";
+  setSectionTitleForSection("pricing");
   sectionContent.innerHTML = `
     <div class="page-header">
       <div>
@@ -3001,7 +3782,7 @@ async function renderPricing() {
 }
 
 async function renderOrders() {
-  sectionTitle.textContent = "Orders";
+  setSectionTitleForSection("orders");
   const orderRecords = await loadTableFromApi("orders", (row) => row, fallback.orders);
   const orders = Array.isArray(orderRecords) ? orderRecords : [];
   const needsTotals = orders.some((order) => {
@@ -3113,7 +3894,7 @@ async function renderOrders() {
 }
 
 async function renderQuotations() {
-  sectionTitle.textContent = "Quotations";
+  setSectionTitleForSection("quotations");
   const rows = await loadTableFromApi(
     "quotations",
     (r) => {
@@ -3162,7 +3943,7 @@ async function renderQuotations() {
 }
 
 async function renderInvoices() {
-  sectionTitle.textContent = "Invoices";
+  setSectionTitleForSection("invoices");
   const rows = await loadTableFromApi(
     "invoices",
     (r) => {
@@ -3214,7 +3995,7 @@ async function renderInvoices() {
 }
 
 async function renderDocuments() {
-  sectionTitle.textContent = "Documents";
+  setSectionTitleForSection("documents");
   await loadTableFromApi("documents", (row) => row, fallback.documents);
   await loadLookupTable("tags", fallback.tags);
   const docs = (tableRecords.documents || []).filter(
@@ -3659,7 +4440,7 @@ async function renderDocuments() {
 }
 
 async function renderShipping() {
-  sectionTitle.textContent = "Shipping Schedules";
+  setSectionTitleForSection("shipping");
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
@@ -3721,7 +4502,7 @@ function resolveSampleStatusLabel(record) {
 }
 
 async function renderSampleShipments() {
-  sectionTitle.textContent = "Samples";
+  setSectionTitleForSection("sample_shipments");
   const rows = await loadTableFromApi(
     "sample_shipments",
     (r) => {
@@ -3768,7 +4549,7 @@ async function renderSampleShipments() {
 }
 
 async function renderTasks() {
-  sectionTitle.textContent = "Tasks";
+  setSectionTitleForSection("tasks");
   const rows = await loadTableFromApi(
     "tasks",
     (r) => {
@@ -3809,7 +4590,7 @@ async function renderTasks() {
 }
 
 async function renderNotes() {
-  sectionTitle.textContent = "Notes";
+  setSectionTitleForSection("notes");
   const rows = await loadTableFromApi(
     "notes",
     (r) => [
@@ -3920,7 +4701,7 @@ async function renderNotes() {
 }
 
 async function renderTags() {
-  sectionTitle.textContent = "Tags & Document Types";
+  setSectionTitleForSection("tags");
 
   const tags = await fetchRecords("tags", fallback.tags);
   const docTypes = await fetchRecords("doc_types", fallback.doc_types);
@@ -4341,7 +5122,7 @@ async function renderSettings() {
   } else {
     privilegedUsers = [];
   }
-  sectionTitle.textContent = "Settings";
+  setSectionTitleForSection("settings");
   sectionContent.innerHTML = `
     <div class="page-header">
       <div>
@@ -5630,9 +6411,9 @@ function populateBankChargeSelect(selectEl, selectedValue) {
   if (!selectEl) return;
   const options = getBankChargeOptions();
   const current = selectedValue ?? selectEl.value;
-  const optionHtml = options.map((opt) => `<option value="${opt === "-- Select option --" ? "" : opt}">${opt}</option>`);
+  const optionHtml = options.map((opt) => i18nOption(opt, opt === "-- Select option --" ? "" : opt));
   if (current && !options.some((opt) => opt.toLowerCase() === current.toLowerCase())) {
-    optionHtml.push(`<option value="${current}">${current}</option>`);
+    optionHtml.push(`<option value="${escapeHtml(current)}">${escapeHtml(current)}</option>`);
   }
   selectEl.innerHTML = optionHtml.join("");
   if (current) {
@@ -6193,7 +6974,7 @@ function openEditModal(tableKey, record) {
             <label>
               <span>Attachment (choose document)</span>
               <select name="attachment_key" data-edit-attachment>
-                <option value="">-- Select document --</option>
+                ${i18nPlaceholderOption("-- Select document --")}
               </select>
             </label>
           `;
@@ -6232,7 +7013,7 @@ function openEditModal(tableKey, record) {
     if (attachmentSelect) {
       fetchDocumentsList().then((docs) => {
         attachmentSelect.innerHTML =
-          `<option value="">-- Select document --</option>` +
+          `${i18nPlaceholderOption("-- Select document --")}` +
           docs
             .filter((d) => d.storage_key)
             .map((d) => `<option value="${d.storage_key}">${d.title || d.storage_key}</option>`)
@@ -7714,31 +8495,41 @@ function openForm(key, options = {}) {
   const { initialValues = null, mode = "create" } = options;
   const config = formConfigs[key];
   if (!config) {
-    showToast("Form not configured yet");
+    showToast(i18nText("Form not configured yet", "Form not configured yet"));
     return;
   }
+
+  const baseTitle = typeof config.title === "string" ? config.title : capitalize(key);
+  const entityLabel = baseTitle.startsWith("Add ") ? baseTitle.slice(4) : baseTitle;
+  const createTitleKey = baseTitle;
+  const editTitleKey = `Edit ${entityLabel}`;
+  const titleKey = mode === "edit" ? editTitleKey : createTitleKey;
 
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   overlay.innerHTML = `
     <div class="modal">
       <div class="modal-header">
-        <h3>${mode === "edit" ? `Edit ${capitalize(key)}` : config.title}</h3>
-        <button class="btn-close" aria-label="Close">&times;</button>
+        <h3 data-i18n="${escapeHtml(titleKey)}">${escapeHtml(i18nText(titleKey, titleKey))}</h3>
+        <button class="btn-close" aria-label="${escapeHtml(i18nText("Close", "Close"))}">&times;</button>
       </div>
       <form class="form-grid">
         ${config.fields
           .map((field) => {
-            const base = `name="${field.name}" ${field.required ? "required" : ""} placeholder="${field.placeholder || ""}" ${field.disabled ? "disabled" : ""}`;
+            const labelMarkup = i18nSpan(field.label || "");
+            const placeholderAttr = field.type === "select" ? "" : i18nPlaceholderAttr(field.placeholder || "");
+            const base = `name="${escapeHtml(field.name)}"${field.required ? " required" : ""}${placeholderAttr}${field.disabled ? " disabled" : ""}`;
             const selectOptions =
               field.name === "bank_charge_method" ? getBankChargeOptions() : Array.isArray(field.options) ? field.options : [];
             const fieldIcon = iconForField(field);
             if (field.type === "select") {
               return `
                 <label class="form-field">
-                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
+                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${labelMarkup}</span>
                   <select ${base} ${field.multiple ? "multiple" : ""}>
-                    ${selectOptions.map((opt) => `<option value="${opt === "-- Select option --" ? "" : opt}">${opt}</option>`).join("")}
+                    ${selectOptions
+                      .map((opt) => i18nOption(opt, opt === "-- Select option --" ? "" : opt))
+                      .join("")}
                   </select>
                 </label>
               `;
@@ -7746,14 +8537,14 @@ function openForm(key, options = {}) {
             if (field.type === "textarea") {
               return `
                 <label class="form-field">
-                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
+                  <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${labelMarkup}</span>
                   <textarea ${base}></textarea>
                 </label>
               `;
             }
             return `
               <label class="form-field">
-                <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${field.label}</span>
+                <span class="form-label-text"><i data-lucide="${fieldIcon}"></i>${labelMarkup}</span>
                 <input ${base} ${field.multiple ? "multiple" : ""} type="${field.type || "text"}" ${field.step ? `step="${field.step}"` : ""} ${field.disabled ? "disabled" : ""}/>
               </label>
             `;
@@ -7762,11 +8553,11 @@ function openForm(key, options = {}) {
         <div class="form-actions">
           <button type="button" class="btn" data-close>
             <i data-lucide="x"></i>
-            Cancel
+            ${i18nSpan("Cancel")}
           </button>
           <button type="submit" class="btn primary">
             <i data-lucide="check"></i>
-            Save
+            ${i18nSpan("Save")}
           </button>
         </div>
       </form>
@@ -7839,28 +8630,28 @@ function openForm(key, options = {}) {
     overlay.querySelector(".modal")?.classList.add("modal-large");
     const companySelect = overlay.querySelector('select[name="company_id"]');
     if (companySelect) {
-      companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+      companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
       fetchCompaniesList().then((companies) => {
-        companySelect.innerHTML = `<option value="">-- Select company --</option>` + companies
+        companySelect.innerHTML = `${i18nPlaceholderOption("-- Select company --")}${companies
           .map((c) => `<option value="${c.id}">${c.name}</option>`)
-          .join("");
+          .join("")}`;
       }).catch(() => {
-        companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+        companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
       });
     }
   }
   if (key === "contacts") {
     const companySelect = overlay.querySelector('select[name="company_id"]');
     if (companySelect) {
-      companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+      companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
       fetchCompaniesList()
         .then((companies) => {
           companySelect.innerHTML =
-            `<option value="">-- Select company --</option>` +
+            `${i18nPlaceholderOption("-- Select company --")}` +
             companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
         })
         .catch(() => {
-          companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+          companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
         });
     }
   }
@@ -7878,14 +8669,14 @@ function openForm(key, options = {}) {
         companySelect.innerHTML = `<option value="${companyObj.id}">${companyObj.name || companyObj.id}</option>`;
         companySelect.value = companyObj.id;
       } else {
-        companySelect.innerHTML = `<option value="">Select an order or invoice</option>`;
+        companySelect.innerHTML = i18nPlaceholderOption("Select an order or invoice");
       }
     };
 
     fetchOrdersList().then((orders) => {
       if (!orderSelect) return;
       orderSelect.innerHTML =
-        `<option value="">-- Optional: select an order --</option>` +
+        `${i18nPlaceholderOption("-- Optional: select an order --")}` +
         orders
           .map(
             (o) =>
@@ -7899,7 +8690,7 @@ function openForm(key, options = {}) {
     fetchInvoicesList().then((invoices) => {
       if (!invoiceSelect) return;
       invoiceSelect.innerHTML =
-        `<option value="">-- Optional: select an invoice --</option>` +
+        `${i18nPlaceholderOption("-- Optional: select an invoice --")}` +
         invoices
           .map(
             (inv) =>
@@ -7943,7 +8734,7 @@ function openForm(key, options = {}) {
     };
 
     if (companySelect) {
-      const placeholder = `<option value="">-- Select company --</option>`;
+      const placeholder = i18nPlaceholderOption("-- Select company --");
       const currentLabel =
         initialCompanyId && (initialValues?.company_name || initialValues?.company)
           ? { id: initialCompanyId, name: initialValues.company_name || initialValues.company }
@@ -7956,7 +8747,7 @@ function openForm(key, options = {}) {
           currentLabel && !list.some((c) => String(c.id) === String(currentLabel.id))
             ? `<option value="${currentLabel.id}">${currentLabel.name}</option>`
             : "";
-        const emptyState = options || currentOption ? "" : `<option value="" disabled>No companies found</option>`;
+        const emptyState = options || currentOption ? "" : i18nPlaceholderOption("No companies found", { disabled: true });
         companySelect.innerHTML = `${placeholder}${options}${currentOption}${emptyState}`;
         if (initialCompanyId) {
           companySelect.value = initialCompanyId;
@@ -7971,7 +8762,7 @@ function openForm(key, options = {}) {
       if (cachedCompanies.length) {
         applyCompanies(cachedCompanies);
       } else {
-        companySelect.innerHTML = `<option value="">Loading companies...</option>`;
+        companySelect.innerHTML = i18nPlaceholderOption("Loading companies...");
       }
 
       fetchCompaniesList()
@@ -7995,11 +8786,11 @@ function openForm(key, options = {}) {
     productSection.className = "sample-products-block";
     productSection.innerHTML = `
       <div class="section-heading">
-        <h4>Products</h4>
-        <p>Add one or multiple products to include in this sample shipment.</p>
+        <h4 data-i18n="Products">${escapeHtml(i18nText("Products", "Products"))}</h4>
+        <p data-i18n="Add one or multiple products to include in this sample shipment.">${escapeHtml(i18nText("Add one or multiple products to include in this sample shipment.", "Add one or multiple products to include in this sample shipment."))}</p>
       </div>
       <div class="sample-product-rows" data-sample-product-rows></div>
-      <button type="button" class="btn ghost" data-add-sample-product ${isEdit ? 'style="display:none;"' : ""}>+ Add product</button>
+      <button type="button" class="btn ghost" data-add-sample-product ${isEdit ? 'style="display:none;"' : ""}>+ ${i18nSpan("Add product")}</button>
     `;
     const rowsContainer = productSection.querySelector("[data-sample-product-rows]");
     const productsPromise = fetchProductsList();
@@ -8010,10 +8801,10 @@ function openForm(key, options = {}) {
       row.dataset.sampleRow = "true";
       row.innerHTML = `
         <select class="sample-product-select" data-sample-product>
-          <option value="">-- Select product --</option>
+          ${i18nPlaceholderOption("-- Select product --")}
         </select>
         <input type="number" min="0" step="1" class="sample-product-qty" data-sample-qty value="${prefill?.quantity ?? initialQuantity ?? 1}" />
-        ${isEdit ? "" : `<button type="button" class="btn danger ghost" data-remove-sample-product title="Remove product">Remove</button>`}
+        ${isEdit ? "" : `<button type="button" class="btn danger ghost" data-remove-sample-product title="${escapeHtml(i18nText("Remove product", "Remove product"))}">${i18nSpan("Remove product")}</button>`}
       `;
       rowsContainer?.appendChild(row);
 
@@ -8021,7 +8812,7 @@ function openForm(key, options = {}) {
       productsPromise
         .then((products) => {
           select.innerHTML =
-            `<option value="">-- Select product --</option>` +
+            `${i18nPlaceholderOption("-- Select product --")}` +
             products.map((p) => `<option value="${p.id}">${p.name || p.sku || p.id}</option>`).join("");
           if (prefill?.product_id) {
             select.value = String(prefill.product_id);
@@ -8052,11 +8843,11 @@ function openForm(key, options = {}) {
     }
 
     if (documentSelect) {
-      documentSelect.innerHTML = `<option value="">-- Select document (optional) --</option>`;
+      documentSelect.innerHTML = i18nPlaceholderOption("-- Select document (optional) --");
       fetchDocumentsList()
         .then((docs) => {
           documentSelect.innerHTML =
-            `<option value="">-- Select document (optional) --</option>` +
+            `${i18nPlaceholderOption("-- Select document (optional) --")}` +
             docs.map((d) => `<option value="${d.id}">${d.title || d.storage_key || d.id}</option>`).join("");
           if (initialDocumentId) {
             documentSelect.value = initialDocumentId;
@@ -8111,15 +8902,15 @@ function openForm(key, options = {}) {
     updateVisibility();
 
     if (companySelect) {
-      companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+      companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
       fetchCompaniesList()
         .then((companies) => {
           companySelect.innerHTML =
-            `<option value="">-- Select company --</option>` +
+            `${i18nPlaceholderOption("-- Select company --")}` +
             companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
         })
         .catch(() => {
-          companySelect.innerHTML = `<option value="">-- Select company --</option>`;
+          companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
         });
     }
   }
@@ -8132,11 +8923,18 @@ function openForm(key, options = {}) {
 
     const statusSelect = overlay.querySelector('select[name="status"]');
     if (statusSelect && statusSelect.options.length === 0) {
-      statusSelect.innerHTML =
-        `<option value="Unpaid">Unpaid</option><option value="Open">Open</option><option value="Paid">Paid</option>` +
-        `<option value="Overdue">Overdue</option><option value="Factory exit">Factory exit</option>` +
-        `<option value="Dispatched">Dispatched</option><option value="Cut Off">Cut Off</option>` +
-        `<option value="Shipped">Shipped</option><option value="Delivered">Delivered</option>`;
+      const statusOptions = [
+        "Unpaid",
+        "Open",
+        "Paid",
+        "Overdue",
+        "Factory exit",
+        "Dispatched",
+        "Cut Off",
+        "Shipped",
+        "Delivered"
+      ];
+      statusSelect.innerHTML = statusOptions.map((opt) => i18nOption(opt, opt)).join("");
     }
     if (statusSelect && initialValues?.status) {
       statusSelect.value = initialValues.status;
@@ -8169,7 +8967,9 @@ function openForm(key, options = {}) {
 
     fetchCompaniesList().then((companies) => {
       if (!companySelect) return;
-      companySelect.innerHTML = `<option value="">-- Select company (optional) --</option>` + companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+      companySelect.innerHTML =
+        `${i18nPlaceholderOption("-- Select company (optional) --")}` +
+        companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       companySelect.addEventListener("change", setCustomer);
       if (initialValues?.company_id) {
         companySelect.value = String(initialValues.company_id);
@@ -8179,7 +8979,8 @@ function openForm(key, options = {}) {
     fetchContactsList().then((contacts) => {
       if (!contactSelect) return;
       contactSelect.innerHTML =
-        `<option value="">-- Select contact (optional) --</option>` + contacts.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+        `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
+        contacts.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       contactSelect.addEventListener("change", setCustomer);
       if (initialValues?.contact_id) {
         contactSelect.value = String(initialValues.contact_id);
@@ -8192,20 +8993,27 @@ function openForm(key, options = {}) {
       const attachmentSelectId =
         attachmentSelect.id || `invoice-attachment-${Math.random().toString(36).slice(2, 8)}`;
       attachmentSelect.id = attachmentSelectId;
-      attachmentSelect.setAttribute("aria-label", "Choose document (optional) for this invoice");
+      attachmentSelect.setAttribute(
+        "aria-label",
+        i18nText("Choose document (optional) for this invoice", "Choose document (optional) for this invoice")
+      );
 
       const docSearchInput = document.createElement("input");
       docSearchInput.type = "search";
       docSearchInput.autocomplete = "off";
-      docSearchInput.placeholder = "Search documents by title or storage key";
+      docSearchInput.placeholder = i18nText("Search documents by title or storage key", "Search documents by title or storage key");
+      docSearchInput.setAttribute("data-i18n-placeholder", "Search documents by title or storage key");
       docSearchInput.id = `${attachmentSelectId}-search`;
       docSearchInput.className = "document-search-input";
       docSearchInput.setAttribute("aria-controls", attachmentSelectId);
-      docSearchInput.setAttribute("aria-label", "Search documents for the invoice");
+      docSearchInput.setAttribute(
+        "aria-label",
+        i18nText("Search documents for the invoice", "Search documents for the invoice")
+      );
 
       const docSearchLabel = document.createElement("label");
       docSearchLabel.className = "document-search-field";
-      docSearchLabel.innerHTML = "<span>Search documents</span>";
+      docSearchLabel.innerHTML = i18nSpan("Search documents");
       docSearchLabel.appendChild(docSearchInput);
 
       const insertParent = attachmentLabel?.parentElement || form;
@@ -8218,7 +9026,8 @@ function openForm(key, options = {}) {
       const attachmentHint = document.createElement("small");
       attachmentHint.id = `${attachmentSelectId}-hint`;
       attachmentHint.className = "field-hint";
-      attachmentHint.textContent = "Filter the document list before selecting an attachment.";
+      attachmentHint.textContent = i18nText("Filter the document list before selecting an attachment.", "Filter the document list before selecting an attachment.");
+      attachmentHint.setAttribute("data-i18n", "Filter the document list before selecting an attachment.");
       attachmentSelect.setAttribute("aria-describedby", attachmentHint.id);
       if (insertParent) {
         insertParent.insertBefore(attachmentHint, attachmentLabel?.nextSibling || null);
@@ -8240,13 +9049,13 @@ function openForm(key, options = {}) {
         ) {
           const selectedDoc = attachmentDocsCache.find((doc) => doc.storage_key === selectedAttachmentKey);
           if (selectedDoc) {
-            supplemental = `<option value="${selectedDoc.storage_key}">${formatDocumentLabel(selectedDoc)} (selected)</option>`;
+            supplemental = `<option value="${selectedDoc.storage_key}">${formatDocumentLabel(selectedDoc)} (${i18nText("selected", "selected")})</option>`;
           }
         }
         if (!docs.length) {
-          supplemental += `<option value="" disabled>— No matching documents —</option>`;
+          supplemental += i18nPlaceholderOption("— No matching documents —", { disabled: true });
         }
-        attachmentSelect.innerHTML = `<option value="">-- Select document --</option>${optionHtml}${supplemental}`;
+        attachmentSelect.innerHTML = `${i18nPlaceholderOption("-- Select document --")}${optionHtml}${supplemental}`;
         if (selectedAttachmentKey && attachmentSelect.querySelector(`option[value="${selectedAttachmentKey}"]`)) {
           attachmentSelect.value = selectedAttachmentKey;
         }
@@ -8457,21 +9266,23 @@ function openForm(key, options = {}) {
 
     if (companySelect && initialValues?.company_id && (initialValues?.company_name || initialValues?.company)) {
       companySelect.innerHTML =
-        `<option value="">-- Select company (optional) --</option>` +
+        `${i18nPlaceholderOption("-- Select company (optional) --")}` +
         `<option value="${initialValues.company_id}">${initialValues.company_name || initialValues.company}</option>`;
       companySelect.value = String(initialValues.company_id);
     }
 
     if (contactSelect && initialValues?.contact_id && (initialValues?.contact_name || initialValues?.contact)) {
       contactSelect.innerHTML =
-        `<option value="">-- Select contact (optional) --</option>` +
+        `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
         `<option value="${initialValues.contact_id}">${initialValues.contact_name || initialValues.contact}</option>`;
       contactSelect.value = String(initialValues.contact_id);
     }
 
     fetchCompaniesList().then((companies) => {
       if (!companySelect) return;
-      companySelect.innerHTML = `<option value="">-- Select company (optional) --</option>` + companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+      companySelect.innerHTML =
+        `${i18nPlaceholderOption("-- Select company (optional) --")}` +
+        companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       if (initialValues?.company_id) {
         companySelect.value = String(initialValues.company_id);
       }
@@ -8479,7 +9290,7 @@ function openForm(key, options = {}) {
     fetchContactsList().then((contacts) => {
       if (!contactSelect) return;
       contactSelect.innerHTML =
-        `<option value="">-- Select contact (optional) --</option>` +
+        `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
         contacts.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       if (initialValues?.contact_id) {
         contactSelect.value = String(initialValues.contact_id);
@@ -8489,7 +9300,7 @@ function openForm(key, options = {}) {
       if (!quotationSelect) return;
       quotationLookup = new Map(quotes.map((quote) => [String(quote.id), quote]));
       quotationSelect.innerHTML =
-        `<option value="">-- Select quotation --</option>` +
+        `${i18nPlaceholderOption("-- Select quotation --")}` +
         quotes.map((q) => `<option value="${q.id}">${q.reference || q.title || q.id}</option>`).join("");
       if (initialValues?.quotation_id) {
         quotationSelect.value = String(initialValues.quotation_id);
@@ -8628,10 +9439,10 @@ function openForm(key, options = {}) {
     if (bankSelect) populateBankChargeSelect(bankSelect, initialValues?.bank_charge_method);
     if (bankSelect) populateBankChargeSelect(bankSelect);
     if (attachmentSelect) {
-      attachmentSelect.innerHTML = `<option value="">-- Select document --</option>`;
+      attachmentSelect.innerHTML = i18nPlaceholderOption("-- Select document --");
       fetchDocumentsList().then((docs) => {
         attachmentSelect.innerHTML =
-          `<option value="">-- Select document --</option>` +
+          `${i18nPlaceholderOption("-- Select document --")}` +
           docs
             .filter((d) => d.storage_key)
             .map((d) => `<option value="${d.storage_key}">${d.title || d.storage_key}</option>`)
@@ -8653,7 +9464,7 @@ function openForm(key, options = {}) {
     fetchCompaniesList().then((companies) => {
       if (!companySelect) return;
       companySelect.innerHTML =
-        `<option value="">-- Select company --</option>` +
+        `${i18nPlaceholderOption("-- Select company --")}` +
         companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       companySelect.addEventListener("change", updateCustomerName);
       if (initialValues?.company_id) {
@@ -8665,7 +9476,7 @@ function openForm(key, options = {}) {
     fetchContactsList().then((contacts) => {
       if (!contactSelect) return;
       contactSelect.innerHTML =
-        `<option value="">-- Select contact --</option>` +
+        `${i18nPlaceholderOption("-- Select contact --")}` +
         contacts.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
       contactSelect.addEventListener("change", updateCustomerName);
       if (initialValues?.contact_id) {
@@ -8721,7 +9532,7 @@ function openForm(key, options = {}) {
       row.className = "line-row";
       row.innerHTML = `
         <select class="line-product">
-          <option value="">-- Select product --</option>
+          ${i18nPlaceholderOption("-- Select product --")}
           ${products.map((p) => `<option data-price="${p.price || 0}" value="${p.id}">${p.name}</option>`).join("")}
         </select>
         <input type="number" class="line-qty" min="0" step="0.01" value="1" />
@@ -8854,20 +9665,22 @@ function openForm(key, options = {}) {
 
     fetchCompaniesList().then((companies) => {
       if (!companySelect) return;
-      companySelect.innerHTML = `<option value="">-- Select company --</option>` + companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+      companySelect.innerHTML =
+        `${i18nPlaceholderOption("-- Select company --")}` +
+        companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
     });
 
     fetchInvoicesList().then((invoices) => {
       if (!invoiceSelect) return;
       invoiceSelect.innerHTML =
-        `<option value="">-- Select invoice --</option>` +
+        `${i18nPlaceholderOption("-- Select invoice --")}` +
         invoices.map((inv) => `<option value="${inv.id}">${inv.reference || inv.id}</option>`).join("");
     });
 
     fetchRecords("doc_types", []).then((types) => {
       if (!docTypeSelect) return;
       docTypeSelect.innerHTML =
-        `<option value="">-- Select document type --</option>` +
+        `${i18nPlaceholderOption("-- Select document type --")}` +
         types.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
     });
 
@@ -8892,7 +9705,7 @@ function openForm(key, options = {}) {
     e.preventDefault();
     const submitBtn = form.querySelector('button[type="submit"]');
     submitBtn.disabled = true;
-    submitBtn.textContent = "Saving...";
+    submitBtn.textContent = i18nText("Saving...", "Saving...");
 
     try {
       const formData = new FormData(form);
@@ -8908,7 +9721,7 @@ function openForm(key, options = {}) {
       }
 
       if (key === "sample_shipments" && (!values.sample_lines || !values.sample_lines.length)) {
-        showToast("Add at least one product");
+        showToast(i18nText("Add at least one product", "Add at least one product"));
         return;
       }
 

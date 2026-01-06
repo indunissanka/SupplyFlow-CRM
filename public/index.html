@@ -17,21 +17,28 @@
         <div class="login-logo">SL</div>
         <div>
           <p class="login-title">SL CRM Workspace</p>
-          <p class="login-subtitle">Authenticate with your workspace credentials.</p>
+          <p class="login-subtitle" data-i18n="login.subtitle">Authenticate with your workspace credentials.</p>
         </div>
       </div>
+      <div class="login-language">
+        <label class="language-label" for="login-language-switcher" data-i18n="language.label">Language</label>
+        <select id="login-language-switcher" class="language-select" data-language-switcher aria-label="Language">
+          <option value="en">English</option>
+          <option value="zh-TW">&#32321;&#39636;&#20013;&#25991;&#65288;&#21488;&#28771;&#65289;</option>
+        </select>
+      </div>
       <form id="login-form" class="login-form">
-        <label class="form-label" for="login-email">Email</label>
-        <input id="login-email" name="email" type="email" placeholder="name@example.com" required />
-        <label class="form-label" for="login-password">Password</label>
-        <input id="login-password" name="password" type="password" placeholder="••••••••" required />
-        <label class="form-label" for="login-role">Role</label>
+        <label class="form-label" for="login-email" data-i18n="login.label.email">Email</label>
+        <input id="login-email" name="email" type="email" placeholder="name@example.com" data-i18n-placeholder="login.placeholder.email" required />
+        <label class="form-label" for="login-password" data-i18n="login.label.password">Password</label>
+        <input id="login-password" name="password" type="password" placeholder="••••••••" data-i18n-placeholder="login.placeholder.password" required />
+        <label class="form-label" for="login-role" data-i18n="login.label.role">Role</label>
         <select id="login-role" name="workspaceRole" required>
-          <option value="Admin">Admin</option>
-          <option value="Salesperson">Salesperson</option>
+          <option value="Admin" data-i18n="role.admin">Admin</option>
+          <option value="Salesperson" data-i18n="role.salesperson">Salesperson</option>
         </select>
         <p id="login-error" class="login-error" aria-live="polite"></p>
-        <button type="submit" class="btn primary">Log in</button>
+        <button type="submit" class="btn primary" data-i18n="login.button">Log in</button>
       </form>
     </div>
   </div>
@@ -43,71 +50,71 @@
       <nav class="nav" id="app-nav">
         <button class="nav-item active" data-section="dashboard">
           <i data-lucide="home"></i>
-          <span>Dashboard</span>
+          <span data-i18n="nav.dashboard">Dashboard</span>
         </button>
         <button class="nav-item" data-section="analytics">
           <i data-lucide="bar-chart-3"></i>
-          <span>Analytics</span>
+          <span data-i18n="nav.analytics">Analytics</span>
         </button>
         <button class="nav-item" data-section="companies">
           <i data-lucide="building-2"></i>
-          <span>Companies</span>
+          <span data-i18n="nav.companies">Companies</span>
         </button>
         <button class="nav-item" data-section="contacts">
           <i data-lucide="users"></i>
-          <span>Contacts</span>
+          <span data-i18n="nav.contacts">Contacts</span>
         </button>
         <button class="nav-item" data-section="products">
           <i data-lucide="package"></i>
-          <span>Products</span>
+          <span data-i18n="nav.products">Products</span>
         </button>
         <button class="nav-item" data-section="pricing">
           <i data-lucide="dollar-sign"></i>
-          <span>Pricing</span>
+          <span data-i18n="nav.pricing">Pricing</span>
         </button>
         <button class="nav-item" data-section="orders">
           <i data-lucide="shopping-cart"></i>
-          <span>Orders</span>
+          <span data-i18n="nav.orders">Orders</span>
         </button>
         <button class="nav-item" data-section="quotations">
           <i data-lucide="file-text"></i>
-          <span>Quotations</span>
+          <span data-i18n="nav.quotations">Quotations</span>
         </button>
         <button class="nav-item" data-section="invoices">
           <i data-lucide="receipt"></i>
-          <span>Invoices</span>
+          <span data-i18n="nav.invoices">Invoices</span>
         </button>
         <button class="nav-item" data-section="documents">
           <i data-lucide="file-box"></i>
-          <span>Documents</span>
+          <span data-i18n="nav.documents">Documents</span>
         </button>
         <button class="nav-item" data-section="shipping">
           <i data-lucide="truck"></i>
-          <span>Shipping Schedules</span>
+          <span data-i18n="nav.shipping">Shipping Schedules</span>
         </button>
         <button class="nav-item" data-section="sample_shipments">
           <i data-lucide="send"></i>
-          <span>Samples</span>
+          <span data-i18n="nav.samples">Samples</span>
         </button>
         <button class="nav-item" data-section="tasks">
           <i data-lucide="check-square"></i>
-          <span>Tasks</span>
+          <span data-i18n="nav.tasks">Tasks</span>
         </button>
         <button class="nav-item" data-section="notes">
           <i data-lucide="notebook"></i>
-          <span>Notes</span>
+          <span data-i18n="nav.notes">Notes</span>
         </button>
         <button class="nav-item" data-section="tags">
           <i data-lucide="tags"></i>
-          <span>Tags</span>
+          <span data-i18n="nav.tags">Tags</span>
         </button>
         <button class="nav-item" data-section="settings">
           <i data-lucide="settings"></i>
-          <span>Settings</span>
+          <span data-i18n="nav.settings">Settings</span>
         </button>
       </nav>
       <div class="sidebar-footer">
-        <div class="footer-label">Developer</div>
+        <div class="footer-label" data-i18n="footer.developer">Developer</div>
         <div class="footer-name">Mark Nissanka</div>
       </div>
     </aside>
@@ -117,27 +124,27 @@
         <div class="sales-panel">
           <div class="sales-panel-header">
             <div>
-              <p class="eyebrow">Sales workspace</p>
-              <h2 class="page-title">Pitch & capture</h2>
-              <p class="page-meta">Only Salesperson mode can add and manage these notes.</p>
+              <p class="eyebrow" data-i18n="sales.workspace.label">Sales workspace</p>
+              <h2 class="page-title" data-i18n="sales.workspace.title">Pitch & capture</h2>
+              <p class="page-meta" data-i18n="sales.workspace.meta">Only Salesperson mode can add and manage these notes.</p>
             </div>
             <div class="sales-actions">
-              <span class="sales-status-badge">Salesperson</span>
-              <button id="sales-logout-button" class="btn ghost small">Logout</button>
+              <span class="sales-status-badge" data-i18n="role.salesperson">Salesperson</span>
+              <button id="sales-logout-button" class="btn ghost small" data-i18n="topbar.logout">Logout</button>
             </div>
           </div>
           <form id="sales-add-content-form" class="sales-form">
             <label>
-              <span>Content title</span>
-              <input name="title" type="text" placeholder="New talking point" required />
+              <span data-i18n="sales.form.title.label">Content title</span>
+              <input name="title" type="text" placeholder="New talking point" data-i18n-placeholder="sales.form.title.placeholder" required />
             </label>
             <label>
-              <span>Description</span>
-              <textarea name="description" placeholder="Capture what you need" required></textarea>
+              <span data-i18n="sales.form.description.label">Description</span>
+              <textarea name="description" placeholder="Capture what you need" data-i18n-placeholder="sales.form.description.placeholder" required></textarea>
             </label>
             <div class="sales-form-actions">
-              <button type="submit" class="btn primary">Save content</button>
-              <button type="reset" class="btn ghost small">Reset</button>
+              <button type="submit" class="btn primary" data-i18n="sales.form.save">Save content</button>
+              <button type="reset" class="btn ghost small" data-i18n="sales.form.reset">Reset</button>
             </div>
           </form>
           <div class="sales-divider"></div>
@@ -147,13 +154,19 @@
       <header class="topbar">
         <button id="nav-toggle" class="btn ghost small nav-toggle" aria-label="Open navigation menu" aria-controls="sidebar-drawer" aria-expanded="false">
           <i data-lucide="menu"></i>
-          <span class="nav-toggle-label">Menu</span>
+          <span class="nav-toggle-label" data-i18n="topbar.menu">Menu</span>
         </button>
         <h1 id="section-title">Dashboard</h1>
         <div class="topbar-meta">
           <div class="chip">Cloudflare D1 · R2</div>
+          <div class="language-switcher">
+            <select id="topbar-language-switcher" class="language-select" data-language-switcher aria-label="Language">
+              <option value="en">English</option>
+              <option value="zh-TW">&#32321;&#39636;&#20013;&#25991;&#65288;&#21488;&#28771;&#65289;</option>
+            </select>
+          </div>
           <div id="user-display" class="user-display"></div>
-          <button id="logout-button" class="btn ghost small">Logout</button>
+          <button id="logout-button" class="btn ghost small" data-i18n="topbar.logout">Logout</button>
         </div>
       </header>
       <section class="content">

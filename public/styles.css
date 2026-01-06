@@ -245,6 +245,41 @@ body.nav-open .drawer-backdrop {
   gap: 10px;
 }
 
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+}
+
+.login-language {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.language-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--muted);
+}
+
+.language-select {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: #ffffff;
+  color: var(--text);
+}
+
+.language-select:focus {
+  outline: none;
+  border-color: #1f3f8a;
+  box-shadow: 0 0 0 2px rgba(31, 63, 138, 0.15);
+}
+
 .user-display {
   padding: 6px 10px;
   border-radius: 999px;
