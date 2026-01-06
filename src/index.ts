@@ -2469,20 +2469,9 @@ app.post("/api/companies/bulk", async (c) => {
       const industry = normalizeOptional(company.industry);
       const address = normalizeOptional(company.address);
       const statusValue = normalizeOptional(company.status);
-      const statusProvided = Boolean(statusValue);
       return c.env.DB.prepare(
-        `INSERT INTO companies (name, company_code, website, email, phone, owner, industry, status, address, owner_email)
-         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'Active'), ?, ?)
-         ON CONFLICT(owner_email, company_code) DO UPDATE SET
-           name = excluded.name,
-           website = CASE WHEN excluded.website IS NOT NULL THEN excluded.website ELSE companies.website END,
-           email = CASE WHEN excluded.email IS NOT NULL THEN excluded.email ELSE companies.email END,
-           phone = CASE WHEN excluded.phone IS NOT NULL THEN excluded.phone ELSE companies.phone END,
-           owner = CASE WHEN excluded.owner IS NOT NULL THEN excluded.owner ELSE companies.owner END,
-           industry = CASE WHEN excluded.industry IS NOT NULL THEN excluded.industry ELSE companies.industry END,
-           status = CASE WHEN ? THEN excluded.status ELSE companies.status END,
-           address = CASE WHEN excluded.address IS NOT NULL THEN excluded.address ELSE companies.address END,
-           updated_at = CURRENT_TIMESTAMP`
+        `INSERT OR IGNORE INTO companies (name, company_code, website, email, phone, owner, industry, status, address, owner_email)
+         VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, 'Active'), ?, ?)`
       ).bind(
         name,
         code,
@@ -2493,8 +2482,7 @@ app.post("/api/companies/bulk", async (c) => {
         industry,
         statusValue,
         address,
-        ownerEmail,
-        statusProvided ? 1 : 0
+        ownerEmail
       );
     });
 
