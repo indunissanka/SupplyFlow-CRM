@@ -3573,8 +3573,11 @@ async function renderProducts() {
         showToast("No products found in CSV");
         return;
       }
-      await submitJson("/api/products/bulk", records);
-      showToast(`Imported ${records.length} products`);
+      const result = await submitJson("/api/products/bulk", records);
+      const inserted = Number(result?.inserted);
+      const count = Number.isFinite(inserted) ? inserted : records.length;
+      showToast(`Imported ${count} products`);
+      cacheBypassTables.add("products");
       renderSection("products");
     } catch (err) {
       console.error(err);

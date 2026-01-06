@@ -3757,6 +3757,12 @@ async function fetchRows(
   return results ?? [];
 }
 
+function normalizeOptionalText(value?: string | null) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 function normalizeTags(raw: unknown): number[] {
   if (!Array.isArray(raw)) return [];
   return raw
