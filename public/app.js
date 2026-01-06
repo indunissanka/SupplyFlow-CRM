@@ -10427,25 +10427,37 @@ function parseCompaniesCsv(text) {
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   if (!lines.length) return [];
   const header = lines[0].split(",").map((h) => h.trim().toLowerCase());
+  const headerIndex = (names) => {
+    for (const name of names) {
+      const idx = header.indexOf(name);
+      if (idx !== -1) return idx;
+    }
+    return -1;
+  };
   const idx = {
-    name: header.indexOf("name"),
-    website: header.indexOf("website"),
-    email: header.indexOf("email"),
-    phone: header.indexOf("phone"),
-    owner: header.indexOf("owner"),
-    industry: header.indexOf("industry"),
-    status: header.indexOf("status")
+    name: headerIndex(["name"]),
+    company_code: headerIndex(["company_code", "company code", "code", "companycode"]),
+    website: headerIndex(["website", "site", "web"]),
+    email: headerIndex(["email", "email_address", "e-mail"]),
+    phone: headerIndex(["phone", "phone_number", "tel", "telephone"]),
+    owner: headerIndex(["owner", "account_owner"]),
+    industry: headerIndex(["industry"]),
+    status: headerIndex(["status"]),
+    address: headerIndex(["address"])
   };
   return lines.slice(1).map((line) => {
     const cols = splitCsvLine(line);
+    const getCol = (index) => (index >= 0 ? (cols[index] || "").trim() : "");
     return {
-      name: cols[idx.name] || "",
-      website: cols[idx.website] || "",
-      email: cols[idx.email] || "",
-      phone: cols[idx.phone] || "",
-      owner: cols[idx.owner] || "",
-      industry: cols[idx.industry] || "",
-      status: cols[idx.status] || "Active"
+      name: getCol(idx.name),
+      company_code: getCol(idx.company_code),
+      website: getCol(idx.website),
+      email: getCol(idx.email),
+      phone: getCol(idx.phone),
+      owner: getCol(idx.owner),
+      industry: getCol(idx.industry),
+      status: getCol(idx.status) || "Active",
+      address: getCol(idx.address)
     };
   }).filter((c) => c.name);
 }
