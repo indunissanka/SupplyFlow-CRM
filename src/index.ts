@@ -2534,19 +2534,31 @@ app.post("/api/products", async (c) => {
     tags?: Array<number | string>;
   }>();
 
+  const name = typeof body.name === "string" ? body.name.trim() : "";
+  if (!name) {
+    return c.json({ error: "Name required" }, 400);
+  }
+
   const tags = normalizeTags(body.tags);
+  const sku = normalizeOptionalText(body.sku);
+  const category = normalizeOptionalText(body.category);
+  const currency = normalizeOptionalText(body.currency) ?? "USD";
+  const status = normalizeOptionalText(body.status) ?? "Active";
+  const description = normalizeOptionalText(body.description);
+  const parsedPrice = typeof body.price === "number" ? body.price : Number(body.price);
+  const price = Number.isFinite(parsedPrice) ? parsedPrice : 0;
   const result = await c.env.DB.prepare(
     `INSERT INTO products (name, sku, category, price, currency, status, description, owner_email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
-      body.name,
-      body.sku ?? null,
-      body.category ?? null,
-      body.price ?? 0,
-      body.currency ?? "USD",
-      body.status ?? "Active",
-      body.description ?? null,
+      name,
+      sku,
+      category,
+      price,
+      currency,
+      status,
+      description,
       ownerEmail
     )
     .run();
@@ -2696,23 +2708,27 @@ app.post("/api/products/bulk", async (c) => {
     return c.json({ error: "No products provided" }, 400);
   }
 
-  const inserts = body
-    .filter((p) => typeof p.name === "string" && p.name.trim())
-    .map((p) =>
-      c.env.DB.prepare(
-        `INSERT OR IGNORE INTO products (name, sku, category, price, currency, status, description, owner_email)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-      ).bind(
-        p.name.trim(),
-        p.sku ?? null,
-        p.category ?? null,
-        p.price ?? 0,
-        p.currency ?? "USD",
-        p.status ?? "Active",
-        p.description ?? null,
-        ownerEmail
-      )
+  const inserts: D1PreparedStatement[] = [];
+  for (const product of body) {
+    const name = typeof product.name === "string" ? product.name.trim() : "";
+    if (!name) continue;
+    const sku = normalizeOptionalText(product.sku);
+    const category = normalizeOptionalText(product.category);
+    const currency = normalizeOptionalText(product.currency) ?? "USD";
+    const status = normalizeOptionalText(product.status) ?? "Active";
+    const description = normalizeOptionalText(product.description);
+    const parsedPrice = typeof product.price === "number" ? product.price : Number(product.price);
+    const price = Number.isFinite(parsedPrice) ? parsedPrice : 0;
+
+    inserts.push(
+      c.env.DB
+        .prepare(
+          `INSERT OR IGNORE INTO products (name, sku, category, price, currency, status, description, owner_email)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(name, sku, category, price, currency, status, description, ownerEmail)
     );
+  }
 
   await batchInChunks(c.env.DB, inserts);
   await bumpCacheVersion(c.env, ownerEmail, "products");
