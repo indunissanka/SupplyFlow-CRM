@@ -7477,6 +7477,9 @@ function renderRecordPreview(tableKey, record) {
 
   // Enhanced field display with better formatting
   const ignore = new Set(["id", "created_at", "updated_at", "company_id", "contact_id", "product_id"]);
+  if (tableKey === "companies") {
+    ignore.delete("id");
+  }
   if (tableKey === "orders") {
     ["created_at", "updated_at"].forEach((key) => ignore.delete(key));
     ["quotation_id", "invoice_id", "invoice_ids", "invoice_links"].forEach((key) => ignore.add(key));
@@ -7489,7 +7492,7 @@ function renderRecordPreview(tableKey, record) {
     .map(
       (key) => {
         const value = formatPreviewValue(previewRecord[key], key, previewRecord);
-        const label = formatPreviewLabel(key, previewRecord);
+        const label = formatPreviewLabel(key, previewRecord, tableKey);
         return `
           <div class="preview-row">
             <div class="preview-label">${label}</div>
@@ -8620,7 +8623,7 @@ function formatPreviewValue(val, key, record) {
   return escapeHtml(String(val));
 }
 
-function formatPreviewLabel(key, record) {
+function formatPreviewLabel(key, record, tableKey) {
   const labelMap = {
     // Company fields
     website: "Website",
@@ -8677,6 +8680,9 @@ function formatPreviewLabel(key, record) {
     updated_at: "Last Updated"
   };
 
+  if (key === "id" && tableKey === "companies") {
+    return "Company ID";
+  }
   if (key === "related_id" && record.related_type === "company") {
     return "Company";
   }
