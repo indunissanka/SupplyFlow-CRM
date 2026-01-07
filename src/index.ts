@@ -4111,10 +4111,20 @@ async function getPipeline(db: D1Queryable, ownerEmail: string) {
       .bind(ownerEmail, ownerEmail)
   ]);
 
-  const formatAmount = (amount?: number) =>
-    typeof amount === "number" && !Number.isNaN(amount)
-      ? `$${amount.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
-      : "$0";
+  const parseAmount = (value: unknown) => {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "string") {
+      const cleaned = value.trim().replace(/[^0-9.-]+/g, "");
+      const parsed = Number(cleaned);
+      return Number.isFinite(parsed) ? parsed : null;
+    }
+    return null;
+  };
+
+  const formatAmount = (amount?: number | string | null) => {
+    const numeric = parseAmount(amount);
+    return numeric !== null ? `$${numeric.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "$0";
+  };
 
   const combined = [...(orders.results ?? []), ...(invoices.results ?? [])]
     .slice(0, 6)

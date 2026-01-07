@@ -3881,7 +3881,7 @@ async function renderOrders() {
   const orderRecords = await loadTableFromApi("orders", (row) => row, fallback.orders);
   const orders = Array.isArray(orderRecords) ? orderRecords : [];
   const needsTotals = orders.some((order) => {
-    const total = Number(order?.total_amount);
+    const total = parseCurrency(order?.total_amount);
     const hasTotal = Number.isFinite(total) && total > 0;
     if (hasTotal) return false;
     return Boolean(order?.quotation_id || order?.invoice_ids || order?.invoice_links || order?.invoice_id);
@@ -3907,14 +3907,14 @@ async function renderOrders() {
   };
 
   const resolveOrderTotal = (order) => {
-    const rawTotal = Number(order?.total_amount);
+    const rawTotal = parseCurrency(order?.total_amount);
     const hasStoredTotal = Number.isFinite(rawTotal) && rawTotal > 0;
     let total = hasStoredTotal ? rawTotal : 0;
     let currency = (order?.currency || "").toString().trim();
 
     if (!hasStoredTotal && order?.quotation_id) {
       const quote = quoteLookup.get(String(order.quotation_id));
-      const quoteAmount = Number(quote?.amount);
+      const quoteAmount = parseCurrency(quote?.amount);
       if (Number.isFinite(quoteAmount) && quoteAmount > 0) {
         total = quoteAmount;
         if (!currency && quote?.currency) currency = quote.currency;
@@ -3927,7 +3927,7 @@ async function renderOrders() {
         let invoiceCurrency = "";
         const sum = invoiceIds.reduce((acc, id) => {
           const invoice = invoiceLookup.get(String(id));
-          const invoiceTotal = Number(invoice?.total_amount);
+          const invoiceTotal = parseCurrency(invoice?.total_amount);
           if (!invoiceCurrency && invoice?.currency) {
             invoiceCurrency = invoice.currency;
           }
