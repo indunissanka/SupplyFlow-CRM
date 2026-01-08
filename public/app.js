@@ -1968,6 +1968,7 @@ const formConfigs = {
     fields: [
       { name: "title", label: "Title", required: true, placeholder: "Document title" },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company --"] },
+      { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact (optional) --"] },
       { name: "invoice_id", label: "Invoice (optional)", type: "select", options: ["-- Select invoice --"] },
       { name: "doc_type_id", label: "Document Type", type: "select", options: ["-- Select document type --"] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] },
@@ -7210,6 +7211,10 @@ function openEditModal(tableKey, record) {
     openForm("invoices", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "documents") {
+    openForm("documents", { initialValues: record, mode: "edit" });
+    return;
+  }
   if (tableKey === "sample_shipments") {
     openForm("sample_shipments", { initialValues: record, mode: "edit" });
     return;
@@ -9975,10 +9980,15 @@ function openForm(key, options = {}) {
     overlay.querySelector(".modal")?.classList.add("modal-large");
 
     const companySelect = overlay.querySelector('select[name="company_id"]');
+    const contactSelect = overlay.querySelector('select[name="contact_id"]');
     const invoiceSelect = overlay.querySelector('select[name="invoice_id"]');
     const docTypeSelect = overlay.querySelector('select[name="doc_type_id"]');
     const tagSelect = overlay.querySelector('select[name="tags"]');
     const fileInput = overlay.querySelector('input[name="file"]');
+    const initialCompanyId = initialValues?.company_id ? String(initialValues.company_id) : "";
+    const initialContactId = initialValues?.contact_id ? String(initialValues.contact_id) : "";
+    const initialInvoiceId = initialValues?.invoice_id ? String(initialValues.invoice_id) : "";
+    const initialDocTypeId = initialValues?.doc_type_id ? String(initialValues.doc_type_id) : "";
 
     // allow multiple file selection
     if (fileInput) fileInput.setAttribute("multiple", "multiple");
@@ -9988,6 +9998,19 @@ function openForm(key, options = {}) {
       companySelect.innerHTML =
         `${i18nPlaceholderOption("-- Select company --")}` +
         companies.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+      if (initialCompanyId) {
+        companySelect.value = initialCompanyId;
+      }
+    });
+
+    fetchContactsList().then((contacts) => {
+      if (!contactSelect) return;
+      contactSelect.innerHTML =
+        `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
+        contacts.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+      if (initialContactId) {
+        contactSelect.value = initialContactId;
+      }
     });
 
     fetchInvoicesList().then((invoices) => {
@@ -9995,6 +10018,9 @@ function openForm(key, options = {}) {
       invoiceSelect.innerHTML =
         `${i18nPlaceholderOption("-- Select invoice --")}` +
         invoices.map((inv) => `<option value="${inv.id}">${inv.reference || inv.id}</option>`).join("");
+      if (initialInvoiceId) {
+        invoiceSelect.value = initialInvoiceId;
+      }
     });
 
     fetchRecords("doc_types", []).then((types) => {
@@ -10002,6 +10028,9 @@ function openForm(key, options = {}) {
       docTypeSelect.innerHTML =
         `${i18nPlaceholderOption("-- Select document type --")}` +
         types.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+      if (initialDocTypeId) {
+        docTypeSelect.value = initialDocTypeId;
+      }
     });
 
     const form = overlay.querySelector("form");
