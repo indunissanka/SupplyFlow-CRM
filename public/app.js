@@ -6155,7 +6155,7 @@ async function fetchOrdersList() {
           id: row.id,
           reference: row.reference,
           company_id: row.company_id,
-          company: row.company_id || row.company
+          company: row.company_name || row.company
         }));
       }
     }
@@ -6175,7 +6175,7 @@ async function fetchInvoicesList() {
           id: row.id,
           reference: row.reference,
           company_id: row.company_id,
-          company: row.company_id || row.company,
+          company: row.company_name || row.company,
           total_amount: row.total_amount,
           currency: row.currency,
           created_at: row.created_at,
