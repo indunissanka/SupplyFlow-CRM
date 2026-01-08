@@ -2090,6 +2090,7 @@ const formConfigs = {
   shipping: {
     title: "Add Shipping Schedule",
     endpoint: "/api/shipping_schedules",
+    updateKey: "shipping_schedules",
     fields: [
       { name: "order_id", label: "Order (optional)", type: "select", options: ["-- Optional: select an order --"] },
       { name: "invoice_id", label: "Invoice (optional)", type: "select", options: ["-- Optional: select an invoice --"] },
@@ -7226,6 +7227,10 @@ function openEditModal(tableKey, record) {
     openForm("documents", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "shipping_schedules") {
+    openForm("shipping", { initialValues: record, mode: "edit" });
+    return;
+  }
   if (tableKey === "sample_shipments") {
     openForm("sample_shipments", { initialValues: record, mode: "edit" });
     return;
@@ -8998,6 +9003,16 @@ function openForm(key, options = {}) {
     const orderSelect = overlay.querySelector('select[name="order_id"]');
     const invoiceSelect = overlay.querySelector('select[name="invoice_id"]');
     const companySelect = overlay.querySelector('select[name="company_id"]');
+    const initialOrderId = initialValues?.order_id ? String(initialValues.order_id) : "";
+    const initialInvoiceId = initialValues?.invoice_id ? String(initialValues.invoice_id) : "";
+    const initialCompanyId = initialValues?.company_id ? String(initialValues.company_id) : "";
+    const initialCompanyName = initialValues?.company_name || initialValues?.company || "";
+    const initialOrderLabel = initialOrderId
+      ? initialValues?.order_reference || `Order #${initialOrderId}`
+      : "";
+    const initialInvoiceLabel = initialInvoiceId
+      ? initialValues?.invoice_reference || `Invoice #${initialInvoiceId}`
+      : "";
 
     const updateCompany = (companyObj) => {
       if (!companySelect) return;
@@ -9008,6 +9023,34 @@ function openForm(key, options = {}) {
         companySelect.innerHTML = i18nPlaceholderOption("Select an order or invoice");
       }
     };
+
+    const ensureSelectedOption = (selectEl, id, label, companyId) => {
+      if (!selectEl || !id) return;
+      const existing = selectEl.querySelector(`option[value="${id}"]`);
+      if (!existing) {
+        const dataCompany = companyId ? ` data-company="${companyId}"` : "";
+        selectEl.insertAdjacentHTML("beforeend", `<option value="${id}"${dataCompany}>${label || id}</option>`);
+      }
+      selectEl.value = id;
+    };
+
+    const applyCompanyFromOption = (option) => {
+      const companyId = option?.getAttribute("data-company");
+      if (!companyId) return false;
+      const labelParts = option?.textContent?.split("-") || [];
+      const companyName = labelParts.length > 1 ? labelParts.slice(1).join("-").trim() : "";
+      updateCompany({ id: companyId, name: companyName || initialCompanyName || companyId });
+      return true;
+    };
+
+    const applyInitialCompany = () => {
+      if (!initialCompanyId) return;
+      updateCompany({ id: initialCompanyId, name: initialCompanyName || initialCompanyId });
+    };
+
+    if (!initialOrderId && !initialInvoiceId) {
+      applyInitialCompany();
+    }
 
     fetchOrdersList().then((orders) => {
       if (!orderSelect) return;
@@ -9021,6 +9064,10 @@ function openForm(key, options = {}) {
               }</option>`
           )
           .join("");
+      if (initialOrderId) {
+        ensureSelectedOption(orderSelect, initialOrderId, initialOrderLabel, initialCompanyId);
+        applyCompanyFromOption(orderSelect.selectedOptions[0]) || applyInitialCompany();
+      }
     });
 
     fetchInvoicesList().then((invoices) => {
@@ -9035,6 +9082,10 @@ function openForm(key, options = {}) {
               }</option>`
           )
           .join("");
+      if (!initialOrderId && initialInvoiceId) {
+        ensureSelectedOption(invoiceSelect, initialInvoiceId, initialInvoiceLabel, initialCompanyId);
+        applyCompanyFromOption(invoiceSelect.selectedOptions[0]) || applyInitialCompany();
+      }
     });
 
     orderSelect?.addEventListener("change", () => {
@@ -10122,6 +10173,7 @@ function openForm(key, options = {}) {
         values.items = form["items"];
       }
       const transformed = config.transform ? config.transform(values) : values;
+      const updateKey = config.updateKey || key;
 
       if (config.submit && mode === "create") {
         await config.submit({ ...values, ...transformed });
@@ -10142,9 +10194,9 @@ function openForm(key, options = {}) {
             company_id: num(values.company_id) || num(values.company_id_manual) || null,
             contact_id: num(values.contact_id) || num(values.contact_id_manual) || null
           };
-          await updateRecord(key, initialValues.id, payload);
+          await updateRecord(updateKey, initialValues.id, payload);
         } else {
-          await updateRecord(key, initialValues.id, transformed);
+          await updateRecord(updateKey, initialValues.id, transformed);
         }
       } else {
         await submitJson(config.endpoint || `/api/${key}`, transformed);
