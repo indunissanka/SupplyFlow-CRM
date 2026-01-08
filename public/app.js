@@ -1975,6 +1975,17 @@ const formConfigs = {
       { name: "contentType", label: "Content Type", placeholder: "application/pdf" },
       { name: "file", label: "Select Files (multiple allowed)", type: "file", multiple: true }
     ],
+    transform(values) {
+      return {
+        title: values.title,
+        company_id: num(values.company_id),
+        contact_id: num(values.contact_id),
+        invoice_id: num(values.invoice_id),
+        doc_type_id: num(values.doc_type_id),
+        content_type: values.contentType || undefined,
+        tags: values.tags
+      };
+    },
     async submit(values) {
       const files = Array.from(values.file || values.fileList || []).filter((f) => f && f.size > 0);
       const tags = Array.isArray(values.tags) ? values.tags.map((t) => Number(t)).filter((n) => Number.isFinite(n)) : [];
