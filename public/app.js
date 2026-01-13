@@ -2094,10 +2094,10 @@ const formConfigs = {
     fields: [
       { name: "order_id", label: "Order (optional)", type: "select", options: ["-- Optional: select an order --"] },
       { name: "invoice_id", label: "Invoice (optional)", type: "select", options: ["-- Optional: select an invoice --"] },
-      { name: "factory_exit_date", label: "Factory exit date", type: "datetime-local" },
-      { name: "etc_date", label: "ETC", type: "datetime-local" },
-      { name: "etd_date", label: "ETD", type: "datetime-local" },
-      { name: "eta", label: "ETA", type: "datetime-local" },
+      { name: "factory_exit_date", label: "Factory exit date", type: "date" },
+      { name: "etc_date", label: "ETC", type: "date" },
+      { name: "etd_date", label: "ETD", type: "date" },
+      { name: "eta", label: "ETA", type: "date" },
       { name: "company_id", label: "Company (auto)", type: "select", options: ["Select an order or invoice"] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] },
       { name: "notes", label: "Notes", type: "textarea", placeholder: "Shipment details, vessel, port info, etc." },
@@ -2113,10 +2113,10 @@ const formConfigs = {
         order_id: num(values.order_id),
         invoice_id: num(values.invoice_id),
         company_id: num(values.company_id),
-        factory_exit_date: values.factory_exit_date ? new Date(values.factory_exit_date).toISOString() : null,
-        etc_date: values.etc_date ? new Date(values.etc_date).toISOString() : null,
-        etd_date: values.etd_date ? new Date(values.etd_date).toISOString() : null,
-        eta: values.eta ? new Date(values.eta).toISOString() : null,
+        factory_exit_date: values.factory_exit_date || null,
+        etc_date: values.etc_date || null,
+        etd_date: values.etd_date || null,
+        eta: values.eta || null,
         notes: values.notes,
         status: values.status || "Factory exit",
         tags: values.tags
@@ -4576,6 +4576,21 @@ async function renderDocuments() {
 
 async function renderShipping() {
   setSectionTitleForSection("shipping");
+  const formatShipDate = (value) => {
+    if (!value) return "-";
+    const raw = String(value).trim();
+    if (!raw) return "-";
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const localDate = new Date(year, month - 1, day);
+      return Number.isNaN(localDate.getTime()) ? raw : localDate.toLocaleDateString();
+    }
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString();
+  };
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
@@ -4584,10 +4599,10 @@ async function renderShipping() {
         r.company_name || "Unknown Company",
         r.order_reference || "-",
         r.invoice_reference || "-",
-        r.factory_exit_date ? new Date(r.factory_exit_date).toLocaleString() : "-",
-        r.etc_date ? new Date(r.etc_date).toLocaleString() : "-",
-        r.etd_date ? new Date(r.etd_date).toLocaleString() : "-",
-        r.eta ? new Date(r.eta).toLocaleString() : "-",
+        formatShipDate(r.factory_exit_date),
+        formatShipDate(r.etc_date),
+        formatShipDate(r.etd_date),
+        formatShipDate(r.eta),
         badge(tone, r.status || "Factory exit")
       ];
     },
@@ -4597,10 +4612,10 @@ async function renderShipping() {
         row.company || row.company_name || "Unknown Company",
         row.order,
         row.invoice,
-        row.factory_exit || "-",
-        row.etc || "-",
-        row.etd || "-",
-        row.eta || "-",
+        formatShipDate(row.factory_exit),
+        formatShipDate(row.etc),
+        formatShipDate(row.etd),
+        formatShipDate(row.eta),
         badge(tone, row.status)
       ];
     })
@@ -8606,6 +8621,20 @@ function formatPreviewValue(val, key, record) {
   if (Array.isArray(val)) {
     return val.map((v) => `<span class="badge secondary">${escapeHtml(String(v))}</span>`).join(" ");
   }
+  if (["factory_exit_date", "etc_date", "etd_date", "eta"].includes(key)) {
+    const raw = typeof val === "string" ? val.trim() : String(val);
+    if (!raw) return "<span class='stat-label'>—</span>";
+    const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const year = Number(match[1]);
+      const month = Number(match[2]);
+      const day = Number(match[3]);
+      const localDate = new Date(year, month - 1, day);
+      return Number.isNaN(localDate.getTime()) ? escapeHtml(raw) : localDate.toLocaleDateString();
+    }
+    const parsed = new Date(raw);
+    return Number.isNaN(parsed.getTime()) ? escapeHtml(raw) : parsed.toLocaleDateString();
+  }
   if (
     ["total_amount", "amount", "price", "unit_price", "drums_price", "bank_charge_price", "shipping_price", "customer_commission", "line_total"].includes(key) &&
     record?.currency
@@ -8929,6 +8958,10 @@ function openForm(key, options = {}) {
     if (value === null || value === undefined || value === "") return "";
     const raw = typeof value === "string" ? value.trim() : String(value);
     if (!raw) return "";
+    if (type === "date") {
+      const match = raw.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (match) return match[1];
+    }
     const pad2 = (val) => String(val).padStart(2, "0");
     const parsed = new Date(raw);
     if (Number.isNaN(parsed.valueOf())) {
