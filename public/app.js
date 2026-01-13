@@ -4581,6 +4581,7 @@ async function renderShipping() {
     (r) => {
       const tone = r.status === "Delivered" ? "success" : r.status === "Shipped" ? "info" : "warning";
       return [
+        r.company_name || "Unknown Company",
         r.order_reference || "-",
         r.invoice_reference || "-",
         r.factory_exit_date ? new Date(r.factory_exit_date).toLocaleString() : "-",
@@ -4593,6 +4594,7 @@ async function renderShipping() {
     fallback.shipping_schedules.map((row) => {
       const tone = row.status === "Delivered" ? "success" : row.status === "Shipped" ? "info" : "warning";
       return [
+        row.company || row.company_name || "Unknown Company",
         row.order,
         row.invoice,
         row.factory_exit || "-",
@@ -4634,7 +4636,7 @@ async function renderShipping() {
           </label>
         </div>
       </div>
-      ${renderPaginatedTable(["Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
+      ${renderPaginatedTable(["Company", "Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
     </div>
   `;
   attachTableSearch("shipping-search-input", "shipping_schedules");
@@ -8923,6 +8925,30 @@ function openForm(key, options = {}) {
     });
   };
 
+  const formatDateInputValue = (value, type) => {
+    if (value === null || value === undefined || value === "") return "";
+    const raw = typeof value === "string" ? value.trim() : String(value);
+    if (!raw) return "";
+    const pad2 = (val) => String(val).padStart(2, "0");
+    const parsed = new Date(raw);
+    if (Number.isNaN(parsed.valueOf())) {
+      if (type === "date" && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+      if (type === "datetime-local" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw)) {
+        return raw.slice(0, 16);
+      }
+      return "";
+    }
+    const year = parsed.getFullYear();
+    const month = pad2(parsed.getMonth() + 1);
+    const day = pad2(parsed.getDate());
+    if (type === "date") {
+      return `${year}-${month}-${day}`;
+    }
+    const hours = pad2(parsed.getHours());
+    const minutes = pad2(parsed.getMinutes());
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
   const applyInitialValues = (values) => {
     if (!values) return;
     Object.entries(values).forEach(([name, val]) => {
@@ -8940,6 +8966,8 @@ function openForm(key, options = {}) {
       if (field instanceof HTMLInputElement) {
         if (field.type === "checkbox") {
           field.checked = Boolean(val);
+        } else if (field.type === "date" || field.type === "datetime-local") {
+          field.value = formatDateInputValue(val, field.type);
         } else {
           field.value = val ?? "";
         }
