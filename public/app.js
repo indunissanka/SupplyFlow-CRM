@@ -1888,6 +1888,7 @@ const formConfigs = {
       { name: "contact_id_manual", label: "Contact ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "customer_name", label: "Customer name", placeholder: "Autofilled from contact/company" },
       { name: "currency", label: "Currency", placeholder: "USD" },
+      { name: "exchange_rate", label: "USD to NTD rate", type: "number", step: "0.0001", placeholder: "32.50" },
       { name: "tax_rate", label: "Tax rate (%)", type: "number", step: "0.01", placeholder: "0" },
       { name: "valid_until", label: "Valid until", type: "date" },
       { name: "notes", label: "Notes / Terms", type: "textarea", placeholder: "Payment terms, delivery timelines, or special notes." },
@@ -1903,6 +1904,7 @@ const formConfigs = {
         contact_id: manualContactId ?? num(values.contact_id),
         customer_name: values.customer_name,
         currency: values.currency || "USD",
+        exchange_rate: num(values.exchange_rate),
         status: values.status || "Draft",
         valid_until: values.valid_until,
         reference: values.reference || undefined,
@@ -8150,6 +8152,7 @@ async function renderQuotationPreview(record) {
         <div><strong>Customer</strong><span>${record.customer_name || record.company_name || record.contact_name || "—"}</span></div>
         <div><strong>Bank charge</strong><span>${bankMethodLabel}</span></div>
         <div><strong>Tax rate</strong><span>${record.tax_rate ? `${record.tax_rate}%` : "—"}</span></div>
+        <div><strong>USD to NTD rate</strong><span>${record.exchange_rate ? record.exchange_rate : "—"}</span></div>
       </div>
       <section class="quote-line-table">
         <table>
@@ -8700,6 +8703,7 @@ function formatPreviewLabel(key, record, tableKey) {
     category: "Category",
     price: "Price",
     currency: "Currency",
+    exchange_rate: "USD to NTD rate",
     description: "Description",
     
     // Order/Invoice fields
@@ -9811,7 +9815,7 @@ function openForm(key, options = {}) {
 
     const customerSection = document.createElement("div");
     customerSection.className = "quote-section quote-customer";
-    ["company_id", "company_id_manual", "contact_id", "contact_id_manual", "customer_name", "currency"].forEach((name) => {
+    ["company_id", "company_id_manual", "contact_id", "contact_id_manual", "customer_name", "currency", "exchange_rate"].forEach((name) => {
       if (labels[name]) customerSection.appendChild(labels[name]);
     });
 
@@ -9875,6 +9879,7 @@ function openForm(key, options = {}) {
     const companySelect = form.querySelector('select[name="company_id"]');
     const contactSelect = form.querySelector('select[name="contact_id"]');
     const currencyInput = form.querySelector('input[name="currency"]');
+    const exchangeRateInput = form.querySelector('input[name="exchange_rate"]');
     const taxInput = form.querySelector('input[name="tax_rate"]');
     const bankSelect = form.querySelector('select[name="bank_charge_method"]');
     const attachmentSelect = form.querySelector('select[name="attachment_key"]');
@@ -9882,6 +9887,7 @@ function openForm(key, options = {}) {
     const statusSelect = form.querySelector('select[name="status"]');
 
     if (currencyInput && !currencyInput.value) currencyInput.value = initialValues?.currency || "USD";
+    if (exchangeRateInput && initialValues?.exchange_rate !== undefined) exchangeRateInput.value = initialValues.exchange_rate;
     if (taxInput && initialValues?.tax_rate !== undefined) taxInput.value = initialValues.tax_rate;
     if (statusSelect && initialValues?.status) statusSelect.value = initialValues.status;
     if (bankSelect) populateBankChargeSelect(bankSelect, initialValues?.bank_charge_method);
@@ -10251,6 +10257,7 @@ function openForm(key, options = {}) {
             notes: values.notes || "",
             attachment_key: values.attachment_key || null,
             currency: values.currency || "USD",
+            exchange_rate: num(values.exchange_rate),
             amount: totals.total || initialValues.amount || 0,
             company_id: num(values.company_id) || num(values.company_id_manual) || null,
             contact_id: num(values.contact_id) || num(values.contact_id_manual) || null

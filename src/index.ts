@@ -167,7 +167,21 @@ const updatableFields: Record<string, string[]> = {
   contacts: ["company_id", "first_name", "last_name", "email", "phone", "role", "status"],
   products: ["name", "sku", "category", "price", "currency", "status", "description"],
   orders: ["company_id", "contact_id", "quotation_id", "invoice_ids", "status", "total_amount", "currency", "reference"],
-  quotations: ["company_id", "contact_id", "reference", "amount", "currency", "status", "valid_until", "title", "tax_rate", "notes", "bank_charge_method", "attachment_key"],
+  quotations: [
+    "company_id",
+    "contact_id",
+    "reference",
+    "amount",
+    "currency",
+    "exchange_rate",
+    "status",
+    "valid_until",
+    "title",
+    "tax_rate",
+    "notes",
+    "bank_charge_method",
+    "attachment_key"
+  ],
   invoices: ["company_id", "contact_id", "reference", "total_amount", "currency", "due_date", "status", "attachment_key"],
   documents: ["company_id", "contact_id", "invoice_id", "doc_type_id", "title", "content_type", "size"],
   shipping_schedules: [
@@ -296,6 +310,7 @@ const tableColumns: Record<string, string[]> = {
     "reference",
     "amount",
     "currency",
+    "exchange_rate",
     "status",
     "valid_until",
     "title",
@@ -908,6 +923,7 @@ const schemaStatements = [
     reference TEXT,
     amount REAL DEFAULT 0,
     currency TEXT DEFAULT 'USD',
+    exchange_rate REAL,
     status TEXT DEFAULT 'Draft',
     valid_until TEXT,
     title TEXT,
@@ -2861,6 +2877,7 @@ app.post("/api/quotations", async (c) => {
     reference?: string;
     amount?: number;
     currency?: string;
+    exchange_rate?: number;
     status?: string;
     valid_until?: string;
     title?: string;
@@ -2884,9 +2901,10 @@ app.post("/api/quotations", async (c) => {
 
   const tags = normalizeTags(body.tags);
   const ref = body.reference || generateRef("Q");
+  const exchangeRate = normalizeNonNegativeNumber(body.exchange_rate);
   const result = await c.env.DB.prepare(
-    `INSERT INTO quotations (company_id, contact_id, reference, amount, currency, status, valid_until, title, tax_rate, notes, bank_charge_method, attachment_key, owner_email)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO quotations (company_id, contact_id, reference, amount, currency, exchange_rate, status, valid_until, title, tax_rate, notes, bank_charge_method, attachment_key, owner_email)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   )
     .bind(
       body.company_id ?? null,
@@ -2894,6 +2912,7 @@ app.post("/api/quotations", async (c) => {
       ref,
       body.amount ?? 0,
       body.currency ?? "USD",
+      exchangeRate,
       body.status ?? "Draft",
       body.valid_until ?? null,
       body.title ?? null,
@@ -3526,6 +3545,7 @@ async function ensureSchema(db: D1Database) {
   if (quoteNames.size) {
     if (!quoteNames.has("title")) await db.prepare("ALTER TABLE quotations ADD COLUMN title TEXT").bind().run();
     if (!quoteNames.has("tax_rate")) await db.prepare("ALTER TABLE quotations ADD COLUMN tax_rate REAL DEFAULT 0").bind().run();
+    if (!quoteNames.has("exchange_rate")) await db.prepare("ALTER TABLE quotations ADD COLUMN exchange_rate REAL").bind().run();
     if (!quoteNames.has("notes")) await db.prepare("ALTER TABLE quotations ADD COLUMN notes TEXT").bind().run();
     if (!quoteNames.has("bank_charge_method")) await db.prepare("ALTER TABLE quotations ADD COLUMN bank_charge_method TEXT").bind().run();
     if (!quoteNames.has("attachment_key")) await db.prepare("ALTER TABLE quotations ADD COLUMN attachment_key TEXT").bind().run();

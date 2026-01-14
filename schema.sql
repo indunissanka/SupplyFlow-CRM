@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS quotations (
   reference TEXT,
   amount REAL DEFAULT 0,
   currency TEXT DEFAULT 'USD',
+  exchange_rate REAL,
   status TEXT DEFAULT 'Draft',
   valid_until TEXT,
   title TEXT,
