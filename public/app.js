@@ -19,6 +19,8 @@ const demoCredentials = {
   password: "demo1234"
 };
 const salesContentKey = "crm:sales-content";
+const aiChatStorageKey = "crm:ai-chat";
+const aiChatMaxMessages = 40;
 const salesStatusCycle = ["New", "In progress", "Ready"];
 const languageKey = "crm:language";
 const supportedLanguages = {
@@ -50,6 +52,7 @@ const translations = {
     "nav.toggle.close": "Close navigation menu",
     "nav.dashboard": "Dashboard",
     "nav.analytics": "Analytics",
+    "nav.chat": "AI Chat",
     "nav.companies": "Companies",
     "nav.contacts": "Contacts",
     "nav.products": "Products",
@@ -89,6 +92,24 @@ const translations = {
     "access.restricted.toast": "Access restricted. Ask an admin for access.",
     "section.unavailable": "No view configured yet.",
     "section.restricted": "Access restricted. Contact an admin to enable this section.",
+    "chat.label": "AI Assistant",
+    "chat.title": "Research chat",
+    "chat.subtitle": "Ask questions about pipeline, revenue, tasks, and data quality.",
+    "chat.empty": "Start a conversation to analyze your CRM data.",
+    "chat.input.label": "Ask about your CRM data",
+    "chat.input.placeholder": "e.g. Which invoices are overdue and need attention?",
+    "chat.actions.clear": "Clear chat",
+    "chat.actions.send": "Send",
+    "chat.status.thinking": "Thinking...",
+    "chat.status.error": "Unable to reach AI assistant.",
+    "chat.toggle.dataQuality": "Include data quality signals",
+    "chat.limit.label": "Rows per table",
+    "chat.hint": "Shift+Enter for a new line.",
+    "chat.suggest.pipeline": "Summarize pipeline risk this month",
+    "chat.suggest.overdue": "Which invoices are overdue right now?",
+    "chat.suggest.followups": "What follow-ups are at risk this week?",
+    "chat.meta.model": "Model",
+    "chat.meta.tables": "Tables",
     "dashboard.overview": "Workspace Overview",
     "dashboard.subtitle": "Live counts from D1 with quick pipeline and activity views.",
     "dashboard.refresh": "Refresh",
@@ -363,6 +384,7 @@ const translations = {
     "nav.toggle.close": "關閉導覽選單",
     "nav.dashboard": "儀表板",
     "nav.analytics": "分析",
+    "nav.chat": "AI 對話",
     "nav.companies": "公司",
     "nav.contacts": "聯絡人",
     "nav.products": "產品",
@@ -402,6 +424,24 @@ const translations = {
     "access.restricted.toast": "權限受限。請向管理員申請存取權限。",
     "section.unavailable": "尚未設定此視圖。",
     "section.restricted": "權限受限。請聯絡管理員啟用此區塊。",
+    "chat.label": "AI 助手",
+    "chat.title": "研究對話",
+    "chat.subtitle": "詢問管線、營收、任務與資料品質的問題。",
+    "chat.empty": "開始對話以分析你的 CRM 資料。",
+    "chat.input.label": "詢問你的 CRM 資料",
+    "chat.input.placeholder": "例如：目前哪些發票已逾期需要處理？",
+    "chat.actions.clear": "清除對話",
+    "chat.actions.send": "送出",
+    "chat.status.thinking": "分析中...",
+    "chat.status.error": "無法連線到 AI 助手。",
+    "chat.toggle.dataQuality": "包含資料品質訊號",
+    "chat.limit.label": "每個表的列數",
+    "chat.hint": "Shift+Enter 可換行。",
+    "chat.suggest.pipeline": "本月管線風險摘要",
+    "chat.suggest.overdue": "現在有哪些發票逾期？",
+    "chat.suggest.followups": "本週有哪些跟進有風險？",
+    "chat.meta.model": "模型",
+    "chat.meta.tables": "資料表",
     "dashboard.overview": "工作區概覽",
     "dashboard.subtitle": "即時 D1 統計，搭配管線與活動摘要。",
     "dashboard.refresh": "重新整理",
@@ -689,6 +729,7 @@ let currentUserEmail = "";
 let currentAccessList = [];
 let currentAuthToken = "";
 let salesContentItems = [];
+let aiChatMessages = [];
 let navItems = [];
 let navToggleButton = null;
 let navDrawer = null;
@@ -892,6 +933,7 @@ function handleLogout() {
   currentUserEmail = "";
   currentAccessList = [];
   currentAuthToken = "";
+  aiChatMessages = [];
   showLoginScreen();
   loginForm?.reset();
   if (loginError) {
@@ -909,6 +951,7 @@ function initAuthentication() {
   currentAccessList = Array.isArray(storedAccess) ? storedAccess : [];
   currentAuthToken = storedToken || "";
   salesContentItems = loadSalesContentState();
+  aiChatMessages = loadAiChatState();
   if (safeLocalStorageGet(authTokenKey) === "true") {
     if (!currentUserEmail || !storedToken) {
       handleLogout();
@@ -973,6 +1016,7 @@ if (loginForm) {
       currentUserEmail = user.email || normalizedEmail;
       currentAccessList = Array.isArray(user.accessList) ? user.accessList : [];
       currentAuthToken = token;
+      aiChatMessages = loadAiChatState();
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
       safeLocalStorageJsonSet(authAccessKey, currentAccessList);
@@ -1036,6 +1080,7 @@ const sectionTitle = document.getElementById("section-title");
 const sectionTitleMap = {
   dashboard: { key: "nav.dashboard", fallback: "Dashboard" },
   analytics: { key: "nav.analytics", fallback: "Analytics" },
+  chat: { key: "nav.chat", fallback: "AI Chat" },
   companies: { key: "nav.companies", fallback: "Companies" },
   contacts: { key: "nav.contacts", fallback: "Contacts" },
   products: { key: "nav.products", fallback: "Products" },
@@ -1321,6 +1366,16 @@ function escapeHtml(value) {
   });
 }
 
+function formatAiChatText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
 function loadSalesContentState() {
   try {
     const stored = window.localStorage.getItem(salesContentKey);
@@ -1338,6 +1393,31 @@ function persistSalesContentState(items) {
     window.localStorage.setItem(salesContentKey, JSON.stringify(items));
   } catch (error) {
     console.warn("Unable to persist sales content", error);
+  }
+}
+
+function getAiChatStorageKey() {
+  const suffix = currentUserEmail || "guest";
+  return `${aiChatStorageKey}:${suffix}`;
+}
+
+function loadAiChatState() {
+  try {
+    const stored = window.localStorage.getItem(getAiChatStorageKey());
+    if (!stored) return [];
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn("Unable to load AI chat history", error);
+    return [];
+  }
+}
+
+function persistAiChatState(items) {
+  try {
+    window.localStorage.setItem(getAiChatStorageKey(), JSON.stringify(items));
+  } catch (error) {
+    console.warn("Unable to persist AI chat history", error);
   }
 }
 
@@ -1400,10 +1480,15 @@ function getAllowedAccessList() {
   return currentAccessList;
 }
 
+function resolveAccessSection(section) {
+  if (section === "chat") return "analytics";
+  return section;
+}
+
 function canAccessSection(section) {
   if (!section || section === "dashboard") return true;
   const allowed = getAllowedAccessList();
-  return allowed.includes(section);
+  return allowed.includes(resolveAccessSection(section));
 }
 
 function applyAccessRestrictions() {
@@ -1411,7 +1496,8 @@ function applyAccessRestrictions() {
   navItems.forEach((item) => {
     const section = item.dataset.section;
     if (!section || section === "dashboard") return;
-    const canAccess = allowed.has(section);
+    const accessId = resolveAccessSection(section);
+    const canAccess = allowed.has(accessId);
     item.classList.toggle("hidden", !canAccess);
     if (!canAccess) {
       item.setAttribute("aria-disabled", "true");
@@ -1716,6 +1802,7 @@ function renderPrivilegeList(listElement) {
 const sectionRenderers = {
   dashboard: renderDashboard,
   analytics: renderAnalytics,
+  chat: renderChat,
   companies: renderCompanies,
   contacts: renderContacts,
   products: renderProducts,
@@ -3295,6 +3382,219 @@ async function renderAnalytics() {
     destroyAnalyticsCharts();
   }
   lucide?.createIcons();
+}
+
+async function renderChat() {
+  setSectionTitleForSection("chat");
+  aiChatMessages = loadAiChatState();
+  const suggestions = [
+    { key: "chat.suggest.pipeline", fallback: "Summarize pipeline risk this month" },
+    { key: "chat.suggest.overdue", fallback: "Which invoices are overdue right now?" },
+    { key: "chat.suggest.followups", fallback: "What follow-ups are at risk this week?" }
+  ];
+
+  sectionContent.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="eyebrow" data-i18n="chat.label">AI Assistant</div>
+        <h2 class="page-title" data-i18n="chat.title">Research chat</h2>
+        <div class="page-meta" data-i18n="chat.subtitle">Ask questions about pipeline, revenue, tasks, and data quality.</div>
+      </div>
+      <div class="actions">
+        <button class="btn ghost small" id="ai-chat-clear" data-i18n="chat.actions.clear">Clear chat</button>
+      </div>
+    </div>
+    <div class="panel ai-chat-panel">
+      <div class="ai-chat-thread" id="ai-chat-thread"></div>
+      <div class="ai-chat-suggestions" id="ai-chat-suggestions">
+        ${suggestions
+          .map(
+            (item) =>
+              `<button type="button" class="btn ghost small ai-chat-suggestion" data-ai-suggest-key="${escapeHtml(
+                item.key
+              )}" data-ai-suggest-fallback="${escapeHtml(item.fallback)}" data-i18n="${item.key}">${escapeHtml(
+                item.fallback
+              )}</button>`
+          )
+          .join("")}
+      </div>
+      <div class="ai-chat-footer">
+        <div class="ai-chat-controls">
+          <label class="ai-chat-toggle">
+            <input type="checkbox" id="ai-chat-data-quality" checked />
+            <span data-i18n="chat.toggle.dataQuality">Include data quality signals</span>
+          </label>
+          <label class="ai-chat-select">
+            <span data-i18n="chat.limit.label">Rows per table</span>
+            <select id="ai-chat-limit">
+              <option value="3">3</option>
+              <option value="5" selected>5</option>
+              <option value="8">8</option>
+              <option value="10">10</option>
+            </select>
+          </label>
+        </div>
+        <form id="ai-chat-form" class="ai-chat-form">
+          <label class="ai-chat-input-wrap">
+            <span class="sr-only" data-i18n="chat.input.label">Ask about your CRM data</span>
+            <textarea id="ai-chat-input" class="ai-chat-input" rows="3" data-i18n-placeholder="chat.input.placeholder" placeholder="e.g. Which invoices are overdue and need attention?"></textarea>
+          </label>
+          <button type="submit" class="btn primary" id="ai-chat-send" data-i18n="chat.actions.send">Send</button>
+        </form>
+        <div class="ai-chat-hint" data-i18n="chat.hint">Shift+Enter for a new line.</div>
+      </div>
+    </div>
+  `;
+
+  const thread = document.getElementById("ai-chat-thread");
+  const form = document.getElementById("ai-chat-form");
+  const input = document.getElementById("ai-chat-input");
+  const clearButton = document.getElementById("ai-chat-clear");
+  const suggestWrap = document.getElementById("ai-chat-suggestions");
+  const dataQualityToggle = document.getElementById("ai-chat-data-quality");
+  const limitSelect = document.getElementById("ai-chat-limit");
+  const sendButton = document.getElementById("ai-chat-send");
+
+  const renderThread = () => {
+    if (!thread) return;
+    if (!aiChatMessages.length) {
+      thread.innerHTML = `<div class="ai-chat-empty">${t("chat.empty", "Start a conversation to analyze your CRM data.")}</div>`;
+      return;
+    }
+    thread.innerHTML = aiChatMessages
+      .map((message) => {
+        const content = escapeHtml(formatAiChatText(message.content || ""));
+        const metaParts = [];
+        if (message.role === "assistant" && message.meta) {
+          if (message.meta.model) {
+            metaParts.push(`${t("chat.meta.model", "Model")}: ${escapeHtml(String(message.meta.model))}`);
+          }
+          if (Array.isArray(message.meta.tables) && message.meta.tables.length) {
+            metaParts.push(`${t("chat.meta.tables", "Tables")}: ${escapeHtml(message.meta.tables.join(", "))}`);
+          }
+        }
+        const meta = metaParts.length ? `<div class="ai-chat-meta">${metaParts.join(" · ")}</div>` : "";
+        const classes = ["ai-chat-message"];
+        if (message.pending) classes.push("pending");
+        if (message.error) classes.push("error");
+        return `
+          <div class="${classes.join(" ")}" data-role="${escapeHtml(message.role || "assistant")}">
+            <div class="ai-chat-text">${content || ""}</div>
+            ${meta}
+          </div>
+        `;
+      })
+      .join("");
+    thread.scrollTop = thread.scrollHeight;
+  };
+
+  const setSending = (sending) => {
+    if (input instanceof HTMLTextAreaElement) {
+      input.disabled = sending;
+    }
+    if (sendButton instanceof HTMLButtonElement) {
+      sendButton.disabled = sending;
+    }
+  };
+
+  const pushMessage = (message) => {
+    aiChatMessages.push(message);
+    if (aiChatMessages.length > aiChatMaxMessages) {
+      aiChatMessages = aiChatMessages.slice(aiChatMessages.length - aiChatMaxMessages);
+    }
+    persistAiChatState(aiChatMessages);
+  };
+
+  const handleSend = async (text) => {
+    const question = text.trim();
+    if (!question) return;
+    const now = new Date().toISOString();
+    const userMessage = { id: Date.now(), role: "user", content: question, createdAt: now };
+    const pendingMessage = {
+      id: Date.now() + 1,
+      role: "assistant",
+      content: t("chat.status.thinking", "Thinking..."),
+      createdAt: now,
+      pending: true
+    };
+    pushMessage(userMessage);
+    pushMessage(pendingMessage);
+    renderThread();
+    setSending(true);
+    if (input instanceof HTMLTextAreaElement) {
+      input.value = "";
+      input.focus();
+    }
+
+    try {
+      const payload = {
+        question,
+        includeDataQuality: dataQualityToggle instanceof HTMLInputElement ? dataQualityToggle.checked : true,
+        limit: limitSelect instanceof HTMLSelectElement ? Number(limitSelect.value) : undefined
+      };
+      const res = await apiFetch("/api/ai/research", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, t("chat.status.error", "Unable to reach AI assistant.")));
+      }
+      const data = await res.json().catch(() => ({}));
+      const responseText = formatAiChatText(data.response || data.output_text || data.reply || "");
+      pendingMessage.content = responseText || t("chat.status.error", "Unable to reach AI assistant.");
+      pendingMessage.pending = false;
+      pendingMessage.meta = { model: data.model || "", tables: data.tables || [] };
+      pendingMessage.error = !responseText;
+    } catch (error) {
+      console.error("AI chat error", error);
+      pendingMessage.content = t("chat.status.error", "Unable to reach AI assistant.");
+      pendingMessage.pending = false;
+      pendingMessage.error = true;
+      showToast(error instanceof Error ? error.message : t("chat.status.error", "Unable to reach AI assistant."));
+    } finally {
+      persistAiChatState(aiChatMessages);
+      renderThread();
+      setSending(false);
+    }
+  };
+
+  form?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (input instanceof HTMLTextAreaElement) {
+      handleSend(input.value);
+    }
+  });
+
+  input?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      if (input instanceof HTMLTextAreaElement) {
+        handleSend(input.value);
+      }
+    }
+  });
+
+  clearButton?.addEventListener("click", () => {
+    aiChatMessages = [];
+    persistAiChatState(aiChatMessages);
+    renderThread();
+  });
+
+  suggestWrap?.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const key = target.dataset.aiSuggestKey;
+    const fallback = target.dataset.aiSuggestFallback || "";
+    const suggestion = key ? t(key, fallback) : fallback;
+    if (!suggestion) return;
+    if (input instanceof HTMLTextAreaElement) {
+      input.value = suggestion;
+      input.focus();
+    }
+  });
+
+  renderThread();
 }
 
 async function renderCompanies() {

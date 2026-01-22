@@ -21,9 +21,12 @@ type Env = {
   FILES: R2Bucket;
   ASSETS: Fetcher;
   CACHE: KVNamespace;
+  AI: Ai;
   SHIPPO_API_KEY?: string;
   AUTH_SECRET: string;
   ALLOWED_ORIGINS?: string;
+  AI_MODEL?: string;
+  DEBUG_ERRORS?: string;
 };
 
 const allowedTables = [
@@ -91,6 +94,12 @@ const LOGIN_RATE_LIMIT_MAX_ATTEMPTS = 10;
 const TAGGED_LIST_TABLES = ["orders", "quotations", "documents"];
 const DOC_TYPE_LIST_TABLES = ["doc_types", "documents"];
 const CACHEABLE_TABLES_LIST = Array.from(cacheableTables.values());
+const AI_DEFAULT_MODEL = "@cf/meta/llama-3-8b-instruct";
+const AI_DEFAULT_TABLES = ["companies", "contacts", "orders", "quotations", "invoices", "tasks", "notes"];
+const AI_MAX_TABLES = 8;
+const AI_MAX_TABLE_ROWS = 10;
+const AI_MAX_QUESTION_LENGTH = 2000;
+const AI_TEXT_TRUNCATE = 400;
 const adminRole = "Admin";
 const salesRole = "Salesperson";
 const defaultAccessList = [
@@ -2071,6 +2080,120 @@ app.get("/api/data-quality", async (c) => {
   });
 });
 
+app.post("/api/ai/research", async (c) => {
+  const accessError = requireAccess(c, "analytics");
+  if (accessError) return accessError;
+  if (!c.env.AI) {
+    return c.json({ error: "AI binding not configured" }, 501);
+  }
+
+  let body: {
+    question?: string;
+    tables?: string[];
+    limit?: number;
+    includeContext?: boolean;
+    includeDataQuality?: boolean;
+    dataQuality?: boolean;
+    data_quality?: boolean;
+    debug?: boolean;
+  } = {};
+  try {
+    body = await c.req.json<typeof body>();
+  } catch {
+    // Leave body as empty object
+  }
+
+  const question = typeof body.question === "string" ? body.question.trim() : "";
+  if (!question) {
+    return c.json({ error: "Question required" }, 400);
+  }
+  if (question.length > AI_MAX_QUESTION_LENGTH) {
+    return c.json({ error: `Question too long (max ${AI_MAX_QUESTION_LENGTH} chars)` }, 400);
+  }
+
+  const ownerEmail = c.get("ownerEmail");
+  const user = c.get("currentUser") as UserRow | undefined;
+  const accessList = (c.get("accessList") as string[] | undefined) ?? [];
+  if (!user) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  const tables = normalizeAiTables(body.tables, user, accessList);
+  if (!tables.length) {
+    return c.json({ error: "No accessible tables available for research" }, 403);
+  }
+
+  const limit = normalizeAiLimit(body.limit);
+  const readDb = getReadSession(c.env.DB);
+
+  const stats = await getStats(readDb, ownerEmail);
+  const pipeline = await getPipeline(readDb, ownerEmail);
+  const activity = await getActivity(readDb, ownerEmail);
+  const includeDataQuality =
+    body.includeDataQuality === true || body.dataQuality === true || body.data_quality === true;
+
+  const tableData: Record<string, unknown[]> = {};
+  for (const table of tables) {
+    const rows = await fetchRows(readDb, table, ownerEmail, [], limit, 0);
+    tableData[table] = rows.map((row) => sanitizeAiRecord(row as Record<string, unknown>));
+  }
+
+  const context: Record<string, unknown> = {
+    generated_at: new Date().toISOString(),
+    stats,
+    pipeline,
+    activity,
+    tables: tableData
+  };
+
+  if (includeDataQuality) {
+    context.data_quality = await getDataQuality(readDb, ownerEmail);
+  }
+
+  const model = c.env.AI_MODEL || AI_DEFAULT_MODEL;
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a CRM data analyst. Use only the provided context. If data is insufficient, say so. " +
+        "Return concise insights, risks/opportunities, and follow-up questions."
+    },
+    {
+      role: "user",
+      content: `Question: ${question}\n\nContext:\n${JSON.stringify(context)}`
+    }
+  ];
+
+  try {
+    const aiResult = await c.env.AI.run(model, {
+      messages,
+      max_tokens: 600,
+      temperature: 0.2
+    });
+    const responseText =
+      typeof aiResult === "string"
+        ? aiResult
+        : (aiResult as { response?: string; output_text?: string }).response ??
+          (aiResult as { response?: string; output_text?: string }).output_text ??
+          JSON.stringify(aiResult);
+    const includeContext = body.includeContext === true || body.debug === true;
+    return c.json({
+      model,
+      question,
+      response: responseText,
+      tables,
+      context: includeContext ? context : undefined
+    });
+  } catch (err) {
+    console.error("AI research failed", err);
+    if (c.env.DEBUG_ERRORS === "true") {
+      const message = err instanceof Error ? err.message : "AI research failed";
+      return c.json({ error: "AI research failed", detail: message }, 500);
+    }
+    return c.json({ error: "AI research failed" }, 500);
+  }
+});
+
 app.get("/api/tracking/shippo", async (c) => {
   const accessError = requireAccess(c, "shipping");
   if (accessError) return accessError;
@@ -3957,6 +4080,43 @@ const hasAccess = (user: UserRow, accessList: string[], required?: string) => {
   if ((user.role || adminRole) === adminRole) return true;
   const normalized = new Set(accessList.map((item) => item.trim().toLowerCase()).filter(Boolean));
   return normalized.has(required);
+};
+
+const truncateAiText = (value: string, limit = AI_TEXT_TRUNCATE) => {
+  if (value.length <= limit) return value;
+  return `${value.slice(0, limit)}...`;
+};
+
+const sanitizeAiRecord = (row: Record<string, unknown>) => {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (key === "owner_email") continue;
+    if (typeof value === "string") {
+      output[key] = truncateAiText(value);
+    } else {
+      output[key] = value;
+    }
+  }
+  return output;
+};
+
+const normalizeAiTables = (raw: unknown, user: UserRow, accessList: string[]) => {
+  const requested = Array.isArray(raw)
+    ? raw.map((item) => String(item).trim()).filter(Boolean)
+    : AI_DEFAULT_TABLES;
+  const unique = Array.from(new Set(requested));
+  const filtered = unique.filter((table) => allowedTables.includes(table));
+  const accessFiltered = filtered.filter((table) => {
+    const accessId = accessByTable[table];
+    return accessId ? hasAccess(user, accessList, accessId) : false;
+  });
+  return accessFiltered.slice(0, AI_MAX_TABLES);
+};
+
+const normalizeAiLimit = (raw: unknown) => {
+  const parsed = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(Math.max(Math.trunc(parsed), 1), AI_MAX_TABLE_ROWS);
 };
 
 const requireAccess = (c: Context, accessId?: string) => {

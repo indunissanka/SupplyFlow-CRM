@@ -8,6 +8,10 @@ assets = { binding = "ASSETS", directory = "./public" }
 
 [vars]
 ALLOWED_ORIGINS = "*"
+AI_MODEL = "@cf/meta/llama-3-8b-instruct"
+
+[ai]
+binding = "AI"
 
 [[d1_databases]]
 binding = "DB"

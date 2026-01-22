@@ -50,6 +50,10 @@ All analytics endpoints require authentication and are scoped by `owner_email` (
    - Query: `owner_email`
    - Returns missing fields, orphans, duplicate contacts, and freshness timestamps
 
+6) **POST `/api/ai/research`**
+   - Body: `question` (required), optional `tables`, `limit`, `includeDataQuality`, `includeContext`
+   - Uses Workers AI to answer questions about your CRM data with owner-scoped context
+
 ## Project Structure
 
 ```
@@ -230,6 +234,7 @@ R2_ACCESS_KEY_ID=your_r2_access_key
 R2_SECRET_ACCESS_KEY=your_r2_secret_key
 R2_BUCKET=your_r2_bucket
 AUTH_SECRET=your_secure_random_string_for_jwt_tokens
+AI_MODEL=@cf/meta/llama-3-8b-instruct
 ```
 
 **Important**: The `AUTH_SECRET` must be a secure random string (at least 32 characters) for JWT token generation and verification. You can generate one with:
