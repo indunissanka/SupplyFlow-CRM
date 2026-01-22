@@ -2100,7 +2100,7 @@ const formConfigs = {
       { name: "etc_date", label: "ETC", type: "date" },
       { name: "etd_date", label: "ETD", type: "date" },
       { name: "eta", label: "ETA", type: "date" },
-      { name: "company_id", label: "Company (auto)", type: "select", options: ["Select an order or invoice"] },
+      { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] },
       { name: "notes", label: "Notes", type: "textarea", placeholder: "Shipment details, vessel, port info, etc." },
       {
@@ -3730,26 +3730,66 @@ async function renderPricing() {
     companyLookup = new Map(companies.map((company) => [String(company.id), company.name]));
   }
 
-  const rows = items.map((item) => {
+  const enrichedItems = items.map((item) => {
     const quote = quoteLookup.get(String(item.quotation_id)) || {};
-    const reference = quote.reference || quote.title || (item.quotation_id ? `Quotation #${item.quotation_id}` : "-");
+    const reference = quote.reference || quote.title || (item.quotation_id ? `Quotation #${item.quotation_id}` : "");
     const companyName =
-      quote.company_name || (companyLookup ? companyLookup.get(String(quote.company_id)) : null) || "-";
-    const quoteDateRaw = quote.created_at || quote.updated_at || quote.valid_until || item.created_at;
+      quote.company_name || (companyLookup ? companyLookup.get(String(quote.company_id)) : null) || "";
+    const quoteDateRaw = quote.created_at || quote.updated_at || quote.valid_until || item.created_at || "";
+    const currency = (quote.currency || item.currency || "USD").toUpperCase();
+    const exchangeRateRaw = Number(quote.exchange_rate);
+    const exchangeRate = Number.isFinite(exchangeRateRaw) ? exchangeRateRaw : null;
+    return {
+      ...item,
+      reference,
+      quotation_reference: reference,
+      quotation_status: quote.status || "",
+      quotation_title: quote.title || "",
+      quotation_date: quoteDateRaw,
+      company_name: companyName,
+      contact_name: quote.contact_name || item.contact_name || "",
+      customer_name: quote.customer_name || item.customer_name || "",
+      currency,
+      exchange_rate: exchangeRate,
+      valid_until: quote.valid_until || item.valid_until || "",
+      quotation_amount: quote.amount ?? item.quotation_amount,
+      tax_rate: quote.tax_rate ?? item.tax_rate,
+      bank_charge_method: quote.bank_charge_method || item.bank_charge_method || "",
+      notes: quote.notes || item.notes || "",
+      tags: quote.tags || item.tags || "",
+      attachment_key: quote.attachment_key || item.attachment_key || "",
+      title: quote.title || item.title || ""
+    };
+  });
+  tableRecords.quotation_items = enrichedItems;
+
+  const rows = enrichedItems.map((item, recordIndex) => {
+    const reference = item.quotation_reference || item.reference || (item.quotation_id ? `Quotation #${item.quotation_id}` : "-");
+    const companyName = item.company_name || "-";
+    const quoteDateRaw = item.quotation_date || item.created_at || item.valid_until;
     const quoteDate = formatPricingDate(quoteDateRaw);
     const quoteDateKey = formatPricingDateKey(quoteDateRaw);
     const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
-    const currency = (quote.currency || "USD").toUpperCase();
-    const qty = 1;
+    const currency = (item.currency || "USD").toUpperCase();
+    const qtyRaw = Number(item.qty);
+    const qty = Number.isFinite(qtyRaw) ? qtyRaw : 1;
     const unit = Number(item.unit_price) || 0;
     const drums = Number(item.drums_price) || 0;
     const bank = Number(item.bank_charge_price) || 0;
     const shipping = Number(item.shipping_price) || 0;
     const commission = Number(item.customer_commission) || 0;
-    const lineTotal = qty * (unit + drums + bank + shipping + commission);
+    const storedLineTotal = Number(item.line_total);
+    const computedTotal = qty * (unit + drums + bank + shipping + commission);
+    const lineTotal = Number.isFinite(storedLineTotal) && storedLineTotal !== 0 ? storedLineTotal : computedTotal;
+    const exchangeRateValue = Number(item.exchange_rate);
+    const exchangeRateLabel = Number.isFinite(exchangeRateValue) ? exchangeRateValue.toLocaleString() : "-";
+    const previewButton = `<button class="btn ghost small" data-action="preview" data-entity="quotation_items"><i data-lucide="eye"></i>Preview</button>`;
     return {
+      recordIndex,
       companyKey: String(companyName || "").toLowerCase(),
       itemKey: String(productName || "").toLowerCase(),
+      companyLabel: companyName,
+      itemLabel: productName,
       dateKey: quoteDateKey,
       cells: [
         sanitizeText(reference),
@@ -3757,12 +3797,15 @@ async function renderPricing() {
         quoteDate,
         sanitizeText(productName),
         qty,
+        sanitizeText(currency),
+        exchangeRateLabel,
         formatCurrency(unit, currency),
         formatCurrency(drums, currency),
         formatCurrency(bank, currency),
         formatCurrency(shipping, currency),
         formatCurrency(commission, currency),
-        formatCurrency(lineTotal, currency)
+        formatCurrency(lineTotal, currency),
+        previewButton
       ]
     };
   });
@@ -3773,12 +3816,15 @@ async function renderPricing() {
     "Date",
     "Item",
     "Qty",
+    "Currency",
+    "Exchange rate",
     "Unit",
     "Drums",
     "Bank charge",
     "Shipping",
     "Commission",
-    "Line total"
+    "Line total",
+    "Preview"
   ];
   const tableSlot = sectionContent.querySelector("#pricing-table-slot");
   const companyInput = sectionContent.querySelector("#pricing-filter-company");
@@ -3791,7 +3837,7 @@ async function renderPricing() {
   const sortedCompanies = Array.from(
     new Map(
       rows
-        .map((row) => row.cells[1])
+        .map((row) => row.companyLabel)
         .filter((name) => name && name !== "-")
         .map((name) => [String(name), String(name)])
     ).values()
@@ -3799,7 +3845,7 @@ async function renderPricing() {
   const sortedItems = Array.from(
     new Map(
       rows
-        .map((row) => row.cells[3])
+        .map((row) => row.itemLabel)
         .filter((name) => name && name !== "-")
         .map((name) => [String(name), String(name)])
     ).values()
@@ -3831,12 +3877,16 @@ async function renderPricing() {
   };
 
   const renderTablePage = (pageRows) => {
+    const rowIndexList = pageRows.map((row) => row.recordIndex);
     tableSlot.innerHTML = renderTable(
       columns,
       pageRows.map((row) => row.cells),
       "quotation_items",
-      false
+      false,
+      0,
+      rowIndexList
     );
+    lucide?.createIcons();
   };
 
   const applyFilters = () => {
@@ -6797,6 +6847,32 @@ async function hydrateRelatedCompany(record) {
   return record;
 }
 
+function getQuotationIdFromItem(item) {
+  if (!item) return null;
+  return item.quotation_id ?? item.quotationId ?? item.quote_id ?? item.quoteId ?? item.quotation ?? null;
+}
+
+async function resolveQuotationForItem(item) {
+  const quoteId = getQuotationIdFromItem(item);
+  if (!quoteId) return null;
+  let quotes = Array.isArray(tableRecords.quotations) ? tableRecords.quotations : null;
+  if (!quotes || !quotes.length) {
+    try {
+      const res = await apiFetch("/api/quotations");
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.rows)) {
+          tableRecords.quotations = data.rows;
+          quotes = data.rows;
+        }
+      }
+    } catch (err) {
+      console.debug("Unable to load quotations for pricing preview", err);
+    }
+  }
+  return (quotes || []).find((quote) => String(quote.id) === String(quoteId)) || null;
+}
+
 async function openPreviewModal(tableKey, record) {
   await ensureLookupTablesReady();
   if (tableKey === "tasks" || tableKey === "notes") {
@@ -6827,10 +6903,18 @@ async function openPreviewModal(tableKey, record) {
       console.warn("Invoice preview fell back", err);
       content = renderRecordPreview(tableKey, record);
     }
+  } else if (tableKey === "quotation_items") {
+    try {
+      content = await renderPricingItemPreview(record);
+    } catch (err) {
+      console.warn("Pricing preview fell back", err);
+      content = renderRecordPreview(tableKey, record);
+    }
   }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const canDelete = Boolean(record?.id);
+  const showPrint = tableKey === "quotations" || tableKey === "quotation_items";
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
@@ -6839,7 +6923,7 @@ async function openPreviewModal(tableKey, record) {
       </div>
       <div class="modal-body preview-body">${content}</div>
       <div class="form-actions">
-        ${tableKey === "quotations" ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
+        ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -6902,6 +6986,39 @@ async function openPreviewModal(tableKey, record) {
         }
       });
     }
+  } else if (tableKey === "quotation_items") {
+    overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
+      const quoteId = getQuotationIdFromItem(record);
+      const quote = await resolveQuotationForItem(record);
+      let items = [];
+      if (quoteId) {
+        items = await getQuotationItems(quoteId);
+      }
+      if (!Array.isArray(items) || !items.length) {
+        items = [record];
+      }
+      const normalizedItems = items.map((item) => ({
+        ...item,
+        line_total: resolveQuoteLineTotal(item)
+      }));
+      const fallbackRecord = {
+        reference: record.quotation_reference || record.reference || "",
+        title: record.quotation_title || record.title || "",
+        status: record.quotation_status || record.status || "",
+        valid_until: record.valid_until || "",
+        company_name: record.company_name || "",
+        contact_name: record.contact_name || "",
+        customer_name: record.customer_name || "",
+        currency: record.currency || "USD",
+        tax_rate: record.tax_rate,
+        bank_charge_method: record.bank_charge_method,
+        notes: record.notes,
+        tags: record.tags,
+        exchange_rate: record.exchange_rate
+      };
+      const payload = buildQuotePayloadFromRecord(quote || fallbackRecord, normalizedItems);
+      openQuotationPrintView(payload);
+    });
   } else if (tableKey === "invoices") {
     const attachmentBtn = overlay.querySelector("[data-open-invoice-attachment]");
     if (attachmentBtn) {
@@ -7205,6 +7322,156 @@ function renderInvoicePreview(record) {
           <div class="quote-attachment-viewer" data-invoice-attachment-slot></div>
         </section>
       ` : ""}
+    </div>
+  `;
+}
+
+async function renderPricingItemPreview(record) {
+  if (!record) return "<div class='empty'>No data</div>";
+  const quoteId = getQuotationIdFromItem(record);
+  const quote = await resolveQuotationForItem(record);
+  let items = [];
+  if (quoteId) {
+    items = await getQuotationItems(quoteId);
+  }
+  if (!Array.isArray(items) || !items.length) {
+    items = [record];
+  }
+
+  const currency = (record.currency || quote?.currency || "USD").toUpperCase();
+  const statusLabel = record.quotation_status || quote?.status || record.status || "";
+  const reference =
+    record.quotation_reference ||
+    quote?.reference ||
+    record.reference ||
+    (quoteId ? `Quotation #${quoteId}` : "Quotation");
+  const title = record.quotation_title || record.title || quote?.title || "";
+  const company = record.company_name || quote?.company_name || record.company || "-";
+  const contact = record.contact_name || quote?.contact_name || record.contact || "-";
+  const customer = record.customer_name || quote?.customer_name || company || contact || "-";
+  const validUntil = record.valid_until || quote?.valid_until || "-";
+  const quoteDateRaw = record.quotation_date || quote?.created_at || quote?.updated_at || record.created_at || "";
+  const quoteDate = quoteDateRaw ? new Date(quoteDateRaw) : null;
+  const quoteDateLabel = quoteDate && !Number.isNaN(quoteDate.getTime()) ? quoteDate.toLocaleDateString() : "-";
+  const exchangeRateValue = Number(record.exchange_rate ?? quote?.exchange_rate);
+  const exchangeRateLabel = Number.isFinite(exchangeRateValue) ? exchangeRateValue.toLocaleString() : "-";
+  const taxRate = parsePercent(record.tax_rate ?? quote?.tax_rate);
+  const bankMethod = record.bank_charge_method || quote?.bank_charge_method || "-";
+  const notes = record.notes || quote?.notes || "";
+
+  const statusBadge = statusLabel
+    ? `<span class="badge ${statusToneFront(statusLabel)}">${sanitizeText(statusLabel)}</span>`
+    : "";
+
+  const lineRows = items
+    .map((item) => {
+      const isSelected = record?.id && item?.id && String(item.id) === String(record.id);
+      const qty = Number(item.qty) || 0;
+      const unit = Number(item.unit_price) || 0;
+      const drum = Number(item.drums_price) || 0;
+      const bank = Number(item.bank_charge_price) || 0;
+      const ship = Number(item.shipping_price) || 0;
+      const commission = Number(item.customer_commission) || 0;
+      const lineTotal = resolveQuoteLineTotal(item);
+      const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
+      const rowStyle = isSelected ? " style=\"background:#f8fafc;\"" : "";
+      return `
+        <tr${rowStyle}>
+          <td>${sanitizeText(productName)}</td>
+          <td>${qty}</td>
+          <td>${formatCurrency(unit, currency)}</td>
+          <td>${formatCurrency(drum, currency)}</td>
+          <td>${formatCurrency(bank, currency)}</td>
+          <td>${formatCurrency(ship, currency)}</td>
+          <td>${formatCurrency(commission, currency)}</td>
+          <td>${formatCurrency(lineTotal, currency)}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  const totals = calculateQuoteTotals(items, taxRate);
+  const lineCount = items.length === 1 ? "1 line item" : `${items.length} line items`;
+
+  const metaRows = [
+    ["Company", company],
+    ["Contact", contact],
+    ["Customer", customer],
+    ["Quote date", quoteDateLabel],
+    ["Valid until", validUntil],
+    ["Currency", currency],
+    ["USD to NTD rate", exchangeRateLabel],
+    ["Tax rate", taxRate ? `${taxRate}%` : "-"],
+    ["Bank charge", bankMethod]
+  ];
+
+  const metaGrid = metaRows
+    .map(
+      ([label, value]) => `
+        <div>
+          <strong>${sanitizeText(label)}</strong>
+          <span>${sanitizeText(value || "-")}</span>
+        </div>
+      `
+    )
+    .join("");
+
+  const notesBlock = notes
+    ? `
+      <section class="quote-notes-block">
+        <p style="margin:0 0 6px;font-weight:600;">Notes</p>
+        <p style="margin:0;">${sanitizeText(notes)}</p>
+      </section>
+    `
+    : "";
+
+  return `
+    <div class="quote-preview-card">
+      <div class="quote-preview-header">
+        <div>
+          <h2>${sanitizeText(reference)}</h2>
+          <p class="muted">${sanitizeText(title || "Pricing detail")} - ${sanitizeText(lineCount)}</p>
+        </div>
+        <div class="quote-badges">
+          ${statusBadge}
+          <span class="stat-label">${sanitizeText(currency)}</span>
+        </div>
+      </div>
+      <div class="quote-meta-grid">
+        ${metaGrid}
+      </div>
+      <section class="quote-line-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Qty</th>
+              <th>Unit</th>
+              <th>Drums</th>
+              <th>Bank</th>
+              <th>Shipping</th>
+              <th>Commission</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>${lineRows}</tbody>
+        </table>
+      </section>
+      <div class="quote-summary">
+        <div>
+          <span>Subtotal</span>
+          <strong>${formatCurrency(totals.subtotal, currency)}</strong>
+        </div>
+        <div>
+          <span>Tax ${taxRate ? `(${taxRate}%)` : ""}</span>
+          <strong>${formatCurrency(totals.tax, currency)}</strong>
+        </div>
+        <div>
+          <span>Total</span>
+          <strong>${formatCurrency(totals.total, currency)}</strong>
+        </div>
+      </div>
+      ${notesBlock}
     </div>
   `;
 }
@@ -8240,6 +8507,7 @@ function buildQuotePayloadFromRecord(record, items) {
     contact: record.contact_name || "",
     customer: record.customer_name || record.company_name || record.contact_name || "",
     currency,
+    exchange_rate: record.exchange_rate,
     tax_rate: taxRate,
     bank_charge_method: record.bank_charge_method || "",
     notes: record.notes || "",
@@ -9079,15 +9347,68 @@ function openForm(key, options = {}) {
       ? initialValues?.invoice_reference || `Invoice #${initialInvoiceId}`
       : "";
 
-    const updateCompany = (companyObj) => {
+    let selectedCompany = initialCompanyId
+      ? { id: initialCompanyId, name: initialCompanyName || initialCompanyId }
+      : null;
+
+    const selectCompany = (companyObj) => {
       if (!companySelect) return;
       if (companyObj && companyObj.id) {
-        companySelect.innerHTML = `<option value="${companyObj.id}">${companyObj.name || companyObj.id}</option>`;
-        companySelect.value = companyObj.id;
-      } else {
-        companySelect.innerHTML = i18nPlaceholderOption("Select an order or invoice");
+        const id = String(companyObj.id);
+        const name = companyObj.name || id;
+        selectedCompany = { id, name };
+        const existing = companySelect.querySelector(`option[value="${id}"]`);
+        if (!existing) {
+          companySelect.insertAdjacentHTML("beforeend", `<option value="${id}">${name}</option>`);
+        } else if (name && existing.textContent !== name) {
+          existing.textContent = name;
+        }
+        companySelect.value = id;
+        return;
       }
+      selectedCompany = null;
+      companySelect.value = "";
     };
+
+    if (companySelect) {
+      const placeholder = i18nPlaceholderOption("-- Select company (optional) --");
+      const applyCompanies = (companies) => {
+        const selectedValue = companySelect.value;
+        const list = Array.isArray(companies) ? companies : [];
+        const options = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
+        const currentOption =
+          selectedCompany && !list.some((c) => String(c.id) === String(selectedCompany.id))
+            ? `<option value="${selectedCompany.id}">${selectedCompany.name}</option>`
+            : "";
+        const emptyState =
+          options || currentOption ? "" : i18nPlaceholderOption("No companies found", { disabled: true });
+        companySelect.innerHTML = `${placeholder}${options}${currentOption}${emptyState}`;
+        if (selectedValue && companySelect.querySelector(`option[value="${selectedValue}"]`)) {
+          companySelect.value = selectedValue;
+        } else if (selectedCompany?.id) {
+          companySelect.value = selectedCompany.id;
+        }
+      };
+
+      const cachedCompanies = Array.isArray(tableRecords.companies)
+        ? tableRecords.companies.map((c) => ({ id: c.id, name: c.name }))
+        : [];
+      if (cachedCompanies.length) {
+        applyCompanies(cachedCompanies);
+      } else {
+        companySelect.innerHTML = i18nPlaceholderOption("Loading companies...");
+      }
+
+      fetchCompaniesList()
+        .then((companies) => {
+          applyCompanies(companies);
+        })
+        .catch(() => {
+          if (!cachedCompanies.length) {
+            applyCompanies([]);
+          }
+        });
+    }
 
     const ensureSelectedOption = (selectEl, id, label, companyId) => {
       if (!selectEl || !id) return;
@@ -9104,13 +9425,13 @@ function openForm(key, options = {}) {
       if (!companyId) return false;
       const labelParts = option?.textContent?.split("-") || [];
       const companyName = labelParts.length > 1 ? labelParts.slice(1).join("-").trim() : "";
-      updateCompany({ id: companyId, name: companyName || initialCompanyName || companyId });
+      selectCompany({ id: companyId, name: companyName || initialCompanyName || companyId });
       return true;
     };
 
     const applyInitialCompany = () => {
-      if (!initialCompanyId) return;
-      updateCompany({ id: initialCompanyId, name: initialCompanyName || initialCompanyId });
+      if (!selectedCompany?.id) return;
+      selectCompany(selectedCompany);
     };
 
     if (!initialOrderId && !initialInvoiceId) {
@@ -9156,13 +9477,13 @@ function openForm(key, options = {}) {
     orderSelect?.addEventListener("change", () => {
       const opt = orderSelect.selectedOptions[0];
       const companyId = opt?.getAttribute("data-company");
-      updateCompany(companyId ? { id: companyId, name: opt.textContent?.split("-")[1]?.trim() } : null);
+      selectCompany(companyId ? { id: companyId, name: opt.textContent?.split("-")[1]?.trim() || companyId } : null);
     });
 
     invoiceSelect?.addEventListener("change", () => {
       const opt = invoiceSelect.selectedOptions[0];
       const companyId = opt?.getAttribute("data-company");
-      updateCompany(companyId ? { id: companyId, name: opt.textContent?.split("-")[1]?.trim() } : null);
+      selectCompany(companyId ? { id: companyId, name: opt.textContent?.split("-")[1]?.trim() || companyId } : null);
     });
   }
   if (key === "sample_shipments") {
@@ -10375,6 +10696,7 @@ function buildQuotePreviewPayload(form) {
     contact: manualContactId ? `Contact #${manualContactId}` : contactSelect?.selectedOptions[0]?.textContent || "",
     customer: values.customer_name || "",
     currency,
+    exchange_rate: num(values.exchange_rate),
     tax_rate: taxRate,
     bank_charge_method: values.bank_charge_method || "",
     notes: values.notes || "",
@@ -10390,6 +10712,10 @@ function openQuotationPrintView(payload) {
   const format = (value) => formatCurrency(value, currency);
   const noteText = payload.notes ? payload.notes.replace(/\n/g, "<br>") : "No additional notes provided.";
   const tagText = resolveTagList(payload.tags).length ? resolveTagList(payload.tags).join(", ") : "None";
+  const exchangeRate =
+    payload.exchange_rate === undefined || payload.exchange_rate === null || payload.exchange_rate === ""
+      ? ""
+      : payload.exchange_rate;
   const tableRows = payload.items.length
     ? payload.items
         .map((item) => {
@@ -10556,6 +10882,12 @@ function openQuotationPrintView(payload) {
               <strong>Currency</strong>
               <span>${payload.currency}</span>
             </div>
+            ${exchangeRate !== "" ? `
+              <div>
+                <strong>USD to NTD rate</strong>
+                <span>${exchangeRate}</span>
+              </div>
+            ` : ""}
           </div>
           <section class="quote-line-table">
             <table>

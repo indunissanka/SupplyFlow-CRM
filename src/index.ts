@@ -3002,6 +3002,7 @@ app.post("/api/shipping_schedules", async (c) => {
     order_id?: number;
     invoice_id?: number;
     company_id?: number;
+    company_name?: string;
     carrier?: string;
     tracking_number?: string;
     factory_exit_date?: string;
@@ -3014,6 +3015,19 @@ app.post("/api/shipping_schedules", async (c) => {
   }>();
 
   const tags = normalizeTags(body.tags);
+  let companyId = body.company_id ?? null;
+  if (!companyId && body.company_name) {
+    const normalizedName = normalizeCompanyName(body.company_name);
+    if (normalizedName) {
+      const match = await c.env.DB
+        .prepare("SELECT id FROM companies WHERE owner_email = ? AND LOWER(name) = ? LIMIT 1")
+        .bind(ownerEmail, normalizedName)
+        .first<{ id: number }>();
+      if (match?.id) {
+        companyId = match.id;
+      }
+    }
+  }
   const result = await c.env.DB.prepare(
     `INSERT INTO shipping_schedules (order_id, invoice_id, company_id, carrier, tracking_number, factory_exit_date, etc_date, etd_date, eta, status, notes, owner_email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -3021,7 +3035,7 @@ app.post("/api/shipping_schedules", async (c) => {
     .bind(
       body.order_id ?? null,
       body.invoice_id ?? null,
-      body.company_id ?? null,
+      companyId,
       body.carrier ?? null,
       body.tracking_number ?? null,
       body.factory_exit_date ?? null,
