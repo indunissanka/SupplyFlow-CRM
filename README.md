@@ -54,6 +54,10 @@ All analytics endpoints require authentication and are scoped by `owner_email` (
    - Body: `question` (required), optional `tables`, `limit`, `includeDataQuality`, `includeContext`
    - Uses Workers AI to answer questions about your CRM data with owner-scoped context
 
+7) **POST `/api/ai/propose`**
+   - Body: `instruction` (required), optional `tables`, `limit`, `includeDataQuality`
+   - Returns proposed update actions (no writes) for you to review and apply
+
 ## Project Structure
 
 ```

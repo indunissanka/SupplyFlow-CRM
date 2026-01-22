@@ -2194,6 +2194,190 @@ app.post("/api/ai/research", async (c) => {
   }
 });
 
+app.post("/api/ai/propose", async (c) => {
+  const accessError = requireAccess(c, "analytics");
+  if (accessError) return accessError;
+  if (!c.env.AI) {
+    return c.json({ error: "AI binding not configured" }, 501);
+  }
+
+  let body: {
+    instruction?: string;
+    question?: string;
+    tables?: string[];
+    limit?: number;
+    includeDataQuality?: boolean;
+    dataQuality?: boolean;
+    data_quality?: boolean;
+  } = {};
+  try {
+    body = await c.req.json<typeof body>();
+  } catch {
+    // Leave body as empty object
+  }
+
+  const question = typeof body.instruction === "string" && body.instruction.trim()
+    ? body.instruction.trim()
+    : typeof body.question === "string"
+      ? body.question.trim()
+      : "";
+  if (!question) {
+    return c.json({ error: "Instruction required" }, 400);
+  }
+  if (question.length > AI_MAX_QUESTION_LENGTH) {
+    return c.json({ error: `Instruction too long (max ${AI_MAX_QUESTION_LENGTH} chars)` }, 400);
+  }
+
+  const ownerEmail = c.get("ownerEmail");
+  const user = c.get("currentUser") as UserRow | undefined;
+  const accessList = (c.get("accessList") as string[] | undefined) ?? [];
+  if (!user) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  const tables = normalizeAiTables(body.tables, user, accessList);
+  if (!tables.length) {
+    return c.json({ error: "No accessible tables available for updates" }, 403);
+  }
+
+  const limit = normalizeAiLimit(body.limit);
+  const readDb = getReadSession(c.env.DB);
+  const stats = await getStats(readDb, ownerEmail);
+  const pipeline = await getPipeline(readDb, ownerEmail);
+  const activity = await getActivity(readDb, ownerEmail);
+  const includeDataQuality =
+    body.includeDataQuality === true || body.dataQuality === true || body.data_quality === true;
+
+  const tableData: Record<string, unknown[]> = {};
+  const tableIds: Record<string, number[]> = {};
+  for (const table of tables) {
+    const rows = await fetchRows(readDb, table, ownerEmail, [], limit, 0);
+    const sanitized = rows.map((row) => sanitizeAiRecord(row as Record<string, unknown>));
+    tableData[table] = sanitized;
+    tableIds[table] = sanitized
+      .map((row) => Number((row as { id?: number }).id))
+      .filter((id) => Number.isFinite(id));
+  }
+
+  const allowedUpdateFields = Object.fromEntries(
+    Object.entries(updatableFields).map(([table, fields]) => [table, [...fields]])
+  );
+
+  const context: Record<string, unknown> = {
+    generated_at: new Date().toISOString(),
+    stats,
+    pipeline,
+    activity,
+    tables: tableData,
+    table_ids: tableIds,
+    allowed_update_fields: allowedUpdateFields
+  };
+
+  if (includeDataQuality) {
+    context.data_quality = await getDataQuality(readDb, ownerEmail);
+  }
+
+  const model = c.env.AI_MODEL || AI_DEFAULT_MODEL;
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a CRM operations assistant. Use ONLY the provided context. " +
+        "Return STRICT JSON with keys: summary (string), actions (array), warnings (array). " +
+        "Only propose update actions. Each action must be: { action:'update', table, id, changes, reason, confidence }. " +
+        "Use only allowed_update_fields and only IDs present in table_ids. " +
+        "If insufficient info, return actions: [] and add a warning."
+    },
+    {
+      role: "user",
+      content: `Instruction: ${question}\n\nContext:\n${JSON.stringify(context)}`
+    }
+  ];
+
+  try {
+    const aiResult = await c.env.AI.run(model, {
+      messages,
+      max_tokens: 700,
+      temperature: 0.1
+    });
+    const responseText =
+      typeof aiResult === "string"
+        ? aiResult
+        : (aiResult as { response?: string; output_text?: string }).response ??
+          (aiResult as { response?: string; output_text?: string }).output_text ??
+          JSON.stringify(aiResult);
+    const plan = parseAiJson(responseText);
+    if (!plan || typeof plan !== "object") {
+      return c.json({ error: "AI response invalid", response: responseText }, 502);
+    }
+
+    const rawActions = Array.isArray((plan as { actions?: unknown[] }).actions)
+      ? (plan as { actions?: unknown[] }).actions!
+      : [];
+    const warnings = Array.isArray((plan as { warnings?: unknown[] }).warnings)
+      ? (plan as { warnings?: unknown[] }).warnings!.map((item) => String(item))
+      : [];
+    const summary = typeof (plan as { summary?: unknown }).summary === "string"
+      ? String((plan as { summary?: unknown }).summary)
+      : "";
+
+    const allowedTablesSet = new Set(tables);
+    const idLookup: Record<string, Set<number>> = {};
+    Object.entries(tableIds).forEach(([table, ids]) => {
+      idLookup[table] = new Set(ids);
+    });
+
+    const sanitizedActions = rawActions
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const action = String((entry as { action?: unknown }).action || "").toLowerCase();
+        if (action !== "update") return null;
+        const table = String((entry as { table?: unknown }).table || "").trim();
+        if (!allowedTablesSet.has(table)) return null;
+        const idRaw = (entry as { id?: unknown }).id;
+        const id = typeof idRaw === "number" ? idRaw : Number(idRaw);
+        if (!Number.isFinite(id)) return null;
+        if (!idLookup[table] || !idLookup[table].has(id)) return null;
+        const changesRaw = (entry as { changes?: unknown }).changes;
+        if (!changesRaw || typeof changesRaw !== "object") return null;
+        const allowedFields = new Set(allowedUpdateFields[table] ?? []);
+        const changes: Record<string, unknown> = {};
+        Object.entries(changesRaw as Record<string, unknown>).forEach(([key, value]) => {
+          if (allowedFields.has(key)) {
+            changes[key] = value;
+          }
+        });
+        if (!Object.keys(changes).length) return null;
+        const confidenceRaw = Number((entry as { confidence?: unknown }).confidence);
+        return {
+          action: "update",
+          table,
+          id,
+          changes,
+          reason: typeof (entry as { reason?: unknown }).reason === "string" ? (entry as { reason?: string }).reason : "",
+          confidence: Number.isFinite(confidenceRaw) ? confidenceRaw : undefined
+        };
+      })
+      .filter(Boolean);
+
+    return c.json({
+      model,
+      instruction: question,
+      summary,
+      actions: sanitizedActions,
+      warnings,
+      tables
+    });
+  } catch (err) {
+    console.error("AI propose failed", err);
+    if (c.env.DEBUG_ERRORS === "true") {
+      const message = err instanceof Error ? err.message : "AI propose failed";
+      return c.json({ error: "AI propose failed", detail: message }, 500);
+    }
+    return c.json({ error: "AI propose failed" }, 500);
+  }
+});
+
 app.get("/api/tracking/shippo", async (c) => {
   const accessError = requireAccess(c, "shipping");
   if (accessError) return accessError;
@@ -4117,6 +4301,24 @@ const normalizeAiLimit = (raw: unknown) => {
   const parsed = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isFinite(parsed)) return 5;
   return Math.min(Math.max(Math.trunc(parsed), 1), AI_MAX_TABLE_ROWS);
+};
+
+const parseAiJson = (raw: string) => {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    const start = raw.indexOf("{");
+    const end = raw.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      try {
+        return JSON.parse(raw.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
 };
 
 const requireAccess = (c: Context, accessId?: string) => {

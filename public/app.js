@@ -103,6 +103,7 @@ const translations = {
     "chat.status.thinking": "Thinking...",
     "chat.status.error": "Unable to reach AI assistant.",
     "chat.toggle.dataQuality": "Include data quality signals",
+    "chat.toggle.editMode": "Propose edits",
     "chat.limit.label": "Rows per table",
     "chat.hint": "Shift+Enter for a new line.",
     "chat.suggest.pipeline": "Summarize pipeline risk this month",
@@ -110,6 +111,11 @@ const translations = {
     "chat.suggest.followups": "What follow-ups are at risk this week?",
     "chat.meta.model": "Model",
     "chat.meta.tables": "Tables",
+    "chat.actions.proposed": "Proposed changes",
+    "chat.actions.apply": "Apply",
+    "chat.actions.applying": "Applying...",
+    "chat.actions.applied": "Applied",
+    "chat.actions.failed": "Update failed",
     "dashboard.overview": "Workspace Overview",
     "dashboard.subtitle": "Live counts from D1 with quick pipeline and activity views.",
     "dashboard.refresh": "Refresh",
@@ -435,6 +441,7 @@ const translations = {
     "chat.status.thinking": "分析中...",
     "chat.status.error": "無法連線到 AI 助手。",
     "chat.toggle.dataQuality": "包含資料品質訊號",
+    "chat.toggle.editMode": "建議修改",
     "chat.limit.label": "每個表的列數",
     "chat.hint": "Shift+Enter 可換行。",
     "chat.suggest.pipeline": "本月管線風險摘要",
@@ -442,6 +449,11 @@ const translations = {
     "chat.suggest.followups": "本週有哪些跟進有風險？",
     "chat.meta.model": "模型",
     "chat.meta.tables": "資料表",
+    "chat.actions.proposed": "建議修改",
+    "chat.actions.apply": "套用",
+    "chat.actions.applying": "套用中...",
+    "chat.actions.applied": "已套用",
+    "chat.actions.failed": "更新失敗",
     "dashboard.overview": "工作區概覽",
     "dashboard.subtitle": "即時 D1 統計，搭配管線與活動摘要。",
     "dashboard.refresh": "重新整理",
@@ -3424,6 +3436,10 @@ async function renderChat() {
             <input type="checkbox" id="ai-chat-data-quality" checked />
             <span data-i18n="chat.toggle.dataQuality">Include data quality signals</span>
           </label>
+          <label class="ai-chat-toggle">
+            <input type="checkbox" id="ai-chat-edit-mode" />
+            <span data-i18n="chat.toggle.editMode">Propose edits</span>
+          </label>
           <label class="ai-chat-select">
             <span data-i18n="chat.limit.label">Rows per table</span>
             <select id="ai-chat-limit">
@@ -3452,6 +3468,7 @@ async function renderChat() {
   const clearButton = document.getElementById("ai-chat-clear");
   const suggestWrap = document.getElementById("ai-chat-suggestions");
   const dataQualityToggle = document.getElementById("ai-chat-data-quality");
+  const editToggle = document.getElementById("ai-chat-edit-mode");
   const limitSelect = document.getElementById("ai-chat-limit");
   const sendButton = document.getElementById("ai-chat-send");
 
@@ -3477,10 +3494,44 @@ async function renderChat() {
         const classes = ["ai-chat-message"];
         if (message.pending) classes.push("pending");
         if (message.error) classes.push("error");
+        const actions = Array.isArray(message.actions) ? message.actions : [];
+        const actionsMarkup = actions.length
+          ? `
+            <div class="ai-chat-actions">
+              <div class="ai-chat-actions-title">${t("chat.actions.proposed", "Proposed changes")}</div>
+              ${actions
+                .map((action, index) => {
+                  const changes = action?.changes && typeof action.changes === "object"
+                    ? Object.entries(action.changes)
+                      .map(([key, value]) => `${key}: ${formatAiChatText(value)}`)
+                      .join(" | ")
+                    : "";
+                  const disabled = action?.applied || action?.applying;
+                  const label = action?.applied
+                    ? t("chat.actions.applied", "Applied")
+                    : action?.applying
+                      ? t("chat.actions.applying", "Applying...")
+                      : t("chat.actions.apply", "Apply");
+                  return `
+                    <div class="ai-chat-action">
+                      <div class="ai-chat-action-main">
+                        <div class="ai-chat-action-title">${escapeHtml(String(action?.table || ""))} #${escapeHtml(String(action?.id || ""))}</div>
+                        <div class="ai-chat-action-changes">${escapeHtml(changes)}</div>
+                        ${action?.reason ? `<div class="ai-chat-action-reason">${escapeHtml(String(action.reason))}</div>` : ""}
+                      </div>
+                      <button type="button" class="btn small ai-chat-action-btn" data-ai-apply="true" data-message-id="${escapeHtml(String(message.id))}" data-action-index="${index}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          `
+          : "";
         return `
-          <div class="${classes.join(" ")}" data-role="${escapeHtml(message.role || "assistant")}">
+          <div class="${classes.join(" ")}" data-role="${escapeHtml(message.role || "assistant")}" data-message-id="${escapeHtml(String(message.id))}">
             <div class="ai-chat-text">${content || ""}</div>
             ${meta}
+            ${actionsMarkup}
           </div>
         `;
       })
@@ -3527,12 +3578,13 @@ async function renderChat() {
     }
 
     try {
+      const editMode = editToggle instanceof HTMLInputElement ? editToggle.checked : false;
       const payload = {
         question,
         includeDataQuality: dataQualityToggle instanceof HTMLInputElement ? dataQualityToggle.checked : true,
         limit: limitSelect instanceof HTMLSelectElement ? Number(limitSelect.value) : undefined
       };
-      const res = await apiFetch("/api/ai/research", {
+      const res = await apiFetch(editMode ? "/api/ai/propose" : "/api/ai/research", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload)
@@ -3541,11 +3593,16 @@ async function renderChat() {
         throw new Error(await readApiError(res, t("chat.status.error", "Unable to reach AI assistant.")));
       }
       const data = await res.json().catch(() => ({}));
-      const responseText = formatAiChatText(data.response || data.output_text || data.reply || "");
+      const responseText = formatAiChatText(
+        editMode ? data.summary || data.response || "" : data.response || data.output_text || data.reply || ""
+      );
       pendingMessage.content = responseText || t("chat.status.error", "Unable to reach AI assistant.");
       pendingMessage.pending = false;
       pendingMessage.meta = { model: data.model || "", tables: data.tables || [] };
-      pendingMessage.error = !responseText;
+      if (editMode && Array.isArray(data.actions)) {
+        pendingMessage.actions = data.actions;
+      }
+      pendingMessage.error = !responseText && !(pendingMessage.actions && pendingMessage.actions.length);
     } catch (error) {
       console.error("AI chat error", error);
       pendingMessage.content = t("chat.status.error", "Unable to reach AI assistant.");
@@ -3591,6 +3648,45 @@ async function renderChat() {
     if (input instanceof HTMLTextAreaElement) {
       input.value = suggestion;
       input.focus();
+    }
+  });
+
+  thread?.addEventListener("click", async (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+    const button = target.closest("[data-ai-apply]");
+    if (!(button instanceof HTMLButtonElement)) return;
+    const messageId = Number(button.dataset.messageId);
+    const actionIndex = Number(button.dataset.actionIndex);
+    if (!Number.isFinite(messageId) || !Number.isFinite(actionIndex)) return;
+    const message = aiChatMessages.find((item) => item.id === messageId);
+    if (!message || !Array.isArray(message.actions)) return;
+    const action = message.actions[actionIndex];
+    if (!action || action.applied || action.applying) return;
+    if (!action.table || !action.id || !action.changes) {
+      showToast(t("chat.actions.failed", "Update failed"));
+      return;
+    }
+    action.applying = true;
+    renderThread();
+    try {
+      const res = await apiFetch(`/api/${action.table}/${action.id}`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(action.changes)
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, t("chat.actions.failed", "Update failed")));
+      }
+      action.applied = true;
+    } catch (error) {
+      console.error("AI apply error", error);
+      action.error = true;
+      showToast(error instanceof Error ? error.message : t("chat.actions.failed", "Update failed"));
+    } finally {
+      action.applying = false;
+      persistAiChatState(aiChatMessages);
+      renderThread();
     }
   });
 
