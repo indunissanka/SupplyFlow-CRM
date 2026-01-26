@@ -8081,6 +8081,9 @@ function renderRecordPreview(tableKey, record) {
   if (tableKey === "documents") {
     return renderDocumentPreview(record);
   }
+  if (tableKey === "shipping_schedules") {
+    return renderShippingSchedulePreview(record);
+  }
   if (tableKey === "sample_shipments") {
     return renderSampleShipmentPreview(record);
   }
@@ -8281,6 +8284,104 @@ function renderDocumentPreview(record) {
       <div class="preview-grid">
         ${metaGrid}
       </div>
+    </div>
+  `;
+}
+
+function renderShippingSchedulePreview(record) {
+  if (!record) return "<div class='empty'>No data</div>";
+  const company = record.company_name || record.company || "";
+  const orderRef = record.order_reference || (record.order_id ? `#${record.order_id}` : "");
+  const invoiceRef = record.invoice_reference || (record.invoice_id ? `#${record.invoice_id}` : "");
+  const title =
+    company ||
+    (orderRef ? `Shipment ${orderRef}` : invoiceRef ? `Shipment ${invoiceRef}` : `Shipment #${record.id || ""}`);
+  const subtitleParts = [];
+  if (orderRef) subtitleParts.push(`Order ${orderRef}`);
+  if (invoiceRef) subtitleParts.push(`Invoice ${invoiceRef}`);
+  const subtitle = subtitleParts.join(" | ");
+  const statusLabel = record.status || "Factory exit";
+  const statusBadge = `<span class="badge ${statusToneShipping(statusLabel)}">${sanitizeText(statusLabel)}</span>`;
+  const updatedMeta = record.updated_at
+    ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>`
+    : "";
+  const metaItems = [
+    statusBadge,
+    updatedMeta,
+    record.carrier ? `<span class="stat-label">Carrier: ${sanitizeText(record.carrier)}</span>` : "",
+    record.tracking_number ? `<span class="stat-label">Tracking: ${sanitizeText(record.tracking_number)}</span>` : ""
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const infoRows = [
+    ["Company", company || null, "company_name"],
+    ["Order #", orderRef || null, "order_reference"],
+    ["Invoice #", invoiceRef || null, "invoice_reference"],
+    ["Carrier", record.carrier || null, "carrier"],
+    ["Tracking #", record.tracking_number || null, "tracking_number"]
+  ];
+
+  const infoMarkup = infoRows
+    .map(
+      ([label, value, key]) => `
+        <div class="preview-row">
+          <div class="preview-label">${sanitizeText(label)}</div>
+          <div class="preview-value">${formatPreviewValue(value, key, record)}</div>
+        </div>
+      `
+    )
+    .join("");
+
+  const scheduleRows = [
+    ["Factory exit", "factory_exit_date", record.factory_exit_date],
+    ["ETC", "etc_date", record.etc_date],
+    ["ETD", "etd_date", record.etd_date],
+    ["ETA", "eta", record.eta]
+  ];
+
+  const timelineMarkup = scheduleRows
+    .map(
+      ([label, key, value]) => `
+        <div class="timeline-item">
+          <div class="timeline-label">${sanitizeText(label)}</div>
+          <div class="timeline-value">${formatPreviewValue(value, key, record)}</div>
+        </div>
+      `
+    )
+    .join("");
+
+  const notesText = record.notes ? sanitizeText(record.notes).replace(/\n/g, "<br>") : "";
+  const notesMarkup = notesText
+    ? `
+      <div class="preview-note">
+        <div class="preview-label">Notes</div>
+        <div class="preview-value">${notesText}</div>
+      </div>
+    `
+    : "";
+
+  return `
+    <div class="preview-card shipping-preview">
+      <div class="preview-header">
+        <div class="preview-title-section">
+          <div class="preview-title">${sanitizeText(title)}</div>
+          ${subtitle ? `<div class="preview-subtitle">${sanitizeText(subtitle)}</div>` : ""}
+          <div class="preview-meta">${metaItems}</div>
+        </div>
+      </div>
+      <div class="preview-shipping-layout">
+        <div class="preview-grid">
+          ${infoMarkup}
+        </div>
+        <div class="shipping-timeline">
+          <div class="shipping-timeline-title">Schedule</div>
+          <div class="shipping-timeline-grid">
+            ${timelineMarkup}
+          </div>
+        </div>
+      </div>
+      ${notesMarkup}
     </div>
   `;
 }
@@ -9391,6 +9492,14 @@ function formatPreviewLabel(key, record, tableKey) {
     // Logistics
     waybill_number: "Waybill Number",
     courier: "Courier",
+    carrier: "Carrier",
+    tracking_number: "Tracking #",
+    order_reference: "Order #",
+    invoice_reference: "Invoice #",
+    factory_exit_date: "Factory Exit",
+    etc_date: "ETC",
+    etd_date: "ETD",
+    eta: "ETA",
     
     // Common fields
     tags: "Tags",
@@ -9418,6 +9527,7 @@ function orderPreviewKeys(keys) {
     "reference",
     "quotation_reference",
     "invoice_reference",
+    "order_reference",
     "invoice_date",
     "invoice_id",
     "name",
@@ -9425,6 +9535,12 @@ function orderPreviewKeys(keys) {
     "status",
     "company_name",
     "contact_name",
+    "carrier",
+    "tracking_number",
+    "factory_exit_date",
+    "etc_date",
+    "etd_date",
+    "eta",
     "product_name",
     "tags",
     "price",

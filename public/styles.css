@@ -2284,6 +2284,71 @@ body.salesperson-mode .content {
   gap: 16px;
 }
 
+.shipping-preview .preview-meta {
+  flex-wrap: wrap;
+}
+
+.shipping-preview .preview-shipping-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.shipping-preview .shipping-timeline {
+  background: #f8fafc;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+.shipping-preview .shipping-timeline-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.shipping-preview .shipping-timeline-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.shipping-preview .timeline-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.shipping-preview .timeline-item:last-child {
+  border-bottom: none;
+}
+
+.shipping-preview .timeline-label {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  color: var(--muted);
+}
+
+.shipping-preview .timeline-value {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.shipping-preview .preview-note {
+  margin-top: 16px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
 /* Enhanced status badges */
 .preview-card .badge {
   padding: 6px 12px;
@@ -2620,6 +2685,12 @@ body.salesperson-mode .content {
   
   .activity-title {
     font-size: 13px;
+  }
+}
+
+@media (max-width: 900px) {
+  .shipping-preview .preview-shipping-layout {
+    grid-template-columns: 1fr;
   }
 }
 
