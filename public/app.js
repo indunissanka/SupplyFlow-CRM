@@ -4172,6 +4172,8 @@ async function renderPricing() {
     const bank = parseCurrency(item.bank_charge_price);
     const shipping = parseCurrency(item.shipping_price);
     const commission = parseCurrency(item.customer_commission);
+    const totalUnit =
+      (unit ?? 0) + (drums ?? 0) + (bank ?? 0) + (shipping ?? 0) + (commission ?? 0);
     const exchangeRateValue = Number(item.exchange_rate);
     const exchangeRateLabel = Number.isFinite(exchangeRateValue) ? exchangeRateValue.toLocaleString() : "-";
     const previewButton = `<button class="btn ghost small" data-action="preview" data-entity="quotation_items"><i data-lucide="eye"></i>Preview</button>`;
@@ -4193,6 +4195,7 @@ async function renderPricing() {
         formatCurrency(bank ?? null, currency),
         formatCurrency(shipping ?? null, currency),
         formatCurrency(commission ?? null, currency),
+        formatCurrency(totalUnit, currency),
         previewButton
       ]
     };
@@ -4209,6 +4212,7 @@ async function renderPricing() {
     "Bank charge",
     "Shipping",
     "Commission",
+    "Unit total",
     "Preview"
   ];
   const tableSlot = sectionContent.querySelector("#pricing-table-slot");
