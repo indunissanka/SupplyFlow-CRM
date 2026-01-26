@@ -8791,6 +8791,7 @@ async function renderOrderPreview(record) {
                 <th>Bank charge</th>
                 <th>Shipping</th>
                 <th>Commission</th>
+                <th>Unit total</th>
                 <th>Line total</th>
               </tr>
             </thead>
@@ -11228,6 +11229,12 @@ function openQuotationPrintView(payload) {
   const tableRows = payload.items.length
     ? payload.items
         .map((item) => {
+          const unitTotal =
+            (Number(item.unit_price) || 0) +
+            (Number(item.drums_price) || 0) +
+            (Number(item.bank_charge_price) || 0) +
+            (Number(item.shipping_price) || 0) +
+            (Number(item.customer_commission) || 0);
           return `
             <tr>
               <td>${item.product_name || "-"}</td>
@@ -11237,12 +11244,13 @@ function openQuotationPrintView(payload) {
               <td>${format(item.bank_charge_price)}</td>
               <td>${format(item.shipping_price)}</td>
               <td>${format(item.customer_commission)}</td>
+              <td>${format(unitTotal)}</td>
               <td>${format(item.line_total)}</td>
             </tr>
           `;
         })
         .join("")
-    : `<tr><td colspan="8" class="empty-row">No line items added yet.</td></tr>`;
+    : `<tr><td colspan="9" class="empty-row">No line items added yet.</td></tr>`;
 
   const html = `
     <!doctype html>
