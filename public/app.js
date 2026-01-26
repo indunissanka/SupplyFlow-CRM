@@ -7760,6 +7760,7 @@ async function renderPricingItemPreview(record) {
       const bank = Number(item.bank_charge_price) || 0;
       const ship = Number(item.shipping_price) || 0;
       const commission = Number(item.customer_commission) || 0;
+      const unitTotal = unit + drum + bank + ship + commission;
       const lineTotal = resolveQuoteLineTotal(item);
       const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
       const rowStyle = isSelected ? " style=\"background:#f8fafc;\"" : "";
@@ -7771,6 +7772,7 @@ async function renderPricingItemPreview(record) {
           <td>${formatCurrency(bank, currency)}</td>
           <td>${formatCurrency(ship, currency)}</td>
           <td>${formatCurrency(commission, currency)}</td>
+          <td>${formatCurrency(unitTotal, currency)}</td>
           <td>${formatCurrency(lineTotal, currency)}</td>
         </tr>
       `;
@@ -7837,6 +7839,7 @@ async function renderPricingItemPreview(record) {
               <th>Bank charge</th>
               <th>Shipping</th>
               <th>Commission</th>
+              <th>Unit total</th>
               <th>Line price</th>
             </tr>
           </thead>
