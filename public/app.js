@@ -4167,16 +4167,11 @@ async function renderPricing() {
     const quoteDateKey = formatPricingDateKey(quoteDateRaw);
     const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
     const currency = (item.currency || "USD").toUpperCase();
-    const qtyRaw = Number(item.qty);
-    const qty = Number.isFinite(qtyRaw) ? qtyRaw : 1;
-    const unit = Number(item.unit_price) || 0;
-    const drums = Number(item.drums_price) || 0;
-    const bank = Number(item.bank_charge_price) || 0;
-    const shipping = Number(item.shipping_price) || 0;
-    const commission = Number(item.customer_commission) || 0;
-    const storedLineTotal = Number(item.line_total);
-    const computedTotal = qty * (unit + drums + bank + shipping + commission);
-    const lineTotal = Number.isFinite(storedLineTotal) && storedLineTotal !== 0 ? storedLineTotal : computedTotal;
+    const unit = parseCurrency(item.unit_price);
+    const drums = parseCurrency(item.drums_price);
+    const bank = parseCurrency(item.bank_charge_price);
+    const shipping = parseCurrency(item.shipping_price);
+    const commission = parseCurrency(item.customer_commission);
     const exchangeRateValue = Number(item.exchange_rate);
     const exchangeRateLabel = Number.isFinite(exchangeRateValue) ? exchangeRateValue.toLocaleString() : "-";
     const previewButton = `<button class="btn ghost small" data-action="preview" data-entity="quotation_items"><i data-lucide="eye"></i>Preview</button>`;
@@ -4192,15 +4187,12 @@ async function renderPricing() {
         sanitizeText(companyName),
         quoteDate,
         sanitizeText(productName),
-        qty,
-        sanitizeText(currency),
         exchangeRateLabel,
-        formatCurrency(unit, currency),
-        formatCurrency(drums, currency),
-        formatCurrency(bank, currency),
-        formatCurrency(shipping, currency),
-        formatCurrency(commission, currency),
-        formatCurrency(lineTotal, currency),
+        formatCurrency(unit ?? null, currency),
+        formatCurrency(drums ?? null, currency),
+        formatCurrency(bank ?? null, currency),
+        formatCurrency(shipping ?? null, currency),
+        formatCurrency(commission ?? null, currency),
         previewButton
       ]
     };
@@ -4211,15 +4203,12 @@ async function renderPricing() {
     "Company",
     "Date",
     "Item",
-    "Qty",
-    "Currency",
     "Exchange rate",
     "Unit",
     "Drums",
     "Bank charge",
     "Shipping",
     "Commission",
-    "Line total",
     "Preview"
   ];
   const tableSlot = sectionContent.querySelector("#pricing-table-slot");
