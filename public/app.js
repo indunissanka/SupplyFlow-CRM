@@ -10710,7 +10710,6 @@ function openForm(key, options = {}) {
     if (taxInput && initialValues?.tax_rate !== undefined) taxInput.value = initialValues.tax_rate;
     if (statusSelect && initialValues?.status) statusSelect.value = initialValues.status;
     if (bankSelect) populateBankChargeSelect(bankSelect, initialValues?.bank_charge_method);
-    if (bankSelect) populateBankChargeSelect(bankSelect);
     if (attachmentSelect) {
       attachmentSelect.innerHTML = i18nPlaceholderOption("-- Select document --");
       fetchDocumentsList().then((docs) => {
@@ -11057,6 +11056,8 @@ function openForm(key, options = {}) {
       }
       if (form["items"]) {
         values.items = form["items"];
+      } else if (key === "quotations") {
+        values.items = gatherQuoteLineItems(form);
       }
       const transformed = config.transform ? config.transform(values) : values;
       const updateKey = config.updateKey || key;
@@ -11074,12 +11075,15 @@ function openForm(key, options = {}) {
             valid_until: values.valid_until || null,
             tax_rate: parsePercent(values.tax_rate),
             notes: values.notes || "",
+            bank_charge_method: values.bank_charge_method || null,
             attachment_key: values.attachment_key || null,
             currency: values.currency || "USD",
             exchange_rate: num(values.exchange_rate),
-            amount: totals.total || initialValues.amount || 0,
+            amount: Number.isFinite(totals.total) ? totals.total : initialValues.amount || 0,
             company_id: num(values.company_id) || num(values.company_id_manual) || null,
-            contact_id: num(values.contact_id) || num(values.contact_id_manual) || null
+            contact_id: num(values.contact_id) || num(values.contact_id_manual) || null,
+            tags: values.tags,
+            items
           };
           await updateRecord(updateKey, initialValues.id, payload);
         } else {
@@ -11108,12 +11112,12 @@ function gatherQuoteLineItems(form) {
     .map((row) => {
       const productSelect = row.querySelector(".line-product");
       if (!productSelect) return null;
-      const qty = Number(row.querySelector(".line-qty")?.value) || 0;
-      const unit_price = Number(row.querySelector(".line-unit")?.value) || 0;
-      const drums_price = Number(row.querySelector(".line-drums")?.value) || 0;
-      const bank_charge_price = Number(row.querySelector(".line-bank")?.value) || 0;
-      const shipping_price = Number(row.querySelector(".line-ship")?.value) || 0;
-      const customer_commission = Number(row.querySelector(".line-comm")?.value) || 0;
+      const qty = parseCurrency(row.querySelector(".line-qty")?.value) ?? 0;
+      const unit_price = parseCurrency(row.querySelector(".line-unit")?.value) ?? 0;
+      const drums_price = parseCurrency(row.querySelector(".line-drums")?.value) ?? 0;
+      const bank_charge_price = parseCurrency(row.querySelector(".line-bank")?.value) ?? 0;
+      const shipping_price = parseCurrency(row.querySelector(".line-ship")?.value) ?? 0;
+      const customer_commission = parseCurrency(row.querySelector(".line-comm")?.value) ?? 0;
       const product_id = num(productSelect.value);
       let product_name = productSelect.selectedOptions[0]?.textContent?.trim() || "";
       if (product_name.toLowerCase().includes("select product")) {

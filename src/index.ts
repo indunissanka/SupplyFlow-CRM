@@ -2566,10 +2566,15 @@ app.put("/api/:table/:id", async (c) => {
       body.price = Number.isFinite(parsed) ? parsed : 0;
     }
   }
+  let quotationItems: Array<Record<string, unknown>> | null = null;
+  if (table === "quotations" && Array.isArray((body as any).items)) {
+    quotationItems = (body as any).items as Array<Record<string, unknown>>;
+    delete (body as any).items;
+  }
   const tags = normalizeTags((body as any).tags);
   const entries = Object.entries(body).filter(([key]) => updatableFields[table].includes(key));
 
-  if (!entries.length && !tags.length) {
+  if (!entries.length && !tags.length && !quotationItems) {
     return c.json({ error: "No fields to update" }, 400);
   }
 
@@ -2593,12 +2598,84 @@ app.put("/api/:table/:id", async (c) => {
     await attachTags(c.env.DB, ownerEmail, entityType, id, tags);
   }
 
+  let lineItemsChanged = false;
+  if (table === "quotations" && quotationItems) {
+    const normalizeLineItem = (item: Record<string, unknown>) => {
+      const productIdRaw = item.product_id as unknown;
+      const productId =
+        typeof productIdRaw === "number"
+          ? productIdRaw
+          : typeof productIdRaw === "string"
+            ? Number(productIdRaw)
+            : NaN;
+      const product_id = Number.isFinite(productId) ? productId : null;
+      const product_name = normalizeOptionalText(item.product_name as string | null | undefined);
+      const qty = normalizeNonNegativeNumber(item.qty);
+      const unit_price = normalizeNonNegativeNumber(item.unit_price);
+      const drums_price = normalizeNonNegativeNumber(item.drums_price);
+      const bank_charge_price = normalizeNonNegativeNumber(item.bank_charge_price);
+      const shipping_price = normalizeNonNegativeNumber(item.shipping_price);
+      const customer_commission = normalizeNonNegativeNumber(item.customer_commission);
+      const lineTotalRaw = normalizeNonNegativeNumber(item.line_total);
+      const computedTotal =
+        (qty ?? 0) *
+        ((unit_price ?? 0) + (drums_price ?? 0) + (bank_charge_price ?? 0) + (shipping_price ?? 0) + (customer_commission ?? 0));
+      const line_total =
+        lineTotalRaw !== null && lineTotalRaw !== undefined && (lineTotalRaw !== 0 || computedTotal === 0)
+          ? lineTotalRaw
+          : computedTotal;
+      return {
+        product_id,
+        product_name,
+        qty: qty ?? 0,
+        unit_price: unit_price ?? 0,
+        drums_price: drums_price ?? 0,
+        bank_charge_price: bank_charge_price ?? 0,
+        shipping_price: shipping_price ?? 0,
+        customer_commission: customer_commission ?? 0,
+        line_total
+      };
+    };
+
+    await c.env.DB
+      .prepare("DELETE FROM quotation_items WHERE quotation_id = ? AND owner_email = ?")
+      .bind(id, ownerEmail)
+      .run();
+
+    if (quotationItems.length) {
+      const inserts = quotationItems.map((item) => {
+        const normalized = normalizeLineItem(item || {});
+        return c.env.DB.prepare(
+          `INSERT INTO quotation_items (quotation_id, product_id, product_name, qty, unit_price, drums_price, bank_charge_price, shipping_price, customer_commission, line_total, owner_email)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).bind(
+          id,
+          normalized.product_id,
+          normalized.product_name,
+          normalized.qty,
+          normalized.unit_price,
+          normalized.drums_price,
+          normalized.bank_charge_price,
+          normalized.shipping_price,
+          normalized.customer_commission,
+          normalized.line_total,
+          ownerEmail
+        );
+      });
+      await batchInChunks(c.env.DB, inserts);
+    }
+    lineItemsChanged = true;
+  }
+
   if (table === "shipping_schedules") {
     await syncShippingMilestones(c.env.DB, ownerEmail);
   }
 
-  if (changes || tags.length) {
+  if (changes || tags.length || lineItemsChanged) {
     await bumpCacheVersion(c.env, ownerEmail, table);
+    if (lineItemsChanged) {
+      await bumpCacheVersion(c.env, ownerEmail, "quotation_items");
+    }
   }
   return c.json({ ok: true, changes });
 });
@@ -3256,6 +3333,8 @@ app.post("/api/quotations", async (c) => {
   }
 
   await attachTags(c.env.DB, ownerEmail, "quotation", quotationId, tags);
+  await bumpCacheVersion(c.env, ownerEmail, "quotations");
+  await bumpCacheVersion(c.env, ownerEmail, "quotation_items");
 
   return c.json({ id: quotationId, reference: ref });
 });
