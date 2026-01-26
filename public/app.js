@@ -7762,7 +7762,6 @@ async function renderPricingItemPreview(record) {
   const lineRows = items
     .map((item) => {
       const isSelected = record?.id && item?.id && String(item.id) === String(record.id);
-      const qty = Number(item.qty) || 0;
       const unit = Number(item.unit_price) || 0;
       const drum = Number(item.drums_price) || 0;
       const bank = Number(item.bank_charge_price) || 0;
@@ -7774,7 +7773,6 @@ async function renderPricingItemPreview(record) {
       return `
         <tr${rowStyle}>
           <td>${sanitizeText(productName)}</td>
-          <td>${qty}</td>
           <td>${formatCurrency(unit, currency)}</td>
           <td>${formatCurrency(drum, currency)}</td>
           <td>${formatCurrency(bank, currency)}</td>
@@ -7841,13 +7839,12 @@ async function renderPricingItemPreview(record) {
           <thead>
             <tr>
               <th>Product</th>
-              <th>Qty</th>
-              <th>Unit</th>
+              <th>Unit price</th>
               <th>Drums</th>
-              <th>Bank</th>
+              <th>Bank charge</th>
               <th>Shipping</th>
               <th>Commission</th>
-              <th>Total</th>
+              <th>Line price</th>
             </tr>
           </thead>
           <tbody>${lineRows}</tbody>
