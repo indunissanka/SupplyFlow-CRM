@@ -3625,10 +3625,12 @@ async function renderChat() {
       pendingMessage.error = !responseText && !(pendingMessage.actions && pendingMessage.actions.length);
     } catch (error) {
       console.error("AI chat error", error);
-      pendingMessage.content = t("chat.status.error", "Unable to reach AI assistant.");
+      const fallbackError = t("chat.status.error", "Unable to reach AI assistant.");
+      const errorMessage = error instanceof Error && error.message ? error.message : fallbackError;
+      pendingMessage.content = errorMessage;
       pendingMessage.pending = false;
       pendingMessage.error = true;
-      showToast(error instanceof Error ? error.message : t("chat.status.error", "Unable to reach AI assistant."));
+      showToast(errorMessage);
     } finally {
       persistAiChatState(aiChatMessages);
       renderThread();
