@@ -2359,11 +2359,16 @@ app.post("/api/ai/research", async (c) => {
       responseText = result.text;
       modelUsed = result.model;
     } else {
+      if (!c.env.AI) {
+        throw new Error("Cloudflare AI binding not available (c.env.AI is undefined)");
+      }
       const aiResult = await c.env.AI.run(model, {
         messages,
         max_tokens: 600,
         temperature: 0.2
       });
+      console.log("AI run result type:", typeof aiResult);
+      console.log("AI run result keys:", aiResult && typeof aiResult === "object" ? Object.keys(aiResult) : "N/A");
       responseText =
         typeof aiResult === "string"
           ? aiResult
@@ -2380,10 +2385,12 @@ app.post("/api/ai/research", async (c) => {
       context: includeContext ? context : undefined
     });
   } catch (err) {
-    console.error("AI research failed", err);
-    const message = err instanceof Error ? err.message : "AI research failed";
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : "";
+    console.error("AI research failed:", errorMessage, errorStack);
+    console.error("Full error object:", err);
     if (shouldIncludeErrorDetail(c)) {
-      return c.json({ error: "AI research failed", detail: message }, 500);
+      return c.json({ error: "AI research failed", detail: errorMessage }, 500);
     }
     return c.json({ error: "AI research failed" }, 500);
   }
@@ -2505,11 +2512,16 @@ app.post("/api/ai/propose", async (c) => {
       responseText = result.text;
       modelUsed = result.model;
     } else {
+      if (!c.env.AI) {
+        throw new Error("Cloudflare AI binding not available (c.env.AI is undefined)");
+      }
       const aiResult = await c.env.AI.run(model, {
         messages,
         max_tokens: 700,
         temperature: 0.1
       });
+      console.log("AI run result type:", typeof aiResult);
+      console.log("AI run result keys:", aiResult && typeof aiResult === "object" ? Object.keys(aiResult) : "N/A");
       responseText =
         typeof aiResult === "string"
           ? aiResult
@@ -2580,10 +2592,12 @@ app.post("/api/ai/propose", async (c) => {
       tables
     });
   } catch (err) {
-    console.error("AI propose failed", err);
-    const message = err instanceof Error ? err.message : "AI propose failed";
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : "";
+    console.error("AI propose failed:", errorMessage, errorStack);
+    console.error("Full error object:", err);
     if (shouldIncludeErrorDetail(c)) {
-      return c.json({ error: "AI propose failed", detail: message }, 500);
+      return c.json({ error: "AI propose failed", detail: errorMessage }, 500);
     }
     return c.json({ error: "AI propose failed" }, 500);
   }
