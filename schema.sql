@@ -216,6 +216,10 @@ CREATE TABLE IF NOT EXISTS site_config (
   invoice_address TEXT,
   invoice_phone TEXT,
   show_footer INTEGER DEFAULT 1,
+  ai_provider TEXT,
+  ai_api_url TEXT,
+  ai_api_key TEXT,
+  ai_model TEXT,
   updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 

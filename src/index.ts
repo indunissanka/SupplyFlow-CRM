@@ -429,6 +429,10 @@ const tableColumns: Record<string, string[]> = {
     "invoice_address",
     "invoice_phone",
     "show_footer",
+    "ai_provider",
+    "ai_api_url",
+    "ai_api_key",
+    "ai_model",
     "updated_at"
   ],
   users: [
@@ -709,9 +713,21 @@ type SiteConfigPayload = {
   invoiceAddress?: string;
   invoicePhone?: string;
   showFooter?: boolean | number | string;
+  aiProvider?: string;
+  aiApiUrl?: string;
+  aiApiKey?: string;
+  aiModel?: string;
 };
 
 const normalizeConfigText = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+
+type AiProvider = "cloudflare" | "custom";
+
+const normalizeAiProvider = (value: unknown): AiProvider => {
+  if (typeof value !== "string") return "cloudflare";
+  const normalized = value.trim().toLowerCase();
+  return normalized === "custom" ? "custom" : "cloudflare";
+};
 
 const coerceBoolean = (value: unknown, fallback = true) => {
   if (typeof value === "boolean") return value;
@@ -728,7 +744,8 @@ async function getSiteConfig(db: D1Queryable, ownerEmail: string) {
   const row = await db
     .prepare(
       `SELECT site_name, base_company, region, timezone, theme, active_theme,
-              invoice_name, invoice_address, invoice_phone, show_footer
+              invoice_name, invoice_address, invoice_phone, show_footer,
+              ai_provider, ai_api_url, ai_api_key, ai_model
        FROM site_config
        WHERE owner_email = ?`
     )
@@ -744,9 +761,14 @@ async function getSiteConfig(db: D1Queryable, ownerEmail: string) {
       invoice_address: string | null;
       invoice_phone: string | null;
       show_footer: number | null;
+      ai_provider: string | null;
+      ai_api_url: string | null;
+      ai_api_key: string | null;
+      ai_model: string | null;
     }>();
 
   if (!row) return null;
+  const hasAiKey = typeof row.ai_api_key === "string" && row.ai_api_key.trim().length > 0;
   return {
     siteName: row.site_name ?? "",
     baseCompany: row.base_company ?? "",
@@ -757,8 +779,93 @@ async function getSiteConfig(db: D1Queryable, ownerEmail: string) {
     invoiceName: row.invoice_name ?? "",
     invoiceAddress: row.invoice_address ?? "",
     invoicePhone: row.invoice_phone ?? "",
-    showFooter: row.show_footer === null ? undefined : row.show_footer === 1
+    showFooter: row.show_footer === null ? undefined : row.show_footer === 1,
+    aiProvider: normalizeAiProvider(row.ai_provider),
+    aiApiUrl: row.ai_api_url ?? "",
+    aiModel: row.ai_model ?? "",
+    aiKeySet: hasAiKey
   };
+}
+
+type AiConfig = {
+  provider: AiProvider;
+  apiUrl: string;
+  apiKey: string;
+  model: string;
+};
+
+async function getAiConfig(db: D1Queryable, ownerEmail: string): Promise<AiConfig> {
+  const row = await db
+    .prepare("SELECT ai_provider, ai_api_url, ai_api_key, ai_model FROM site_config WHERE owner_email = ?")
+    .bind(ownerEmail)
+    .first<{
+      ai_provider: string | null;
+      ai_api_url: string | null;
+      ai_api_key: string | null;
+      ai_model: string | null;
+    }>();
+
+  return {
+    provider: normalizeAiProvider(row?.ai_provider),
+    apiUrl: row?.ai_api_url?.trim() ?? "",
+    apiKey: row?.ai_api_key ?? "",
+    model: row?.ai_model?.trim() ?? ""
+  };
+}
+
+const resolveAiModel = (config: AiConfig, env: Env) => {
+  if (config.provider === "custom") {
+    return config.model;
+  }
+  return config.model || env.AI_MODEL || AI_DEFAULT_MODEL;
+};
+
+async function runCustomAiRequest(
+  config: AiConfig,
+  model: string,
+  messages: Array<{ role: string; content: string }>,
+  options: { maxTokens: number; temperature: number }
+) {
+  const headers: Record<string, string> = {
+    "content-type": "application/json"
+  };
+  if (config.apiKey) {
+    headers.authorization = `Bearer ${config.apiKey}`;
+  }
+
+  const res = await fetch(config.apiUrl, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      model,
+      messages,
+      max_tokens: options.maxTokens,
+      temperature: options.temperature
+    })
+  });
+
+  const rawText = await res.text();
+  if (!res.ok) {
+    throw new Error(`Custom AI request failed (${res.status}): ${rawText.slice(0, 200)}`);
+  }
+
+  let data: any = null;
+  try {
+    data = JSON.parse(rawText);
+  } catch {
+    return { text: rawText, model };
+  }
+
+  const choice = Array.isArray(data?.choices) ? data.choices[0] : null;
+  const messageText =
+    choice?.message?.content ??
+    choice?.text ??
+    data?.output_text ??
+    data?.response ??
+    data?.text ??
+    "";
+  const text = typeof messageText === "string" ? messageText : JSON.stringify(messageText);
+  return { text: text || rawText, model: data?.model || model };
 }
 
 async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: SiteConfigPayload) {
@@ -772,6 +879,30 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
   const invoiceAddress = normalizeConfigText(payload.invoiceAddress);
   const invoicePhone = normalizeConfigText(payload.invoicePhone);
   const showFooter = coerceBoolean(payload.showFooter, true);
+  const needsAiDefaults =
+    payload.aiProvider === undefined ||
+    payload.aiApiUrl === undefined ||
+    payload.aiApiKey === undefined ||
+    payload.aiModel === undefined;
+  const existingAi = needsAiDefaults
+    ? await db
+      .prepare("SELECT ai_provider, ai_api_url, ai_api_key, ai_model FROM site_config WHERE owner_email = ?")
+      .bind(ownerEmail)
+      .first<{ ai_provider?: string | null; ai_api_url?: string | null; ai_api_key?: string | null; ai_model?: string | null }>()
+    : null;
+
+  const aiProvider = payload.aiProvider === undefined
+    ? normalizeAiProvider(existingAi?.ai_provider)
+    : normalizeAiProvider(payload.aiProvider);
+  const aiApiUrl = payload.aiApiUrl === undefined
+    ? existingAi?.ai_api_url ?? ""
+    : normalizeConfigText(payload.aiApiUrl);
+  const aiModel = payload.aiModel === undefined
+    ? existingAi?.ai_model ?? ""
+    : normalizeConfigText(payload.aiModel);
+  const aiApiKey = payload.aiApiKey === undefined
+    ? existingAi?.ai_api_key ?? null
+    : normalizeConfigText(payload.aiApiKey);
 
   await db
     .prepare(
@@ -787,8 +918,12 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
         invoice_address,
         invoice_phone,
         show_footer,
+        ai_provider,
+        ai_api_url,
+        ai_api_key,
+        ai_model,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(owner_email) DO UPDATE SET
         site_name = excluded.site_name,
         base_company = excluded.base_company,
@@ -800,6 +935,10 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
         invoice_address = excluded.invoice_address,
         invoice_phone = excluded.invoice_phone,
         show_footer = excluded.show_footer,
+        ai_provider = excluded.ai_provider,
+        ai_api_url = excluded.ai_api_url,
+        ai_api_key = excluded.ai_api_key,
+        ai_model = excluded.ai_model,
         updated_at = CURRENT_TIMESTAMP`
     )
     .bind(
@@ -813,7 +952,11 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
       invoiceName,
       invoiceAddress,
       invoicePhone,
-      showFooter ? 1 : 0
+      showFooter ? 1 : 0,
+      aiProvider,
+      aiApiUrl,
+      aiApiKey,
+      aiModel
     )
     .run();
 
@@ -827,7 +970,11 @@ async function upsertSiteConfig(db: D1Database, ownerEmail: string, payload: Sit
     invoiceName,
     invoiceAddress,
     invoicePhone,
-    showFooter
+    showFooter,
+    aiProvider,
+    aiApiUrl,
+    aiModel,
+    aiKeySet: !!(aiApiKey && aiApiKey.trim().length)
   };
 }
 
@@ -1089,6 +1236,10 @@ const schemaStatements = [
     invoice_address TEXT,
     invoice_phone TEXT,
     show_footer INTEGER DEFAULT 1,
+    ai_provider TEXT,
+    ai_api_url TEXT,
+    ai_api_key TEXT,
+    ai_model TEXT,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
   )`,
   "CREATE INDEX IF NOT EXISTS idx_contacts_company ON contacts(company_id)",
@@ -1599,10 +1750,12 @@ app.get("/api/settings/site-config", async (c) => {
   const accessError = requireAccess(c, "settings");
   if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
+  const currentUser = c.get("currentUser") as UserRow | undefined;
+  const isAdmin = currentUser?.role === adminRole;
   const cacheBypass = c.req.query("cache") === "0";
   const version = (await c.env.CACHE.get(cacheVersionKey(ownerEmail, "site_config"))) ?? "0";
   const cacheKey = buildCacheRequest(
-    `https://cache.local/api/site-config?owner=${encodeURIComponent(ownerEmail)}&v=${version}`
+    `https://cache.local/api/site-config?owner=${encodeURIComponent(ownerEmail)}&v=${version}&admin=${isAdmin ? "1" : "0"}`
   );
   return cacheJson({
     cacheKey,
@@ -1612,6 +1765,10 @@ app.get("/api/settings/site-config", async (c) => {
     data: async () => {
       const readDb = getReadSession(c.env.DB);
       const config = await getSiteConfig(readDb, ownerEmail);
+      if (config && !isAdmin) {
+        const { aiProvider, aiApiUrl, aiModel, aiKeySet, ...safeConfig } = config as Record<string, unknown>;
+        return { config: safeConfig };
+      }
       return { config: config ?? {} };
     }
   });
@@ -1622,8 +1779,20 @@ app.put("/api/settings/site-config", async (c) => {
   if (accessError) return accessError;
   const ownerEmail = c.get("ownerEmail");
   const payload = await c.req.json<SiteConfigPayload>().catch(() => ({}));
+  const currentUser = c.get("currentUser") as UserRow | undefined;
+  const isAdmin = currentUser?.role === adminRole;
+  if (!isAdmin) {
+    delete (payload as Partial<SiteConfigPayload>).aiProvider;
+    delete (payload as Partial<SiteConfigPayload>).aiApiUrl;
+    delete (payload as Partial<SiteConfigPayload>).aiApiKey;
+    delete (payload as Partial<SiteConfigPayload>).aiModel;
+  }
   const config = await upsertSiteConfig(c.env.DB, ownerEmail, payload);
   await bumpCacheVersion(c.env, ownerEmail, "site_config");
+  if (!isAdmin && config) {
+    const { aiProvider, aiApiUrl, aiModel, aiKeySet, ...safeConfig } = config as Record<string, unknown>;
+    return c.json({ ok: true, config: safeConfig });
+  }
   return c.json({ ok: true, config });
 });
 
@@ -2083,9 +2252,6 @@ app.get("/api/data-quality", async (c) => {
 app.post("/api/ai/research", async (c) => {
   const accessError = requireAccess(c, "analytics");
   if (accessError) return accessError;
-  if (!c.env.AI) {
-    return c.json({ error: "AI binding not configured" }, 501);
-  }
 
   let body: {
     question?: string;
@@ -2125,6 +2291,18 @@ app.post("/api/ai/research", async (c) => {
 
   const limit = normalizeAiLimit(body.limit);
   const readDb = getReadSession(c.env.DB);
+  const aiConfig = await getAiConfig(readDb, ownerEmail);
+  const model = resolveAiModel(aiConfig, c.env);
+  if (aiConfig.provider === "custom") {
+    if (!aiConfig.apiUrl) {
+      return c.json({ error: "Custom AI API URL not configured" }, 501);
+    }
+    if (!model) {
+      return c.json({ error: "Custom AI model not configured" }, 501);
+    }
+  } else if (!c.env.AI) {
+    return c.json({ error: "AI binding not configured" }, 501);
+  }
 
   const stats = await getStats(readDb, ownerEmail);
   const pipeline = await getPipeline(readDb, ownerEmail);
@@ -2150,7 +2328,6 @@ app.post("/api/ai/research", async (c) => {
     context.data_quality = await getDataQuality(readDb, ownerEmail);
   }
 
-  const model = c.env.AI_MODEL || AI_DEFAULT_MODEL;
   const messages = [
     {
       role: "system",
@@ -2165,20 +2342,28 @@ app.post("/api/ai/research", async (c) => {
   ];
 
   try {
-    const aiResult = await c.env.AI.run(model, {
-      messages,
-      max_tokens: 600,
-      temperature: 0.2
-    });
-    const responseText =
-      typeof aiResult === "string"
-        ? aiResult
-        : (aiResult as { response?: string; output_text?: string }).response ??
-          (aiResult as { response?: string; output_text?: string }).output_text ??
-          JSON.stringify(aiResult);
+    let responseText = "";
+    let modelUsed = model;
+    if (aiConfig.provider === "custom") {
+      const result = await runCustomAiRequest(aiConfig, model, messages, { maxTokens: 600, temperature: 0.2 });
+      responseText = result.text;
+      modelUsed = result.model;
+    } else {
+      const aiResult = await c.env.AI.run(model, {
+        messages,
+        max_tokens: 600,
+        temperature: 0.2
+      });
+      responseText =
+        typeof aiResult === "string"
+          ? aiResult
+          : (aiResult as { response?: string; output_text?: string }).response ??
+            (aiResult as { response?: string; output_text?: string }).output_text ??
+            JSON.stringify(aiResult);
+    }
     const includeContext = body.includeContext === true || body.debug === true;
     return c.json({
-      model,
+      model: modelUsed,
       question,
       response: responseText,
       tables,
@@ -2197,9 +2382,6 @@ app.post("/api/ai/research", async (c) => {
 app.post("/api/ai/propose", async (c) => {
   const accessError = requireAccess(c, "analytics");
   if (accessError) return accessError;
-  if (!c.env.AI) {
-    return c.json({ error: "AI binding not configured" }, 501);
-  }
 
   let body: {
     instruction?: string;
@@ -2242,6 +2424,18 @@ app.post("/api/ai/propose", async (c) => {
 
   const limit = normalizeAiLimit(body.limit);
   const readDb = getReadSession(c.env.DB);
+  const aiConfig = await getAiConfig(readDb, ownerEmail);
+  const model = resolveAiModel(aiConfig, c.env);
+  if (aiConfig.provider === "custom") {
+    if (!aiConfig.apiUrl) {
+      return c.json({ error: "Custom AI API URL not configured" }, 501);
+    }
+    if (!model) {
+      return c.json({ error: "Custom AI model not configured" }, 501);
+    }
+  } else if (!c.env.AI) {
+    return c.json({ error: "AI binding not configured" }, 501);
+  }
   const stats = await getStats(readDb, ownerEmail);
   const pipeline = await getPipeline(readDb, ownerEmail);
   const activity = await getActivity(readDb, ownerEmail);
@@ -2277,7 +2471,6 @@ app.post("/api/ai/propose", async (c) => {
     context.data_quality = await getDataQuality(readDb, ownerEmail);
   }
 
-  const model = c.env.AI_MODEL || AI_DEFAULT_MODEL;
   const messages = [
     {
       role: "system",
@@ -2295,17 +2488,25 @@ app.post("/api/ai/propose", async (c) => {
   ];
 
   try {
-    const aiResult = await c.env.AI.run(model, {
-      messages,
-      max_tokens: 700,
-      temperature: 0.1
-    });
-    const responseText =
-      typeof aiResult === "string"
-        ? aiResult
-        : (aiResult as { response?: string; output_text?: string }).response ??
-          (aiResult as { response?: string; output_text?: string }).output_text ??
-          JSON.stringify(aiResult);
+    let responseText = "";
+    let modelUsed = model;
+    if (aiConfig.provider === "custom") {
+      const result = await runCustomAiRequest(aiConfig, model, messages, { maxTokens: 700, temperature: 0.1 });
+      responseText = result.text;
+      modelUsed = result.model;
+    } else {
+      const aiResult = await c.env.AI.run(model, {
+        messages,
+        max_tokens: 700,
+        temperature: 0.1
+      });
+      responseText =
+        typeof aiResult === "string"
+          ? aiResult
+          : (aiResult as { response?: string; output_text?: string }).response ??
+            (aiResult as { response?: string; output_text?: string }).output_text ??
+            JSON.stringify(aiResult);
+    }
     const plan = parseAiJson(responseText);
     if (!plan || typeof plan !== "object") {
       return c.json({ error: "AI response invalid", response: responseText }, 502);
@@ -2361,7 +2562,7 @@ app.post("/api/ai/propose", async (c) => {
       .filter(Boolean);
 
     return c.json({
-      model,
+      model: modelUsed,
       instruction: question,
       summary,
       actions: sanitizedActions,
@@ -3955,6 +4156,15 @@ async function ensureSchema(db: D1Database) {
   const invoiceNames = new Set(invoiceColumns.results?.map((c) => c.name));
   if (invoiceNames.size) {
     if (!invoiceNames.has("attachment_key")) await db.prepare("ALTER TABLE invoices ADD COLUMN attachment_key TEXT").bind().run();
+  }
+
+  const configColumns = await db.prepare("PRAGMA table_info(site_config)").bind().all<{ name: string }>();
+  const configNames = new Set(configColumns.results?.map((c) => c.name));
+  if (configNames.size) {
+    if (!configNames.has("ai_provider")) await db.prepare("ALTER TABLE site_config ADD COLUMN ai_provider TEXT").bind().run();
+    if (!configNames.has("ai_api_url")) await db.prepare("ALTER TABLE site_config ADD COLUMN ai_api_url TEXT").bind().run();
+    if (!configNames.has("ai_api_key")) await db.prepare("ALTER TABLE site_config ADD COLUMN ai_api_key TEXT").bind().run();
+    if (!configNames.has("ai_model")) await db.prepare("ALTER TABLE site_config ADD COLUMN ai_model TEXT").bind().run();
   }
 
   for (const table of ownerEmailTables) {

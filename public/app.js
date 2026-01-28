@@ -1236,6 +1236,10 @@ const defaultSiteConfig = {
   invoiceName: "",
   invoiceAddress: "",
   invoicePhone: "",
+  aiProvider: "cloudflare",
+  aiApiUrl: "",
+  aiModel: "",
+  aiKeySet: false,
   showFooter: true
 };
 
@@ -1250,8 +1254,18 @@ function normalizeBoolean(value, fallback) {
   return fallback;
 }
 
+function normalizeAiProvider(value) {
+  if (typeof value !== "string") return "cloudflare";
+  const normalized = value.trim().toLowerCase();
+  return normalized === "custom" ? "custom" : "cloudflare";
+}
+
 function normalizeSiteConfigState(config) {
   const merged = { ...defaultSiteConfig, ...config };
+  merged.aiProvider = normalizeAiProvider(config?.aiProvider || merged.aiProvider);
+  merged.aiApiUrl = typeof merged.aiApiUrl === "string" ? merged.aiApiUrl.trim() : "";
+  merged.aiModel = typeof merged.aiModel === "string" ? merged.aiModel.trim() : "";
+  merged.aiKeySet = normalizeBoolean(config?.aiKeySet, merged.aiKeySet);
   merged.showFooter = normalizeBoolean(config?.showFooter, merged.showFooter);
   return merged;
 }
@@ -1282,14 +1296,20 @@ function persistSiteConfigState(state) {
   }
 }
 
-async function saveSiteConfigToServer(state) {
+async function saveSiteConfigToServer(state, overrides = {}) {
+  const { aiKeySet, ...baseState } = state || {};
+  const payload = {
+    ...baseState,
+    showFooter: !!baseState.showFooter,
+    ...overrides
+  };
+  if (payload.aiApiKey === undefined) {
+    delete payload.aiApiKey;
+  }
   const res = await apiFetch("/api/settings/site-config", {
     method: "PUT",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      ...state,
-      showFooter: !!state.showFooter
-    })
+    body: JSON.stringify(payload)
   });
   if (!res.ok) {
     throw new Error("Unable to save site config");
@@ -5820,6 +5840,7 @@ async function renderSettings() {
       <div class="tabs-container">
         <div class="tabs">
           <button class="tab active" data-tab="site-config">Site configuration</button>
+          ${canManageUsers ? `<button class="tab" data-tab="ai-settings">AI settings</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
@@ -5893,6 +5914,53 @@ async function renderSettings() {
             </form>
           </div>
         </div>
+        ${canManageUsers ? `
+        <div class="tab-content" id="ai-settings">
+          <div class="panel configuration-panel">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="sparkles"></i>
+                AI chat configuration
+              </h3>
+              <div class="stat-label">Choose the provider for AI Chat responses.</div>
+            </div>
+            <form id="ai-settings-form" class="form-grid">
+              <label>
+                <span>Provider</span>
+                <select name="aiProvider">
+                  <option value="cloudflare" ${siteConfigState.aiProvider === "cloudflare" ? "selected" : ""}>Cloudflare AI</option>
+                  <option value="custom" ${siteConfigState.aiProvider === "custom" ? "selected" : ""}>Custom API (OpenAI compatible)</option>
+                </select>
+              </label>
+              <label class="${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
+                <span>Custom API URL</span>
+                <input name="aiApiUrl" type="url" placeholder="https://api.openai.com/v1/chat/completions" value="${siteConfigState.aiApiUrl || ""}" />
+              </label>
+              <label class="${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
+                <span>Model</span>
+                <input name="aiModel" type="text" placeholder="gpt-4o-mini" value="${siteConfigState.aiModel || ""}" />
+              </label>
+              <label class="input-with-action ${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
+                <span>API key</span>
+                <div class="input-action-row">
+                  <input name="aiApiKey" type="password" placeholder="Leave blank to keep existing key" autocomplete="off" />
+                </div>
+                <p class="field-hint" id="ai-key-status">${siteConfigState.aiKeySet ? "API key stored." : "No API key stored."}</p>
+              </label>
+              <label class="toggle-row ${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
+                <span>Clear stored API key</span>
+                <input name="aiClearKey" type="checkbox" />
+              </label>
+              <div class="form-actions">
+                <button type="submit" class="btn primary">
+                  <i data-lucide="check"></i>
+                  Save AI settings
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+        ` : ""}
         ${canManageUsers ? `
         <div class="tab-content" id="add-user">
           <div class="panel add-user-panel">
@@ -6423,6 +6491,89 @@ async function renderSettings() {
     }
   });
   updateCustomRoleVisibility();
+
+  const aiSettingsForm = document.getElementById("ai-settings-form");
+  const aiProviderSelect = aiSettingsForm?.querySelector("select[name='aiProvider']");
+  const aiCustomFields = aiSettingsForm?.querySelectorAll("[data-ai-custom]") ?? [];
+  const aiKeyStatus = document.getElementById("ai-key-status");
+
+  const setAiKeyStatus = (hasKey) => {
+    if (!aiKeyStatus) return;
+    aiKeyStatus.textContent = hasKey ? "API key stored." : "No API key stored.";
+  };
+
+  const updateAiCustomVisibility = () => {
+    const provider = aiProviderSelect instanceof HTMLSelectElement ? aiProviderSelect.value : "cloudflare";
+    aiCustomFields.forEach((field) => {
+      if (!(field instanceof HTMLElement)) return;
+      if (provider === "custom") {
+        field.classList.remove("hidden");
+      } else {
+        field.classList.add("hidden");
+      }
+    });
+  };
+
+  setAiKeyStatus(siteConfigState.aiKeySet);
+  aiProviderSelect?.addEventListener("change", updateAiCustomVisibility);
+  updateAiCustomVisibility();
+
+  aiSettingsForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (currentRole !== adminRole) {
+      showToast("Only admins can update AI settings");
+      return;
+    }
+    const data = new FormData(aiSettingsForm);
+    const provider = normalizeAiProvider(data.get("aiProvider"));
+    const aiApiUrl = data.get("aiApiUrl")?.toString().trim() || "";
+    const aiModel = data.get("aiModel")?.toString().trim() || "";
+    const aiApiKey = data.get("aiApiKey")?.toString().trim() || "";
+    const clearKey = data.get("aiClearKey") === "on";
+
+    if (provider === "custom") {
+      if (!aiApiUrl) {
+        showToast("Custom AI API URL is required");
+        return;
+      }
+      if (!aiModel) {
+        showToast("Custom AI model is required");
+        return;
+      }
+    }
+
+    const updatedConfig = {
+      ...siteConfigState,
+      aiProvider: provider,
+      aiApiUrl: provider === "custom" ? aiApiUrl : siteConfigState.aiApiUrl,
+      aiModel: provider === "custom" ? aiModel : siteConfigState.aiModel
+    };
+
+    const overrides = {};
+    if (clearKey) {
+      overrides.aiApiKey = "";
+    } else if (aiApiKey) {
+      overrides.aiApiKey = aiApiKey;
+    }
+
+    try {
+      const response = await saveSiteConfigToServer(updatedConfig, overrides);
+      const serverConfig = response?.config && typeof response.config === "object"
+        ? normalizeSiteConfigState(response.config)
+        : normalizeSiteConfigState(updatedConfig);
+      siteConfigState = serverConfig;
+      persistSiteConfigState(siteConfigState);
+      setAiKeyStatus(siteConfigState.aiKeySet);
+      showToast("AI settings saved");
+      const keyInput = aiSettingsForm.querySelector("input[name='aiApiKey']");
+      if (keyInput instanceof HTMLInputElement) keyInput.value = "";
+      const clearInput = aiSettingsForm.querySelector("input[name='aiClearKey']");
+      if (clearInput instanceof HTMLInputElement) clearInput.checked = false;
+    } catch (error) {
+      console.error("Unable to save AI settings", error);
+      showToast("Unable to save AI settings");
+    }
+  });
 
   const siteConfigForm = document.getElementById("site-config-form");
   siteConfigForm?.addEventListener("submit", async (event) => {
