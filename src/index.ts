@@ -120,6 +120,16 @@ const defaultAccessList = [
   "settings"
 ];
 
+const shouldIncludeErrorDetail = (c: Context) => {
+  if (c.env.DEBUG_ERRORS === "true") return true;
+  try {
+    const host = new URL(c.req.url).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "0.0.0.0";
+  } catch {
+    return false;
+  }
+};
+
 const ownerEmailTables = [
   "companies",
   "contacts",
@@ -2371,8 +2381,8 @@ app.post("/api/ai/research", async (c) => {
     });
   } catch (err) {
     console.error("AI research failed", err);
-    if (c.env.DEBUG_ERRORS === "true") {
-      const message = err instanceof Error ? err.message : "AI research failed";
+    const message = err instanceof Error ? err.message : "AI research failed";
+    if (shouldIncludeErrorDetail(c)) {
       return c.json({ error: "AI research failed", detail: message }, 500);
     }
     return c.json({ error: "AI research failed" }, 500);
@@ -2571,8 +2581,8 @@ app.post("/api/ai/propose", async (c) => {
     });
   } catch (err) {
     console.error("AI propose failed", err);
-    if (c.env.DEBUG_ERRORS === "true") {
-      const message = err instanceof Error ? err.message : "AI propose failed";
+    const message = err instanceof Error ? err.message : "AI propose failed";
+    if (shouldIncludeErrorDetail(c)) {
       return c.json({ error: "AI propose failed", detail: message }, 500);
     }
     return c.json({ error: "AI propose failed" }, 500);
