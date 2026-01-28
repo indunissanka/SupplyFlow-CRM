@@ -1565,7 +1565,11 @@ function persistUserAccounts(users) {
 async function readApiError(res, fallbackMessage) {
   try {
     const payload = await res.json();
-    if (payload && payload.error) return payload.error;
+    if (payload) {
+      if (payload.detail) return payload.detail;
+      if (payload.message) return payload.message;
+      if (payload.error) return payload.error;
+    }
   } catch {
     // ignore
   }
