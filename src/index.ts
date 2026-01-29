@@ -2784,12 +2784,13 @@ app.put("/api/:table/:id", async (c) => {
         .prepare("SELECT quotation_id, invoice_ids, currency, total_amount FROM orders WHERE id = ? AND owner_email = ?")
         .bind(id, ownerEmail)
         .first<{ quotation_id?: number | null; invoice_ids?: string | null; currency?: string | null; total_amount?: number | null }>();
-      const resolved = await resolveOrderTotalsFromLinks(c.env.DB, ownerEmail, {
-        quotation_id: (body as any).quotation_id ?? existing?.quotation_id ?? null,
-        invoice_ids: invoiceIds ?? existing?.invoice_ids ?? null,
-        total_amount: providedTotal ?? existing?.total_amount,
-        currency: (body as any).currency ?? existing?.currency
-      });
+    const resolved = await resolveOrderTotalsFromLinks(c.env.DB, ownerEmail, {
+      id,
+      quotation_id: (body as any).quotation_id ?? existing?.quotation_id ?? null,
+      invoice_ids: invoiceIds ?? existing?.invoice_ids ?? null,
+      total_amount: providedTotal ?? existing?.total_amount,
+      currency: (body as any).currency ?? existing?.currency
+    });
       if ((providedTotal === null || providedTotal <= 0) && resolved.total_amount > 0) {
         (body as any).total_amount = resolved.total_amount;
       }
@@ -4658,6 +4659,7 @@ async function resolveOrderTotalsFromLinks(
   db: D1Queryable,
   ownerEmail: string,
   order: {
+    id?: number | null;
     quotation_id?: number | null;
     invoice_ids?: unknown;
     total_amount?: unknown;
@@ -4672,7 +4674,14 @@ async function resolveOrderTotalsFromLinks(
   }
 
   const quoteIds = order.quotation_id ? [order.quotation_id] : [];
-  const invoiceIds = parseInvoiceIdList(order.invoice_ids);
+  let invoiceIds = parseInvoiceIdList(order.invoice_ids);
+  if (order.id) {
+    const scheduleIds = await fetchOrderInvoiceIdsFromSchedules(db, ownerEmail, [order.id]);
+    const linked = scheduleIds.get(order.id) ?? [];
+    if (linked.length) {
+      invoiceIds = Array.from(new Set([...invoiceIds, ...linked]));
+    }
+  }
   const [quoteMap, invoiceMap] = await Promise.all([
     fetchAmountMap(db, ownerEmail, "quotations", "amount", quoteIds),
     fetchAmountMap(db, ownerEmail, "invoices", "total_amount", invoiceIds)
@@ -4706,14 +4715,43 @@ async function resolveOrderTotalsFromLinks(
   return { total_amount: total, currency: currency || "USD" };
 }
 
+async function fetchOrderInvoiceIdsFromSchedules(db: D1Queryable, ownerEmail: string, orderIds: number[]) {
+  const map = new Map<number, number[]>();
+  if (!orderIds.length) return map;
+  const chunks = chunkArray(orderIds, 200);
+  for (const chunk of chunks) {
+    const placeholders = chunk.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(
+        `SELECT order_id, invoice_id
+         FROM shipping_schedules
+         WHERE owner_email = ? AND order_id IN (${placeholders}) AND invoice_id IS NOT NULL`
+      )
+      .bind(ownerEmail, ...chunk)
+      .all<{ order_id: number; invoice_id: number }>();
+    (results ?? []).forEach((row) => {
+      const orderId = Number(row.order_id);
+      const invoiceId = Number(row.invoice_id);
+      if (!Number.isFinite(orderId) || !Number.isFinite(invoiceId)) return;
+      const list = map.get(orderId) ?? [];
+      list.push(invoiceId);
+      map.set(orderId, list);
+    });
+  }
+  // De-dupe each list
+  map.forEach((list, key) => {
+    map.set(key, Array.from(new Set(list)));
+  });
+  return map;
+}
+
 async function syncOrderTotals(db: D1Database, ownerEmail: string) {
   const { results } = await db
     .prepare(
       `SELECT id, quotation_id, invoice_ids, currency, total_amount
        FROM orders
        WHERE owner_email = ?
-         AND (total_amount IS NULL OR total_amount <= 0)
-         AND (quotation_id IS NOT NULL OR invoice_ids IS NOT NULL)`
+         AND (total_amount IS NULL OR total_amount <= 0)`
     )
     .bind(ownerEmail)
     .all<{
@@ -4728,10 +4766,14 @@ async function syncOrderTotals(db: D1Database, ownerEmail: string) {
 
   const quoteIds = new Set<number>();
   const invoiceIds = new Set<number>();
+  const orderIds: number[] = [];
   results.forEach((order) => {
     if (order.quotation_id) quoteIds.add(order.quotation_id);
     parseInvoiceIdList(order.invoice_ids).forEach((id) => invoiceIds.add(id));
+    orderIds.push(order.id);
   });
+  const scheduleInvoiceMap = await fetchOrderInvoiceIdsFromSchedules(db, ownerEmail, orderIds);
+  scheduleInvoiceMap.forEach((ids) => ids.forEach((id) => invoiceIds.add(id)));
 
   const [quoteMap, invoiceMap] = await Promise.all([
     fetchAmountMap(db, ownerEmail, "quotations", "amount", Array.from(quoteIds)),
@@ -4759,7 +4801,9 @@ async function syncOrderTotals(db: D1Database, ownerEmail: string) {
       }
     }
     if (!total) {
-      const ids = parseInvoiceIdList(order.invoice_ids);
+      const ids = Array.from(
+        new Set([...(parseInvoiceIdList(order.invoice_ids) || []), ...(scheduleInvoiceMap.get(order.id) ?? [])])
+      );
       if (ids.length) {
         let invoiceCurrency = "";
         const sum = ids.reduce((acc, id) => {
