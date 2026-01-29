@@ -1810,6 +1810,10 @@ app.get("/api/dashboard", async (c) => {
   const ownerEmail = c.get("ownerEmail");
   const cacheBypass = c.req.query("cache") === "0";
   const cacheKey = buildCacheRequest(`https://cache.local/api/dashboard?owner=${encodeURIComponent(ownerEmail)}`);
+  const orderUpdates = await syncOrderTotals(c.env.DB, ownerEmail);
+  if (orderUpdates) {
+    await bumpCacheVersion(c.env, ownerEmail, "orders");
+  }
   return cacheJson({
     cacheKey,
     ttlSeconds: DASHBOARD_CACHE_TTL_SECONDS,
@@ -2048,6 +2052,10 @@ app.get("/api/kpis", async (c) => {
   const searchParams = new URL(c.req.url).searchParams;
   const ownerError = validateOwnerParam(ownerEmail, searchParams);
   if (ownerError) return c.json({ error: ownerError }, 403);
+  const orderUpdates = await syncOrderTotals(c.env.DB, ownerEmail);
+  if (orderUpdates) {
+    await bumpCacheVersion(c.env, ownerEmail, "orders");
+  }
   const range = parseDateRange(searchParams, 120);
   const filters = parseAnalyticsFilters(searchParams);
   const cacheBypass = c.req.query("cache") === "0";
@@ -2079,6 +2087,12 @@ app.get("/api/timeseries", async (c) => {
   }
   if (!["day", "week", "month"].includes(grain)) {
     return c.json({ error: "Invalid grain" }, 400);
+  }
+  if (metric === "revenue") {
+    const orderUpdates = await syncOrderTotals(c.env.DB, ownerEmail);
+    if (orderUpdates) {
+      await bumpCacheVersion(c.env, ownerEmail, "orders");
+    }
   }
   const range = parseDateRange(searchParams, 120);
   const filters = parseAnalyticsFilters(searchParams);
@@ -2124,6 +2138,12 @@ app.get("/api/breakdown", async (c) => {
   const source = (c.req.query("source") || "").trim();
   const field = (c.req.query("field") || "").trim();
   const requiresQuotation = c.req.query("requires_quotation") === "1";
+  if (metric === "revenue" && (entity === "company" || source === "orders")) {
+    const orderUpdates = await syncOrderTotals(c.env.DB, ownerEmail);
+    if (orderUpdates) {
+      await bumpCacheVersion(c.env, ownerEmail, "orders");
+    }
+  }
   const limitRaw = Number(c.req.query("limit") || "10");
   const limit = Number.isFinite(limitRaw) ? limitRaw : 10;
   const cacheBypass = c.req.query("cache") === "0";
@@ -2678,6 +2698,12 @@ app.get("/api/:table", async (c) => {
   const offset = Number.isFinite(offsetRaw) ? Math.max(offsetRaw, 0) : 0;
   const needsPrimary = table === "orders" || table === "invoices" || table === "shipping_schedules";
   const cacheEnabled = !cacheBypass && cacheableTables.has(table);
+  if (table === "orders") {
+    const orderUpdates = await syncOrderTotals(c.env.DB, ownerEmail);
+    if (orderUpdates) {
+      await bumpCacheVersion(c.env, ownerEmail, "orders");
+    }
+  }
 
   if (cacheEnabled) {
     const filterKey = buildFilterKey(filters);
@@ -2750,6 +2776,26 @@ app.put("/api/:table/:id", async (c) => {
     const invoiceIds = normalizeInvoiceIds((body as any).invoice_ids ?? (body as any).invoice_links);
     if (invoiceIds !== null) {
       (body as any).invoice_ids = invoiceIds;
+    }
+    const providedTotal = normalizeNonNegativeNumber((body as any).total_amount);
+    const wantsTotalSync = providedTotal === null || providedTotal <= 0;
+    if (wantsTotalSync || "quotation_id" in body || "invoice_ids" in body) {
+      const existing = await c.env.DB
+        .prepare("SELECT quotation_id, invoice_ids, currency, total_amount FROM orders WHERE id = ? AND owner_email = ?")
+        .bind(id, ownerEmail)
+        .first<{ quotation_id?: number | null; invoice_ids?: string | null; currency?: string | null; total_amount?: number | null }>();
+      const resolved = await resolveOrderTotalsFromLinks(c.env.DB, ownerEmail, {
+        quotation_id: (body as any).quotation_id ?? existing?.quotation_id ?? null,
+        invoice_ids: invoiceIds ?? existing?.invoice_ids ?? null,
+        total_amount: providedTotal ?? existing?.total_amount,
+        currency: (body as any).currency ?? existing?.currency
+      });
+      if ((providedTotal === null || providedTotal <= 0) && resolved.total_amount > 0) {
+        (body as any).total_amount = resolved.total_amount;
+      }
+      if (!normalizeOptionalText((body as any).currency as string | null | undefined) && resolved.currency) {
+        (body as any).currency = resolved.currency;
+      }
     }
   }
   if (table === "sample_shipments" && "quantity" in body) {
@@ -3453,6 +3499,12 @@ app.post("/api/orders", async (c) => {
   const tags = normalizeTags(body.tags);
   const invoiceIds = normalizeInvoiceIds(body.invoice_ids ?? body.invoice_links);
   const ref = body.reference || generateRef("SO");
+  const derivedTotals = await resolveOrderTotalsFromLinks(c.env.DB, ownerEmail, {
+    quotation_id: body.quotation_id ?? null,
+    invoice_ids: invoiceIds,
+    total_amount: body.total_amount,
+    currency: body.currency
+  });
   const result = await c.env.DB.prepare(
     `INSERT INTO orders (company_id, contact_id, quotation_id, invoice_ids, status, total_amount, currency, reference, owner_email)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -3463,8 +3515,8 @@ app.post("/api/orders", async (c) => {
       body.quotation_id ?? null,
       invoiceIds,
       body.status ?? "Pending",
-      body.total_amount ?? 0,
-      body.currency ?? "USD",
+      derivedTotals.total_amount ?? 0,
+      derivedTotals.currency ?? "USD",
       ref,
       ownerEmail
     )
@@ -3472,6 +3524,7 @@ app.post("/api/orders", async (c) => {
 
   const id = result.meta.last_row_id;
   await attachTags(c.env.DB, ownerEmail, "order", id, tags);
+  await bumpCacheVersion(c.env, ownerEmail, "orders");
 
   return c.json({ id, reference: ref });
 });
@@ -4382,16 +4435,19 @@ async function fetchRows(
       {
         const where = buildWhereClause(ownerEmail, filters, "q");
       query = `SELECT ${selectColumns("q", tableColumns.quotations)}, co.name as company_name, ct.first_name || ' ' || ct.last_name as contact_name,
-               GROUP_CONCAT(DISTINCT t.name) as tags
+               GROUP_CONCAT(DISTINCT t.name) as tags,
+               GROUP_CONCAT(DISTINCT COALESCE(NULLIF(qi.product_name, ''), p.name)) as product_names
                FROM quotations q
                LEFT JOIN companies co ON co.id = q.company_id AND co.owner_email = ?
                LEFT JOIN contacts ct ON ct.id = q.contact_id AND ct.owner_email = ?
                LEFT JOIN tag_links tl ON tl.entity_type = 'quotation' AND tl.entity_id = q.id AND tl.owner_email = ?
                LEFT JOIN tags t ON t.id = tl.tag_id AND t.owner_email = ?
+               LEFT JOIN quotation_items qi ON qi.quotation_id = q.id AND qi.owner_email = ?
+               LEFT JOIN products p ON p.id = qi.product_id AND p.owner_email = ?
                WHERE ${where.clause}
                GROUP BY q.id
                ORDER BY q.${orderColumn} DESC LIMIT ? OFFSET ?`;
-      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
+      params = [ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ownerEmail, ...where.params, limit, offset];
       }
       break;
     case "invoices":
@@ -4516,6 +4572,218 @@ function normalizeInvoiceIds(raw: unknown): string | null {
   }
   const str = String(raw).trim();
   return str ? str : null;
+}
+
+function parseInvoiceIdList(raw: unknown): number[] {
+  if (raw === undefined || raw === null) return [];
+  let values: unknown[] = [];
+  if (Array.isArray(raw)) {
+    values = raw;
+  } else if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          values = parsed;
+        } else {
+          values = trimmed.split(",");
+        }
+      } catch {
+        values = trimmed.split(",");
+      }
+    } else {
+      values = trimmed.split(",");
+    }
+  } else {
+    values = [raw];
+  }
+  const ids = values
+    .map((val) => {
+      const num = typeof val === "number" ? val : Number(String(val).trim());
+      return Number.isFinite(num) ? Math.trunc(num) : null;
+    })
+    .filter((val): val is number => typeof val === "number" && val > 0);
+  return Array.from(new Set(ids));
+}
+
+const chunkArray = <T,>(items: T[], size: number) => {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+};
+
+const parseAmountValue = (value: unknown) => {
+  if (value === undefined || value === null || value === "") return null;
+  const numeric = typeof value === "number" ? value : Number(String(value).replace(/[^0-9.-]+/g, ""));
+  return Number.isFinite(numeric) ? numeric : null;
+};
+
+type AmountCurrency = { amount: number; currency: string | null };
+
+async function fetchAmountMap(
+  db: D1Queryable,
+  ownerEmail: string,
+  table: "quotations" | "invoices",
+  amountColumn: string,
+  ids: number[]
+): Promise<Map<number, AmountCurrency>> {
+  const map = new Map<number, AmountCurrency>();
+  if (!ids.length) return map;
+  const chunks = chunkArray(ids, 200);
+  for (const chunk of chunks) {
+    const placeholders = chunk.map(() => "?").join(",");
+    const { results } = await db
+      .prepare(
+        `SELECT id, ${amountColumn} AS amount, currency
+         FROM ${table}
+         WHERE owner_email = ? AND id IN (${placeholders})`
+      )
+      .bind(ownerEmail, ...chunk)
+      .all<{ id: number; amount: number | string | null; currency?: string | null }>();
+    (results ?? []).forEach((row) => {
+      const amount = parseAmountValue(row.amount);
+      if (amount !== null) {
+        map.set(Number(row.id), { amount, currency: normalizeOptionalText(row.currency ?? null) });
+      }
+    });
+  }
+  return map;
+}
+
+async function resolveOrderTotalsFromLinks(
+  db: D1Queryable,
+  ownerEmail: string,
+  order: {
+    quotation_id?: number | null;
+    invoice_ids?: unknown;
+    total_amount?: unknown;
+    currency?: unknown;
+  }
+) {
+  const storedTotal = normalizeNonNegativeNumber(order.total_amount);
+  let total = storedTotal ?? 0;
+  let currency = normalizeOptionalText(order.currency as string | null | undefined) ?? "";
+  if (total > 0) {
+    return { total_amount: total, currency: currency || "USD" };
+  }
+
+  const quoteIds = order.quotation_id ? [order.quotation_id] : [];
+  const invoiceIds = parseInvoiceIdList(order.invoice_ids);
+  const [quoteMap, invoiceMap] = await Promise.all([
+    fetchAmountMap(db, ownerEmail, "quotations", "amount", quoteIds),
+    fetchAmountMap(db, ownerEmail, "invoices", "total_amount", invoiceIds)
+  ]);
+
+  if (order.quotation_id) {
+    const quote = quoteMap.get(order.quotation_id);
+    const quoteAmount = quote?.amount ?? null;
+    if (quoteAmount !== null && quoteAmount > 0) {
+      total = quoteAmount;
+      if (!currency && quote?.currency) currency = quote.currency;
+    }
+  }
+
+  if (!total && invoiceIds.length) {
+    let invoiceCurrency = "";
+    const sum = invoiceIds.reduce((acc, id) => {
+      const invoice = invoiceMap.get(id);
+      if (!invoice) return acc;
+      if (!invoiceCurrency && invoice.currency) {
+        invoiceCurrency = invoice.currency;
+      }
+      return acc + (Number.isFinite(invoice.amount) ? invoice.amount : 0);
+    }, 0);
+    if (sum > 0) {
+      total = sum;
+      if (!currency && invoiceCurrency) currency = invoiceCurrency;
+    }
+  }
+
+  return { total_amount: total, currency: currency || "USD" };
+}
+
+async function syncOrderTotals(db: D1Database, ownerEmail: string) {
+  const { results } = await db
+    .prepare(
+      `SELECT id, quotation_id, invoice_ids, currency, total_amount
+       FROM orders
+       WHERE owner_email = ?
+         AND (total_amount IS NULL OR total_amount <= 0)
+         AND (quotation_id IS NOT NULL OR invoice_ids IS NOT NULL)`
+    )
+    .bind(ownerEmail)
+    .all<{
+      id: number;
+      quotation_id?: number | null;
+      invoice_ids?: string | null;
+      currency?: string | null;
+      total_amount?: number | null;
+    }>();
+
+  if (!results?.length) return 0;
+
+  const quoteIds = new Set<number>();
+  const invoiceIds = new Set<number>();
+  results.forEach((order) => {
+    if (order.quotation_id) quoteIds.add(order.quotation_id);
+    parseInvoiceIdList(order.invoice_ids).forEach((id) => invoiceIds.add(id));
+  });
+
+  const [quoteMap, invoiceMap] = await Promise.all([
+    fetchAmountMap(db, ownerEmail, "quotations", "amount", Array.from(quoteIds)),
+    fetchAmountMap(db, ownerEmail, "invoices", "total_amount", Array.from(invoiceIds))
+  ]);
+
+  const updateStmt = db.prepare(
+    `UPDATE orders
+     SET total_amount = ?, currency = COALESCE(NULLIF(currency, ''), ?), updated_at = CURRENT_TIMESTAMP
+     WHERE id = ? AND owner_email = ? AND (total_amount IS NULL OR total_amount <= 0)`
+  );
+  const updates: D1PreparedStatement[] = [];
+
+  for (const order of results) {
+    const storedTotal = normalizeNonNegativeNumber(order.total_amount);
+    if (storedTotal !== null && storedTotal > 0) continue;
+    let total = 0;
+    let currency = normalizeOptionalText(order.currency ?? null) ?? "";
+    if (order.quotation_id) {
+      const quote = quoteMap.get(order.quotation_id);
+      const quoteAmount = quote?.amount ?? null;
+      if (quoteAmount !== null && quoteAmount > 0) {
+        total = quoteAmount;
+        if (!currency && quote?.currency) currency = quote.currency;
+      }
+    }
+    if (!total) {
+      const ids = parseInvoiceIdList(order.invoice_ids);
+      if (ids.length) {
+        let invoiceCurrency = "";
+        const sum = ids.reduce((acc, id) => {
+          const invoice = invoiceMap.get(id);
+          if (!invoice) return acc;
+          if (!invoiceCurrency && invoice.currency) invoiceCurrency = invoice.currency;
+          return acc + (Number.isFinite(invoice.amount) ? invoice.amount : 0);
+        }, 0);
+        if (sum > 0) {
+          total = sum;
+          if (!currency && invoiceCurrency) currency = invoiceCurrency;
+        }
+      }
+    }
+    if (total > 0) {
+      updates.push(updateStmt.bind(total, currency || "USD", order.id, ownerEmail));
+    }
+  }
+
+  if (updates.length) {
+    await batchInChunks(db, updates);
+  }
+
+  return updates.length;
 }
 
 type UserRow = {

@@ -4484,9 +4484,11 @@ async function renderQuotations() {
     (r) => {
       const tone = r.status === "Accepted" ? "success" : r.status === "Draft" ? "warning" : "info";
       const companyName = r.company_name || "-";
+      const productNames = r.product_names || r.product_name || "-";
       return [
         r.reference,
         r.title || "-",
+        productNames,
         companyName,
         badge(tone, r.status || "Draft"),
         formatCurrency(r.amount, r.currency),
@@ -4495,7 +4497,12 @@ async function renderQuotations() {
     },
     fallback.quotations.map((row) => {
       const tone = row[4] === "Accepted" ? "success" : row[4] === "Draft" ? "warning" : "info";
-      return [row[0], "-", row[1], badge(tone, row[4]), row[3], row[5]];
+      const hasProducts = Array.isArray(row) && row.length >= 7;
+      const productCell = hasProducts ? row[2] : "-";
+      const companyCell = hasProducts ? row[3] : row[1];
+      const amountCell = hasProducts ? row[5] : row[3];
+      const validCell = hasProducts ? row[6] : row[5];
+      return [row[0], "-", productCell, companyCell, badge(tone, row[4]), amountCell, validCell];
     })
   );
 
@@ -4529,7 +4536,7 @@ async function renderQuotations() {
           </label>
         </div>
       </div>
-      ${renderPaginatedTable(["Quote #", "Title", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
+      ${renderPaginatedTable(["Quote #", "Title", "Products", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
     </div>
   `;
   attachTableSearch("quotations-search-input", "quotations");
@@ -7061,10 +7068,17 @@ function mapFallbackRow(table, row, idx) {
     return { id: safeId, reference, company_id, contact_id, status, total_amount: total, updated_at: updated };
   }
   if (table === "quotations" && Array.isArray(row)) {
-    const [reference, company, owner, amountStr, status, valid] = row;
-    const amount = parseFloat(amountStr.replace("$", "").replace(",", "")) || 0;
+    const hasProducts = row.length >= 7;
+    const reference = row[0];
+    const title = hasProducts ? row[1] || `${reference} Proposal` : `${reference} Proposal`;
+    const product_names = hasProducts ? row[2] : null;
+    const company = hasProducts ? row[3] : row[1];
+    const amountStr = hasProducts ? row[5] : row[3];
+    const status = row[4];
+    const valid = hasProducts ? row[6] : row[5];
+    const amount = parseFloat(String(amountStr || "").replace("$", "").replace(",", "")) || 0;
     const company_id = company === "Northwind Traders" ? 1 : company === "Globex Inc" ? 2 : company === "Initech" ? 3 : 4;
-    return { id: safeId, reference, company_id, title: `${reference} Proposal`, amount, status, valid_until: valid };
+    return { id: safeId, reference, company_id, title, amount, status, valid_until: valid, product_names };
   }
   if (table === "invoices" && Array.isArray(row)) {
     const [reference, company, totalStr, due, status, owner] = row;
