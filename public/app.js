@@ -221,6 +221,8 @@ const translations = {
     "Category": "Category",
     "Choose document (optional)": "Choose document (optional)",
     "Choose document (optional) for this invoice": "Choose document (optional) for this invoice",
+    "Choose documents (optional)": "Choose documents (optional)",
+    "Choose documents (optional) for this invoice": "Choose documents (optional) for this invoice",
     "Churn Risk": "Churn Risk",
     "Close": "Close",
     "Color": "Color",
@@ -273,6 +275,7 @@ const translations = {
     "Factory exit date": "Factory exit date",
     "FedEx": "FedEx",
     "Filter the document list before selecting an attachment.": "Filter the document list before selecting an attachment.",
+    "Filter the document list before selecting attachments.": "Filter the document list before selecting attachments.",
     "First Name": "First Name",
     "Form not configured yet": "Form not configured yet",
     "INV-2025": "INV-2025",
@@ -559,6 +562,8 @@ const translations = {
     "Category": "類別",
     "Choose document (optional)": "選擇文件（選填）",
     "Choose document (optional) for this invoice": "選擇此發票的文件（選填）",
+    "Choose documents (optional)": "Choose documents (optional)",
+    "Choose documents (optional) for this invoice": "Choose documents (optional) for this invoice",
     "Churn Risk": "流失風險",
     "Close": "關閉",
     "Color": "顏色",
@@ -611,6 +616,7 @@ const translations = {
     "Factory exit date": "出廠日期",
     "FedEx": "FedEx",
     "Filter the document list before selecting an attachment.": "先篩選文件清單再選擇附件。",
+    "Filter the document list before selecting attachments.": "Filter the document list before selecting attachments.",
     "First Name": "名",
     "Form not configured yet": "尚未設定此表單。",
     "INV-2025": "INV-2025",
@@ -2058,7 +2064,7 @@ const formConfigs = {
     endpoint: "/api/invoices",
     fields: [
       { name: "reference", label: "Invoice number (auto-generated if empty)", placeholder: "INV-2025" },
-      { name: "attachment_key", label: "Choose document (optional)", type: "select", options: ["-- Select document --"] },
+      { name: "attachment_key", label: "Choose documents (optional)", type: "select", multiple: true, options: ["-- Select document --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact (optional) --"] },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
       { name: "customer_name", label: "Customer name (auto-filled if contact/company selected)", placeholder: "Customer name" },
@@ -2073,6 +2079,7 @@ const formConfigs = {
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] }
     ],
     async submit(values) {
+      const attachmentKeys = normalizeSelectValues(values.attachment_key);
       const payload = {
         company_id: num(values.company_id),
         contact_id: num(values.contact_id),
@@ -2081,10 +2088,17 @@ const formConfigs = {
         status: values.status || "Unpaid",
         reference: values.reference || undefined,
         tags: values.tags,
-        attachment_key: values.attachment_key || undefined
+        attachment_key: attachmentKeys[0] || undefined
       };
 
-      await submitJson("/api/invoices", payload);
+      const result = await submitJson("/api/invoices", payload);
+      const invoiceId = result?.id;
+      if (invoiceId && attachmentKeys.length) {
+        const linked = await syncInvoiceDocuments(invoiceId, attachmentKeys);
+        if (!linked) {
+          showToast("Saved, but document links failed.");
+        }
+      }
     }
   },
   documents: {
@@ -6888,6 +6902,57 @@ async function fetchDocumentById(id) {
   return docs.find((d) => d.id == id) || null;
 }
 
+function normalizeSelectValues(value) {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry)).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return [];
+}
+
+async function syncInvoiceDocuments(invoiceId, attachmentKeys) {
+  if (!invoiceId) return true;
+  const selectedKeys = normalizeSelectValues(attachmentKeys);
+  const selectedKeySet = new Set(selectedKeys);
+  const docs = await fetchDocumentsList();
+  const desiredIds = new Set(
+    docs
+      .filter((doc) => doc.storage_key && selectedKeySet.has(String(doc.storage_key)))
+      .map((doc) => Number(doc.id))
+      .filter((id) => Number.isFinite(id))
+  );
+  const currentIds = new Set(
+    docs
+      .filter((doc) => doc.invoice_id == invoiceId)
+      .map((doc) => Number(doc.id))
+      .filter((id) => Number.isFinite(id))
+  );
+
+  const updates = [];
+  desiredIds.forEach((id) => {
+    if (!currentIds.has(id)) {
+      updates.push(updateRecord("documents", id, { invoice_id: invoiceId }));
+    }
+  });
+  currentIds.forEach((id) => {
+    if (!desiredIds.has(id)) {
+      updates.push(updateRecord("documents", id, { invoice_id: null }));
+    }
+  });
+
+  if (!updates.length) return true;
+  try {
+    await Promise.all(updates);
+    return true;
+  } catch (err) {
+    console.error("Document link update failed", err);
+    return false;
+  }
+}
+
 async function fetchShippoTracking(waybill, courier) {
   const code = (waybill || "").toString().trim();
   if (!code) {
@@ -10445,7 +10510,7 @@ function openForm(key, options = {}) {
       attachmentSelect.id = attachmentSelectId;
       attachmentSelect.setAttribute(
         "aria-label",
-        i18nText("Choose document (optional) for this invoice", "Choose document (optional) for this invoice")
+        i18nText("Choose documents (optional) for this invoice", "Choose documents (optional) for this invoice")
       );
 
       const docSearchInput = document.createElement("input");
@@ -10476,15 +10541,23 @@ function openForm(key, options = {}) {
       const attachmentHint = document.createElement("small");
       attachmentHint.id = `${attachmentSelectId}-hint`;
       attachmentHint.className = "field-hint";
-      attachmentHint.textContent = i18nText("Filter the document list before selecting an attachment.", "Filter the document list before selecting an attachment.");
-      attachmentHint.setAttribute("data-i18n", "Filter the document list before selecting an attachment.");
+      attachmentHint.textContent = i18nText("Filter the document list before selecting attachments.", "Filter the document list before selecting attachments.");
+      attachmentHint.setAttribute("data-i18n", "Filter the document list before selecting attachments.");
       attachmentSelect.setAttribute("aria-describedby", attachmentHint.id);
       if (insertParent) {
         insertParent.insertBefore(attachmentHint, attachmentLabel?.nextSibling || null);
       }
+      if (attachmentSelect.multiple) {
+        const multiHint = document.createElement("small");
+        multiHint.className = "field-hint";
+        multiHint.textContent = "Hold Ctrl (Cmd on Mac) to select multiple documents.";
+        if (insertParent) {
+          insertParent.insertBefore(multiHint, attachmentHint.nextSibling || null);
+        }
+      }
 
       let attachmentDocsCache = [];
-      let selectedAttachmentKey = initialValues?.attachment_key || "";
+      const selectedAttachmentKeys = new Set(normalizeSelectValues(initialValues?.attachment_key));
 
       const formatDocumentLabel = (doc) => (doc.title || doc.storage_key || `Document #${doc.id || ""}`).trim();
 
@@ -10493,22 +10566,21 @@ function openForm(key, options = {}) {
           .map((doc) => `<option value="${doc.storage_key}">${formatDocumentLabel(doc)}</option>`)
           .join("");
         let supplemental = "";
-        if (
-          selectedAttachmentKey &&
-          !docs.some((doc) => doc.storage_key === selectedAttachmentKey)
-        ) {
-          const selectedDoc = attachmentDocsCache.find((doc) => doc.storage_key === selectedAttachmentKey);
-          if (selectedDoc) {
-            supplemental = `<option value="${selectedDoc.storage_key}">${formatDocumentLabel(selectedDoc)} (${i18nText("selected", "selected")})</option>`;
-          }
-        }
+        const missingKeys = Array.from(selectedAttachmentKeys).filter(
+          (key) => !docs.some((doc) => doc.storage_key === key)
+        );
+        missingKeys.forEach((key) => {
+          const selectedDoc = attachmentDocsCache.find((doc) => doc.storage_key === key);
+          const label = selectedDoc ? formatDocumentLabel(selectedDoc) : key;
+          supplemental += `<option value="${key}">${label} (${i18nText("selected", "selected")})</option>`;
+        });
         if (!docs.length) {
-          supplemental += i18nPlaceholderOption("— No matching documents —", { disabled: true });
+          supplemental += i18nPlaceholderOption("-- No matching documents --", { disabled: true });
         }
         attachmentSelect.innerHTML = `${i18nPlaceholderOption("-- Select document --")}${optionHtml}${supplemental}`;
-        if (selectedAttachmentKey && attachmentSelect.querySelector(`option[value="${selectedAttachmentKey}"]`)) {
-          attachmentSelect.value = selectedAttachmentKey;
-        }
+        Array.from(attachmentSelect.options).forEach((opt) => {
+          opt.selected = selectedAttachmentKeys.has(opt.value);
+        });
       };
 
       renderDocumentOptions([]);
@@ -10527,12 +10599,21 @@ function openForm(key, options = {}) {
       docSearchInput.addEventListener("input", applyDocumentFilter);
 
       attachmentSelect.addEventListener("change", () => {
-        selectedAttachmentKey = attachmentSelect.value;
+        selectedAttachmentKeys.clear();
+        Array.from(attachmentSelect.selectedOptions)
+          .map((opt) => opt.value)
+          .filter(Boolean)
+          .forEach((value) => selectedAttachmentKeys.add(value));
       });
 
       fetchDocumentsList()
         .then((docs) => {
           attachmentDocsCache = docs.filter((doc) => doc.storage_key);
+          if (initialValues?.id) {
+            attachmentDocsCache
+              .filter((doc) => doc.invoice_id == initialValues.id && doc.storage_key)
+              .forEach((doc) => selectedAttachmentKeys.add(doc.storage_key));
+          }
           applyDocumentFilter();
         })
         .catch(() => {
@@ -11265,6 +11346,28 @@ function openForm(key, options = {}) {
             items
           };
           await updateRecord(updateKey, initialValues.id, payload);
+        } else if (key === "invoices") {
+          const attachmentKeys = normalizeSelectValues(values.attachment_key);
+          const initialAttachmentKey = initialValues?.attachment_key ? String(initialValues.attachment_key) : "";
+          const primaryAttachmentKey =
+            initialAttachmentKey && attachmentKeys.includes(initialAttachmentKey)
+              ? initialAttachmentKey
+              : attachmentKeys[0] || "";
+          const payload = {
+            company_id: num(values.company_id),
+            contact_id: num(values.contact_id),
+            total_amount: num(values.total_amount) ?? initialValues.total_amount ?? 0,
+            currency: values.currency || initialValues.currency || "USD",
+            status: values.status || initialValues.status || "Unpaid",
+            reference: values.reference || initialValues.reference || undefined,
+            tags: values.tags,
+            attachment_key: primaryAttachmentKey || null
+          };
+          await updateRecord(updateKey, initialValues.id, payload);
+          const linked = await syncInvoiceDocuments(initialValues.id, attachmentKeys);
+          if (!linked) {
+            showToast("Saved, but document links failed.");
+          }
         } else {
           await updateRecord(updateKey, initialValues.id, transformed);
         }

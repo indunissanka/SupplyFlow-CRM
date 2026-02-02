@@ -8,7 +8,7 @@ assets = { binding = "ASSETS", directory = "./public" }
 
 [vars]
 ALLOWED_ORIGINS = "*"
-AI_MODEL = "@cf/meta/llama-3-8b-instruct"
+AI_MODEL = "@cf/facebook/bart-large-cnn"
 
 [ai]
 binding = "AI"
