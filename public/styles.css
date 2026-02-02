@@ -2601,6 +2601,34 @@ body.salesperson-mode .content {
   margin-top: 16px;
 }
 
+.attachment-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.attachment-row .preview-title-section {
+  display: grid;
+  gap: 4px;
+}
+
+.attachment-row .preview-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .doc-preview-fallback {
   padding: 16px;
   border: 1px dashed var(--border);

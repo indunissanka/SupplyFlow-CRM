@@ -7645,15 +7645,16 @@ async function openPreviewModal(tableKey, record) {
       openQuotationPrintView(payload);
     });
   } else if (tableKey === "invoices") {
-    const attachmentBtn = overlay.querySelector("[data-open-invoice-attachment]");
-    if (attachmentBtn) {
+    const attachmentButtons = Array.from(overlay.querySelectorAll("[data-open-invoice-attachment]"));
+    if (attachmentButtons.length) {
       const slot = overlay.querySelector("[data-invoice-attachment-slot]");
-      const loadInvoiceAttachment = () => {
-        const url = attachmentBtn.dataset.url;
+      const loadInvoiceAttachment = (button) => {
+        const url = button.dataset.url;
         if (!url) return;
-        const mime = attachmentBtn.dataset.mime || "application/pdf";
-        const title = attachmentBtn.dataset.title || "Attachment";
-        const key = attachmentBtn.dataset.key || null;
+        const mime = button.dataset.mime || "application/pdf";
+        const title = button.dataset.title || "Attachment";
+        const key = button.dataset.key || null;
+        attachmentButtons.forEach((btn) => btn.classList.toggle("is-active", btn === button));
         if (slot) {
           slot.innerHTML = `
             <div class="doc-preview-loader">
@@ -7684,11 +7685,13 @@ async function openPreviewModal(tableKey, record) {
           window.open(url, "_blank", "noopener");
         }
       };
-      attachmentBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        loadInvoiceAttachment();
+      attachmentButtons.forEach((btn) => {
+        btn.addEventListener("click", (e) => {
+          e.preventDefault();
+          loadInvoiceAttachment(btn);
+        });
       });
-      loadInvoiceAttachment();
+      loadInvoiceAttachment(attachmentButtons[0]);
     }
   } else if (tableKey === "sample_shipments") {
     const docBtn = overlay.querySelector("[data-sample-doc]");
@@ -7904,15 +7907,66 @@ function renderInvoicePreview(record) {
   const currency = record.currency || "USD";
   const tone = statusToneFront(record.status || "Unpaid");
   const updated = record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "";
-  const company = record.company_name || record.company || "—";
-  const contact = record.contact_name || record.contact || "—";
-  const customer = record.customer_name || company || contact || "—";
-  const dueDate = record.due_date || record.due_on || record.due || "—";
-  const attachmentKey = record.attachment_key || record.attachment || record.storage_key || null;
-  const attachmentUrl = attachmentKey ? getFileUrl(attachmentKey) : null;
-  const attachmentTitle = attachmentKey ? (record.attachment_name || attachmentKey) : "";
-  const attachmentMime =
-    record.attachment_mime || record.attachment_content_type || record.content_type || guessMimeFromKey(attachmentKey);
+  const company = record.company_name || record.company || "???";
+  const contact = record.contact_name || record.contact || "???";
+  const customer = record.customer_name || company || contact || "???";
+  const dueDate = record.due_date || record.due_on || record.due || "???";
+  const primaryAttachmentKey = record.attachment_key || record.attachment || record.storage_key || null;
+  const attachments = [];
+  const seenKeys = new Set();
+  const pushAttachment = (doc) => {
+    if (!doc?.storage_key && !doc?.key) return;
+    const key = String(doc.storage_key || doc.key || "").trim();
+    if (!key || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    attachments.push({
+      key,
+      title: doc.title || doc.attachment_name || key,
+      mime: doc.content_type || doc.attachment_mime || guessMimeFromKey(key)
+    });
+  };
+  const docList = Array.isArray(record.attachment_docs) ? record.attachment_docs : [];
+  docList.forEach((doc) => pushAttachment(doc));
+  if (primaryAttachmentKey) {
+    pushAttachment({
+      storage_key: primaryAttachmentKey,
+      title: record.attachment_name || primaryAttachmentKey,
+      content_type:
+        record.attachment_mime || record.attachment_content_type || record.content_type || guessMimeFromKey(primaryAttachmentKey)
+    });
+  }
+  const attachmentCount = attachments.length;
+  const attachmentsMarkup = attachmentCount
+    ? `
+        <section class="quote-attachment">
+          <div class="preview-header">
+            <div class="preview-title-section">
+              <div class="preview-title">Attachments</div>
+              <div class="preview-meta"><span class="stat-label">${attachmentCount} file${attachmentCount === 1 ? "" : "s"}</span></div>
+            </div>
+          </div>
+          <div class="attachment-list">
+            ${attachments
+              .map((att, index) => {
+                const url = getFileUrl(att.key);
+                const title = sanitizeText(att.title || att.key);
+                const mimeLabel = att.mime ? `<span class="stat-label">${sanitizeText(att.mime)}</span>` : "";
+                return `
+                  <div class="attachment-row">
+                    <div class="preview-title-section">
+                      <div class="preview-title">${title}</div>
+                      <div class="preview-meta">${mimeLabel}</div>
+                    </div>
+                    <a class="btn ghost" href="#" role="button" data-open-invoice-attachment data-url="${url}" data-mime="${att.mime || ""}" data-title="${title}" data-key="${att.key}" data-attachment-index="${index}">Preview</a>
+                  </div>
+                `;
+              })
+              .join("")}
+          </div>
+          <div class="quote-attachment-viewer" data-invoice-attachment-slot></div>
+        </section>
+      `
+    : "";
 
   return `
     <div class="quote-preview-card">
@@ -7935,18 +7989,7 @@ function renderInvoicePreview(record) {
         <div><strong>Status</strong><span>${record.status || "Unpaid"}</span></div>
         <div><strong>Due date</strong><span>${dueDate}</span></div>
       </div>
-      ${attachmentUrl ? `
-        <section class="quote-attachment">
-          <div class="preview-header">
-            <div class="preview-title-section">
-              <div class="preview-title">Attachment</div>
-              <div class="preview-meta"><span class="stat-label">${attachmentTitle}</span></div>
-            </div>
-            <a class="btn ghost" href="#" role="button" data-open-invoice-attachment data-url="${attachmentUrl}" data-mime="${attachmentMime || ""}" data-title="${attachmentTitle}" data-key="${attachmentKey}">Preview attachment</a>
-          </div>
-          <div class="quote-attachment-viewer" data-invoice-attachment-slot></div>
-        </section>
-      ` : ""}
+      ${attachmentsMarkup}
     </div>
   `;
 }
@@ -8103,14 +8146,13 @@ async function renderPricingItemPreview(record) {
 
 async function hydrateInvoiceAttachment(record) {
   const invoice = { ...(record || {}) };
-  if (invoice.attachment_key || invoice.attachment || invoice.storage_key) {
-    return invoice;
-  }
   if (!invoice.id) return invoice;
   try {
     const docs = await fetchDocumentsList();
-    const match = docs.find((d) => d.invoice_id == invoice.id && d.storage_key);
-    if (match) {
+    const linked = docs.filter((d) => d.invoice_id == invoice.id && d.storage_key);
+    invoice.attachment_docs = linked;
+    if (!invoice.attachment_key && linked.length) {
+      const match = linked[0];
       invoice.attachment_key = match.storage_key;
       invoice.attachment_mime = match.content_type;
       invoice.attachment_name = match.title;
