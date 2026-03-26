@@ -4,8 +4,9 @@ WORKDIR /app
 
 COPY package*.json ./
 
-# Production dependencies only
-RUN npm install --omit=dev --ignore-scripts
+# Install production dependencies and verify express is present
+RUN npm install --omit=dev && \
+    ls node_modules/express || (echo "ERROR: express not installed" && exit 1)
 
 # Copy pre-built compiled output and frontend
 COPY dist/ ./dist/
