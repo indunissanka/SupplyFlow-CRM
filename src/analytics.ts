@@ -286,7 +286,17 @@ export const getKpis = async (
          FROM invoices
          WHERE ${invoiceCountWhere.clause}`
       )
-      .bind(...invoiceCountWhere.params)
+      .bind(...invoiceCountWhere.params),
+    db
+      .prepare(
+        `SELECT
+          SUM(CASE WHEN status = 'Not Started' OR status IS NULL OR TRIM(status) = '' THEN 1 ELSE 0 END) AS tasks_not_started,
+          SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) AS tasks_in_progress,
+          SUM(CASE WHEN status = 'Done' THEN 1 ELSE 0 END) AS tasks_done
+         FROM tasks
+         WHERE owner_email = ?`
+      )
+      .bind(ownerEmail)
   ];
 
   const [
@@ -300,7 +310,8 @@ export const getKpis = async (
     tasksOverdue,
     invoiceAging,
     quotationCount,
-    invoiceCount
+    invoiceCount,
+    tasksStatusBreakdown
   ] = await db.batch<any>(statements);
 
   const orderRow = orderStats.results?.[0] ?? {};
@@ -332,6 +343,9 @@ export const getKpis = async (
     company_count_active: Number(companyRow.company_count_active ?? 0),
     tasks_due_7d: Number(tasksDue.results?.[0]?.tasks_due_7d ?? 0),
     tasks_overdue: Number(tasksOverdue.results?.[0]?.tasks_overdue ?? 0),
+    tasks_not_started: Number(tasksStatusBreakdown.results?.[0]?.tasks_not_started ?? 0),
+    tasks_in_progress: Number(tasksStatusBreakdown.results?.[0]?.tasks_in_progress ?? 0),
+    tasks_done: Number(tasksStatusBreakdown.results?.[0]?.tasks_done ?? 0),
     quotation_count: Number(quotationCountRow.quotation_count ?? 0),
     invoice_count: Number(invoiceCountRow.invoice_count ?? 0),
     quotation_status_breakdown: quotationStatusRows.map((row) => ({
@@ -401,7 +415,7 @@ export const getTimeSeries = async (
     )
     .bind(...where.params)
     .all<{ period: string; value: number }>();
-  return (results ?? []).map((row) => ({ date: row.period, value: Number(row.value ?? 0) }));
+  return (results ?? []).map((row: { period: string; value: number }) => ({ date: row.period, value: Number(row.value ?? 0) }));
 };
 
 export const getBreakdown = async (
@@ -540,10 +554,11 @@ export const getBreakdown = async (
     contacts: ["companyId", "status"],
     companies: ["status"]
   };
+  // Tasks show current workload across all time — don't restrict by date range
   const where = buildWhere({
     ownerEmail,
-    dateColumn: "created_at",
-    range,
+    dateColumn: source === "tasks" ? undefined : "created_at",
+    range: source === "tasks" ? undefined : range,
     filters,
     allowedFilters: allowedFilterMap[source] ?? ["status"]
   });

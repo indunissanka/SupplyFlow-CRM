@@ -1,16 +1,17 @@
 {
   "name": "crmforall",
   "version": "1.0.0",
-  "description": "Cloudflare Worker CRM with D1 + R2 backing and Cloudflare asset hosting",
-  "main": "dist/worker.js",
+  "description": "CRM application with Node.js backend and MongoDB database",
+  "main": "dist/server.js",
   "scripts": {
-    "dev": "wrangler dev --local --ip 0.0.0.0",
-    "deploy": "npm run build:analytics && wrangler deploy -c wrangler.toml",
-    "deploy:full": "npm run build:analytics && bash scripts/deploy.sh",
-    "deploy:container": "wrangler deploy -c wrangler-container.toml",
-    "check": "tsc --noEmit",
+    "dev": "node --loader ts-node/esm src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc",
     "build:analytics": "tsc -p tsconfig.analytics.json",
-    "db:local": "wrangler d1 execute crmforall-db --local --file ./schema.sql",
+    "check": "tsc --noEmit",
+    "db:migrate": "node scripts/migrate-to-mongodb.js",
+    "db:init": "node -e \"import('./src/mongodb.js').then(m => m.initializeMongoDBSchema()).catch(console.error)\"",
+    "db:backup": "bash scripts/backup-mongodb.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui"
@@ -20,14 +21,23 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@types/multer": "^2.1.0",
+    "@types/node": "^25.5.0",
+    "cors": "^2.8.6",
+    "dotenv": "^16.6.1",
+    "express": "^4.22.1",
     "hono": "^4.11.1",
+    "jsonwebtoken": "^9.0.3",
+    "mongodb": "^6.21.0",
+    "multer": "^2.1.1",
     "pdfjs-dist": "^5.4.449"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.10.15",
-    "@cloudflare/workers-types": "^4.20251213.0",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.54.0"
+    "vitest": "^3.2.4"
   }
 }

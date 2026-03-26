@@ -1,21 +1,24 @@
-export type D1Queryable = Pick<D1Database, "prepare" | "batch">;
+// MongoDB database utilities (replaces Cloudflare D1 utilities)
+import type { MongoDBQueryable, MongoDBPreparedStatement } from './types';
+
+export type D1Queryable = MongoDBQueryable;
 
 type CacheJsonOptions = {
-  cacheKey: Request;
+  cacheKey: string;
   ttlSeconds: number;
   data: () => Promise<unknown>;
-  request?: Request;
+  request?: any;
   bypass?: boolean;
 };
 
-const AUTH_HEADERS = ["authorization", "cookie", "cf-access-jwt-assertion"];
+const AUTH_HEADERS = ["authorization", "cookie"];
 
-export const getReadSession = (db: D1Database, preferPrimary = false): D1DatabaseSession =>
-  db.withSession(preferPrimary ? "first-primary" : "first-unconstrained");
+// MongoDB doesn't have sessions like D1, so this is a no-op
+export const getReadSession = (db: any, preferPrimary = false): any => db;
 
 export const batchInChunks = async (
-  db: D1Queryable,
-  statements: D1PreparedStatement[],
+  db: MongoDBQueryable,
+  statements: MongoDBPreparedStatement[],
   batchSize = 50
 ) => {
   for (let i = 0; i < statements.length; i += batchSize) {
@@ -26,16 +29,18 @@ export const batchInChunks = async (
   }
 };
 
-export const buildCacheRequest = (url: string) => new Request(url, { method: "GET" });
+export const buildCacheRequest = (url: string) => url;
 
-export const shouldBypassCache = (request: Request) => {
-  const cacheControl = (request.headers.get("cache-control") || "").toLowerCase();
+export const shouldBypassCache = (request: any) => {
+  if (!request || !request.headers) return false;
+  const cacheControl = (request.headers['cache-control'] || "").toLowerCase();
   if (cacheControl.includes("no-cache") || cacheControl.includes("no-store")) return true;
-  const pragma = (request.headers.get("pragma") || "").toLowerCase();
+  const pragma = (request.headers['pragma'] || "").toLowerCase();
   if (pragma.includes("no-cache")) return true;
-  return AUTH_HEADERS.some((header) => request.headers.has(header));
+  return AUTH_HEADERS.some((header) => request.headers[header]);
 };
 
+// Simplified cache implementation for Node.js
 export const cacheJson = async ({
   cacheKey,
   ttlSeconds,
@@ -44,23 +49,9 @@ export const cacheJson = async ({
   bypass
 }: CacheJsonOptions) => {
   const canCache = !bypass && (!request || !shouldBypassCache(request));
-  if (canCache) {
-    const cache = await caches.open('default');
-    const cached = await cache.match(cacheKey);
-    if (cached) return cached;
-  }
-
+  
+  // In Node.js, we'd use a proper caching library like node-cache
+  // For now, just return the data without caching
   const payload = await data();
-  const headers = new Headers({ "content-type": "application/json" });
-  if (canCache) {
-    headers.set("cache-control", `max-age=${ttlSeconds}`);
-  } else {
-    headers.set("cache-control", "no-store");
-  }
-  const response = new Response(JSON.stringify(payload), { headers });
-  if (canCache) {
-    const cache = await caches.open('default');
-    await cache.put(cacheKey, response.clone());
-  }
-  return response;
+  return payload;
 };

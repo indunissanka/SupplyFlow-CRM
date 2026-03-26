@@ -7,8 +7,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.css?v=3">
-  <link rel="stylesheet" href="/mobile.css?v=3">
+  <link rel="stylesheet" href="/styles.css?v=8">
+  <link rel="stylesheet" href="/mobile.css?v=4">
 </head>
 <body>
   <div class="login-screen">
@@ -55,10 +55,6 @@
         <button class="nav-item" data-section="analytics">
           <i data-lucide="bar-chart-3"></i>
           <span data-i18n="nav.analytics">Analytics</span>
-        </button>
-        <button class="nav-item" data-section="chat">
-          <i data-lucide="message-square"></i>
-          <span data-i18n="nav.chat">AI Chat</span>
         </button>
         <button class="nav-item" data-section="companies">
           <i data-lucide="building-2"></i>
@@ -162,7 +158,7 @@
         </button>
         <h1 id="section-title">Dashboard</h1>
         <div class="topbar-meta">
-          <div class="chip">Cloudflare D1 · R2</div>
+          <div class="chip">MongoDB · Node.js</div>
           <div class="language-switcher">
             <select id="topbar-language-switcher" class="language-select" data-language-switcher aria-label="Language">
               <option value="en">English</option>
@@ -176,11 +172,33 @@
       <section class="content">
         <div id="section-content" class="section-content"></div>
       </section>
+      <nav class="mobile-bottom-nav" id="mobile-bottom-nav" aria-label="Quick navigation">
+        <button class="mobile-bnav-item active" data-section="dashboard">
+          <i data-lucide="home"></i>
+          <span>Home</span>
+        </button>
+        <button class="mobile-bnav-item" data-section="orders">
+          <i data-lucide="shopping-cart"></i>
+          <span>Orders</span>
+        </button>
+        <button class="mobile-bnav-item" data-section="quotations">
+          <i data-lucide="file-text"></i>
+          <span>Quotes</span>
+        </button>
+        <button class="mobile-bnav-item" data-section="contacts">
+          <i data-lucide="users"></i>
+          <span>Contacts</span>
+        </button>
+        <button class="mobile-bnav-item" data-section="settings">
+          <i data-lucide="settings"></i>
+          <span>Settings</span>
+        </button>
+      </nav>
     </main>
   </div>
   <script src="https://unpkg.com/lucide@0.561.0/dist/umd/lucide.js"></script>
   <script src="/vendor/jszip.min.js"></script>
   <script src="https://unpkg.com/echarts@5/dist/echarts.min.js"></script>
-  <script type="module" src="/app.js?v=3"></script>
+  <script type="module" src="/app.js?v=62"></script>
 </body>
 </html>

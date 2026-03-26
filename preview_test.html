@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CRM Preview Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        .test-title { font-weight: bold; color: #333; margin-bottom: 10px; }
+        .preview-result { background: #f9f9f9; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        button { padding: 8px 16px; margin: 5px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+    </style>
+</head>
+<body>
+    <h1>CRM Preview Enhancement Test</h1>
+    
+    <div class="test-section">
+        <div class="test-title">Enhanced Preview Features:</div>
+        <ul>
+            <li>✅ Company previews show owner, address, and contact details</li>
+            <li>✅ Contact previews display company relationships</li>
+            <li>✅ Order/Invoices show related company and contact names</li>
+            <li>✅ Product previews include SKU, category, and pricing</li>
+            <li>✅ Task previews show assignees and related entities</li>
+            <li>✅ Better formatting with improved labels and values</li>
+            <li>✅ Enhanced dashboard with meaningful activity feed</li>
+            <li>✅ Responsive design for mobile devices</li>
+        </ul>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Sample Data Improvements:</div>
+        <div class="preview-result">
+            <strong>Company:</strong> Northwind Traders<br>
+            <strong>Owner:</strong> Dana E.<br>
+            <strong>Address:</strong> 123 Commerce St, Baltimore, MD 21201<br>
+            <strong>Status:</strong> Active
+        </div>
+        <div class="preview-result">
+            <strong>Contact:</strong> Sarah Alvarez (Head of Supply)<br>
+            <strong>Company:</strong> Northwind Traders<br>
+            <strong>Email:</strong> sarah@northwind.com<br>
+            <strong>Status:</strong> Engaged
+        </div>
+        <div class="preview-result">
+            <strong>Order:</strong> SO-1045<br>
+            <strong>Company:</strong> Northwind Traders<br>
+            <strong>Contact:</strong> Sarah Alvarez<br>
+            <strong>Amount:</strong> $24,560<br>
+            <strong>Status:</strong> In Progress
+        </div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">🎉 Key Preview Enhancement:</div>
+        <div class="preview-result" style="background: #e7f6ed; border: 1px solid #16a34a;">
+            <strong>✅ Company IDs and Contact IDs now show actual names!</strong><br><br>
+            <strong>Before:</strong> Company ID: 1 | Contact ID: 2<br>
+            <strong>After:</strong> Company: Northwind Traders | Contact: Sarah Alvarez<br><br>
+            This makes the preview much more user-friendly and readable.
+        </div>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">How to Test:</div>
+        <ol>
+            <li>Start the CRM application: <code>npm run dev</code></li>
+            <li>Navigate to any section (Companies, Contacts, Orders, etc.)</li>
+            <li>Click the "Preview" button on any record</li>
+            <li>Observe the enhanced preview with actual readable data</li>
+            <li>Check that company names, contact names, and relationships are properly displayed</li>
+        </ol>
+    </div>
+
+    <div class="test-section">
+        <div class="test-title">Technical Improvements Made:</div>
+        <ul>
+            <li>Enhanced <code>renderRecordPreview()</code> function with entity-specific logic</li>
+            <li>Improved data mapping for relationships between entities</li>
+            <li>Added comprehensive fallback data structure</li>
+            <li>Enhanced CSS styling for better visual presentation</li>
+            <li>Added activity feed with author information</li>
+            <li>Improved responsive design</li>
+        </ul>
+    </div>
+
+    <div style="margin-top: 30px; padding: 15px; background: #e7f3ff; border-radius: 8px;">
+        <strong>Note:</strong> All preview modals now display actual readable data including company names, contact names, order values, and meaningful relationships between entities. The preview functionality has been significantly enhanced to provide a better user experience.
+    </div>
+</body>
+</html>

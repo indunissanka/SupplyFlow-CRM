@@ -19,8 +19,6 @@ const demoCredentials = {
   password: "demo1234"
 };
 const salesContentKey = "crm:sales-content";
-const aiChatStorageKey = "crm:ai-chat";
-const aiChatMaxMessages = 40;
 const salesStatusCycle = ["New", "In progress", "Ready"];
 const languageKey = "crm:language";
 const supportedLanguages = {
@@ -52,7 +50,6 @@ const translations = {
     "nav.toggle.close": "Close navigation menu",
     "nav.dashboard": "Dashboard",
     "nav.analytics": "Analytics",
-    "nav.chat": "AI Chat",
     "nav.companies": "Companies",
     "nav.contacts": "Contacts",
     "nav.products": "Products",
@@ -92,32 +89,8 @@ const translations = {
     "access.restricted.toast": "Access restricted. Ask an admin for access.",
     "section.unavailable": "No view configured yet.",
     "section.restricted": "Access restricted. Contact an admin to enable this section.",
-    "chat.label": "AI Assistant",
-    "chat.title": "Research chat",
-    "chat.subtitle": "Ask questions about pipeline, revenue, tasks, and data quality.",
-    "chat.empty": "Start a conversation to analyze your CRM data.",
-    "chat.input.label": "Ask about your CRM data",
-    "chat.input.placeholder": "e.g. Which invoices are overdue and need attention?",
-    "chat.actions.clear": "Clear chat",
-    "chat.actions.send": "Send",
-    "chat.status.thinking": "Thinking...",
-    "chat.status.error": "Unable to reach AI assistant.",
-    "chat.toggle.dataQuality": "Include data quality signals",
-    "chat.toggle.editMode": "Propose edits",
-    "chat.limit.label": "Rows per table",
-    "chat.hint": "Shift+Enter for a new line.",
-    "chat.suggest.pipeline": "Summarize pipeline risk this month",
-    "chat.suggest.overdue": "Which invoices are overdue right now?",
-    "chat.suggest.followups": "What follow-ups are at risk this week?",
-    "chat.meta.model": "Model",
-    "chat.meta.tables": "Tables",
-    "chat.actions.proposed": "Proposed changes",
-    "chat.actions.apply": "Apply",
-    "chat.actions.applying": "Applying...",
-    "chat.actions.applied": "Applied",
-    "chat.actions.failed": "Update failed",
     "dashboard.overview": "Workspace Overview",
-    "dashboard.subtitle": "Live counts from D1 with quick pipeline and activity views.",
+    "dashboard.subtitle": "Live workspace data with quick pipeline and activity views.",
     "dashboard.refresh": "Refresh",
     "dashboard.pipeline.title": "Pipeline Snapshot",
     "dashboard.pipeline.subtitle": "Recent orders and invoices",
@@ -393,7 +366,6 @@ const translations = {
     "nav.toggle.close": "關閉導覽選單",
     "nav.dashboard": "儀表板",
     "nav.analytics": "分析",
-    "nav.chat": "AI 對話",
     "nav.companies": "公司",
     "nav.contacts": "聯絡人",
     "nav.products": "產品",
@@ -433,32 +405,8 @@ const translations = {
     "access.restricted.toast": "權限受限。請向管理員申請存取權限。",
     "section.unavailable": "尚未設定此視圖。",
     "section.restricted": "權限受限。請聯絡管理員啟用此區塊。",
-    "chat.label": "AI 助手",
-    "chat.title": "研究對話",
-    "chat.subtitle": "詢問管線、營收、任務與資料品質的問題。",
-    "chat.empty": "開始對話以分析你的 CRM 資料。",
-    "chat.input.label": "詢問你的 CRM 資料",
-    "chat.input.placeholder": "例如：目前哪些發票已逾期需要處理？",
-    "chat.actions.clear": "清除對話",
-    "chat.actions.send": "送出",
-    "chat.status.thinking": "分析中...",
-    "chat.status.error": "無法連線到 AI 助手。",
-    "chat.toggle.dataQuality": "包含資料品質訊號",
-    "chat.toggle.editMode": "建議修改",
-    "chat.limit.label": "每個表的列數",
-    "chat.hint": "Shift+Enter 可換行。",
-    "chat.suggest.pipeline": "本月管線風險摘要",
-    "chat.suggest.overdue": "現在有哪些發票逾期？",
-    "chat.suggest.followups": "本週有哪些跟進有風險？",
-    "chat.meta.model": "模型",
-    "chat.meta.tables": "資料表",
-    "chat.actions.proposed": "建議修改",
-    "chat.actions.apply": "套用",
-    "chat.actions.applying": "套用中...",
-    "chat.actions.applied": "已套用",
-    "chat.actions.failed": "更新失敗",
     "dashboard.overview": "工作區概覽",
-    "dashboard.subtitle": "即時 D1 統計，搭配管線與活動摘要。",
+    "dashboard.subtitle": "即時工作區資料，搭配管線與活動摘要。",
     "dashboard.refresh": "重新整理",
     "dashboard.pipeline.title": "管線快照",
     "dashboard.pipeline.subtitle": "近期訂單與發票",
@@ -534,6 +482,7 @@ const translations = {
     "0": "0",
     "1": "1",
     "Accepted": "已接受",
+    "Rejected": "已拒絕",
     "Acme Corp": "Acme Corp",
     "Active": "啟用",
     "Add Company": "新增公司",
@@ -747,7 +696,6 @@ let currentUserEmail = "";
 let currentAccessList = [];
 let currentAuthToken = "";
 let salesContentItems = [];
-let aiChatMessages = [];
 let navItems = [];
 let navToggleButton = null;
 let navDrawer = null;
@@ -951,7 +899,6 @@ function handleLogout() {
   currentUserEmail = "";
   currentAccessList = [];
   currentAuthToken = "";
-  aiChatMessages = [];
   showLoginScreen();
   loginForm?.reset();
   if (loginError) {
@@ -969,7 +916,6 @@ function initAuthentication() {
   currentAccessList = Array.isArray(storedAccess) ? storedAccess : [];
   currentAuthToken = storedToken || "";
   salesContentItems = loadSalesContentState();
-  aiChatMessages = loadAiChatState();
   if (safeLocalStorageGet(authTokenKey) === "true") {
     if (!currentUserEmail || !storedToken) {
       handleLogout();
@@ -979,6 +925,7 @@ function initAuthentication() {
     syncSiteConfigFromServer();
     return;
   }
+  currentAuthToken = "";
   showLoginScreen();
 }
 
@@ -1034,7 +981,6 @@ if (loginForm) {
       currentUserEmail = user.email || normalizedEmail;
       currentAccessList = Array.isArray(user.accessList) ? user.accessList : [];
       currentAuthToken = token;
-      aiChatMessages = loadAiChatState();
       safeLocalStorageSet(authEmailKey, currentUserEmail);
       safeLocalStorageSet(authRoleKey, currentRole);
       safeLocalStorageJsonSet(authAccessKey, currentAccessList);
@@ -1098,7 +1044,6 @@ const sectionTitle = document.getElementById("section-title");
 const sectionTitleMap = {
   dashboard: { key: "nav.dashboard", fallback: "Dashboard" },
   analytics: { key: "nav.analytics", fallback: "Analytics" },
-  chat: { key: "nav.chat", fallback: "AI Chat" },
   companies: { key: "nav.companies", fallback: "Companies" },
   contacts: { key: "nav.contacts", fallback: "Contacts" },
   products: { key: "nav.products", fallback: "Products" },
@@ -1242,10 +1187,6 @@ const defaultSiteConfig = {
   invoiceName: "",
   invoiceAddress: "",
   invoicePhone: "",
-  aiProvider: "cloudflare",
-  aiApiUrl: "",
-  aiModel: "",
-  aiKeySet: false,
   showFooter: true
 };
 
@@ -1260,18 +1201,8 @@ function normalizeBoolean(value, fallback) {
   return fallback;
 }
 
-function normalizeAiProvider(value) {
-  if (typeof value !== "string") return "cloudflare";
-  const normalized = value.trim().toLowerCase();
-  return normalized === "custom" ? "custom" : "cloudflare";
-}
-
 function normalizeSiteConfigState(config) {
   const merged = { ...defaultSiteConfig, ...config };
-  merged.aiProvider = normalizeAiProvider(config?.aiProvider || merged.aiProvider);
-  merged.aiApiUrl = typeof merged.aiApiUrl === "string" ? merged.aiApiUrl.trim() : "";
-  merged.aiModel = typeof merged.aiModel === "string" ? merged.aiModel.trim() : "";
-  merged.aiKeySet = normalizeBoolean(config?.aiKeySet, merged.aiKeySet);
   merged.showFooter = normalizeBoolean(config?.showFooter, merged.showFooter);
   return merged;
 }
@@ -1303,15 +1234,11 @@ function persistSiteConfigState(state) {
 }
 
 async function saveSiteConfigToServer(state, overrides = {}) {
-  const { aiKeySet, ...baseState } = state || {};
   const payload = {
-    ...baseState,
-    showFooter: !!baseState.showFooter,
+    ...(state || {}),
+    showFooter: !!(state || {}).showFooter,
     ...overrides
   };
-  if (payload.aiApiKey === undefined) {
-    delete payload.aiApiKey;
-  }
   const res = await apiFetch("/api/settings/site-config", {
     method: "PUT",
     headers: { "content-type": "application/json" },
@@ -1404,16 +1331,6 @@ function escapeHtml(value) {
   });
 }
 
-function formatAiChatText(value) {
-  if (value === null || value === undefined) return "";
-  if (typeof value === "string") return value.trim();
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
 function loadSalesContentState() {
   try {
     const stored = window.localStorage.getItem(salesContentKey);
@@ -1431,31 +1348,6 @@ function persistSalesContentState(items) {
     window.localStorage.setItem(salesContentKey, JSON.stringify(items));
   } catch (error) {
     console.warn("Unable to persist sales content", error);
-  }
-}
-
-function getAiChatStorageKey() {
-  const suffix = currentUserEmail || "guest";
-  return `${aiChatStorageKey}:${suffix}`;
-}
-
-function loadAiChatState() {
-  try {
-    const stored = window.localStorage.getItem(getAiChatStorageKey());
-    if (!stored) return [];
-    const parsed = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch (error) {
-    console.warn("Unable to load AI chat history", error);
-    return [];
-  }
-}
-
-function persistAiChatState(items) {
-  try {
-    window.localStorage.setItem(getAiChatStorageKey(), JSON.stringify(items));
-  } catch (error) {
-    console.warn("Unable to persist AI chat history", error);
   }
 }
 
@@ -1519,7 +1411,6 @@ function getAllowedAccessList() {
 }
 
 function resolveAccessSection(section) {
-  if (section === "chat") return "analytics";
   return section;
 }
 
@@ -1570,7 +1461,7 @@ function persistUserAccounts(users) {
 
 async function readApiError(res, fallbackMessage) {
   try {
-    const payload = await res.json();
+    const payload = await res.clone().json();
     if (payload) {
       if (payload.detail) return payload.detail;
       if (payload.message) return payload.message;
@@ -1580,8 +1471,8 @@ async function readApiError(res, fallbackMessage) {
     // ignore
   }
   try {
-    const text = await res.text();
-    if (text) return text;
+    const text = (await res.text()).trim().slice(0, 300);
+    if (text && !text.startsWith("<")) return text;
   } catch {
     // ignore
   }
@@ -1844,7 +1735,6 @@ function renderPrivilegeList(listElement) {
 const sectionRenderers = {
   dashboard: renderDashboard,
   analytics: renderAnalytics,
-  chat: renderChat,
   companies: renderCompanies,
   contacts: renderContacts,
   products: renderProducts,
@@ -1972,10 +1862,11 @@ const formConfigs = {
         : values.invoice_links
           ? [values.invoice_links]
           : [];
+      const safeId = (v) => num(v) ?? (v && !String(v).startsWith("--") ? v : null);
       return {
-        company_id: num(values.company_id),
-        contact_id: num(values.contact_id),
-        quotation_id: num(values.quotation_id),
+        company_id: safeId(values.company_id),
+        contact_id: safeId(values.contact_id),
+        quotation_id: safeId(values.quotation_id),
         status: values.status || "Pending",
         currency: values.currency || "USD",
         reference: orderTitle || undefined,
@@ -1990,14 +1881,15 @@ const formConfigs = {
         : values.invoice_links
           ? [values.invoice_links]
           : [];
+      const safeId = (v) => num(v) ?? (v && !String(v).startsWith("--") ? v : null);
       const payload = {
-        company_id: num(values.company_id),
-        contact_id: num(values.contact_id),
-        quotation_id: num(values.quotation_id),
+        company_id: safeId(values.company_id),
+        contact_id: safeId(values.contact_id),
+        quotation_id: safeId(values.quotation_id),
         total_amount: 0,
         currency: values.currency || "USD",
         status: values.status || "Pending",
-        reference: orderTitle || values.reference || `SO-${Date.now().toString().slice(-6)}`,
+        reference: orderTitle || values.reference || undefined,
         tags: values.tags,
         invoice_ids: invoiceLinks
       };
@@ -2008,9 +1900,9 @@ const formConfigs = {
     title: "Add Quotation",
     endpoint: "/api/quotations",
     fields: [
-      { name: "reference", label: "Quote #", placeholder: "Auto" },
+      { name: "reference", label: "Quote # (auto-generated if empty)", placeholder: "QT-20260318-143045" },
       { name: "title", label: "Title", placeholder: "e.g. Q1 supply proposal" },
-      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Rejected"] },
       { name: "company_id", label: "Company", type: "select", options: ["-- Select company --"] },
       { name: "company_id_manual", label: "Company ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "contact_id", label: "Contact", type: "select", options: ["-- Select contact --"] },
@@ -2028,10 +1920,16 @@ const formConfigs = {
     submit: async (values) => {
       const manualCompanyId = num(values.company_id_manual);
       const manualContactId = num(values.contact_id_manual);
+      // Use raw string for MongoDB ObjectIds; fall back to manual integer ids
+      const companyId = manualCompanyId ?? (values.company_id && values.company_id !== "-- Select company --" ? values.company_id : null);
+      const contactId = manualContactId ?? (values.contact_id && values.contact_id !== "-- Select contact --" ? values.contact_id : null);
+      // Clean up customer_name — strip placeholder text
+      const rawCustomer = values.customer_name || "";
+      const customerName = rawCustomer.startsWith("-- Select") ? "" : rawCustomer;
       const payload = {
-        company_id: manualCompanyId ?? num(values.company_id),
-        contact_id: manualContactId ?? num(values.contact_id),
-        customer_name: values.customer_name,
+        company_id: companyId,
+        contact_id: contactId,
+        customer_name: customerName,
         currency: values.currency || "USD",
         exchange_rate: num(values.exchange_rate),
         status: values.status || "Draft",
@@ -2063,12 +1961,13 @@ const formConfigs = {
     title: "Add Invoice",
     endpoint: "/api/invoices",
     fields: [
-      { name: "reference", label: "Invoice number (auto-generated if empty)", placeholder: "INV-2025" },
+      { name: "reference", label: "Invoice number (auto-generated if empty)", placeholder: "INV-20260318-143045" },
       { name: "attachment_key", label: "Choose documents (optional)", type: "select", multiple: true, options: ["-- Select document --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact (optional) --"] },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
       { name: "customer_name", label: "Customer name (auto-filled if contact/company selected)", placeholder: "Customer name" },
       { name: "total_amount", label: "Total amount", type: "number", step: "0.01" },
+      { name: "due_date", label: "Due date (optional)", type: "date" },
       { name: "currency", label: "Currency", placeholder: "USD" },
       {
         name: "status",
@@ -2081,9 +1980,10 @@ const formConfigs = {
     async submit(values) {
       const attachmentKeys = normalizeSelectValues(values.attachment_key);
       const payload = {
-        company_id: num(values.company_id),
-        contact_id: num(values.contact_id),
+        company_id: num(values.company_id) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
+        contact_id: num(values.contact_id) ?? (values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null),
         total_amount: num(values.total_amount) ?? 0,
+        due_date: values.due_date || null,
         currency: values.currency || "USD",
         status: values.status || "Unpaid",
         reference: values.reference || undefined,
@@ -2115,12 +2015,17 @@ const formConfigs = {
       { name: "file", label: "Select Files (multiple allowed)", type: "file", multiple: true }
     ],
     transform(values) {
+      const toSafeId = (v) => {
+        if (!v || String(v).startsWith("--")) return null;
+        const n = num(v);
+        return n !== undefined ? n : v;
+      };
       return {
         title: values.title,
-        company_id: num(values.company_id),
-        contact_id: num(values.contact_id),
-        invoice_id: num(values.invoice_id),
-        doc_type_id: num(values.doc_type_id),
+        company_id: toSafeId(values.company_id),
+        contact_id: toSafeId(values.contact_id),
+        invoice_id: toSafeId(values.invoice_id),
+        doc_type_id: toSafeId(values.doc_type_id),
         content_type: values.contentType || undefined,
         tags: values.tags
       };
@@ -2142,25 +2047,16 @@ const formConfigs = {
       if (values.doc_type_id) formData.append("doc_type_id", values.doc_type_id);
       if (values.contentType) formData.append("contentType", values.contentType);
       tags.forEach((tag) => formData.append("tags", String(tag)));
-
       files.forEach((file) => formData.append("file", file));
 
-      try {
-        const res = await apiFetch("/api/upload", {
-          method: "POST",
-          body: formData
-        });
-        if (!res.ok) {
-          const err = await res.text();
-          throw new Error(err);
-        }
-        const data = await res.json();
-        showToast(`Uploaded ${data.uploaded || 0} documents successfully`);
-        cacheBypassTables.add("documents");
-      } catch (err) {
-        console.error(err);
-        showToast("Upload failed: " + err.message);
+      const res = await apiFetch("/api/upload", { method: "POST", body: formData });
+      if (!res.ok) {
+        const errMsg = await readApiError(res, "Upload failed");
+        throw new Error(errMsg);
       }
+      const data = await res.json();
+      cacheBypassTables.add("documents");
+      return data;
     }
   },
   sample_shipments: {
@@ -2179,10 +2075,11 @@ const formConfigs = {
       { name: "notes", label: "Notes", type: "textarea", placeholder: "Special handling, recipient contact, etc." }
     ],
     transform(values) {
+      const safeId = (v) => num(v) ?? (v && !String(v).startsWith("--") ? v : null);
       return {
-        company_id: num(values.company_id),
-        product_id: num(values.product_id),
-        document_id: num(values.document_id),
+        company_id: safeId(values.company_id),
+        product_id: safeId(values.product_id),
+        document_id: safeId(values.document_id),
         receiving_address: values.receiving_address,
         phone: values.phone,
         quantity: nonNegativeNumber(values.quantity),
@@ -2204,9 +2101,10 @@ const formConfigs = {
         return;
       }
 
+      const safeId = (v) => num(v) ?? (v && !String(v).startsWith("--") ? v : null);
       const base = {
-        company_id: num(values.company_id),
-        document_id: num(values.document_id),
+        company_id: safeId(values.company_id),
+        document_id: safeId(values.document_id),
         receiving_address: values.receiving_address,
         phone: values.phone,
         waybill_number: values.waybill_number,
@@ -2219,7 +2117,7 @@ const formConfigs = {
         const quantity = nonNegativeNumber(line.quantity);
         const payload = {
           ...base,
-          product_id: num(line.product_id),
+          product_id: num(line.product_id) ?? (line.product_id || undefined),
           quantity
         };
         await submitJson("/api/sample_shipments", payload);
@@ -2249,9 +2147,10 @@ const formConfigs = {
     ],
     transform(values) {
       return {
-        order_id: num(values.order_id),
-        invoice_id: num(values.invoice_id),
-        company_id: num(values.company_id),
+        order_id: values.order_id || null,
+        invoice_id: values.invoice_id || null,
+        company_id: values.company_id || null,
+        company_name: values.company_name || null,
         factory_exit_date: values.factory_exit_date || null,
         etc_date: values.etc_date || null,
         etd_date: values.etd_date || null,
@@ -2504,6 +2403,7 @@ function initNavigation() {
       }, 0);
     });
   });
+  initBottomNav();
   renderSection("dashboard");
 }
 
@@ -2519,6 +2419,28 @@ function setActiveNav(section) {
     btn.classList.toggle("active", btn.dataset.section === section);
   });
   setSectionTitleForSection(section);
+  syncBottomNav(section);
+}
+
+function syncBottomNav(section) {
+  document.querySelectorAll(".mobile-bnav-item").forEach((item) => {
+    item.classList.toggle("active", item.dataset.section === section);
+  });
+}
+
+function initBottomNav() {
+  document.querySelectorAll(".mobile-bnav-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      const section = item.dataset.section;
+      if (!section) return;
+      if (!canAccessSection(section)) {
+        showToast(t("access.restricted.toast", "Access restricted. Ask an admin for access."));
+        return;
+      }
+      setActiveNav(section);
+      renderSection(section);
+    });
+  });
 }
 
 async function renderSection(section) {
@@ -2676,6 +2598,37 @@ function renderDashboardSearchResults(results) {
     .join("");
 }
 
+function renderPipelineList(items, summary) {
+  if (!items.length) return '<div class="empty">No pipeline activity yet.</div>';
+  const summaryBar = summary
+    ? `<div class="pipeline-summary-bar">
+        <span><strong>${summary.quotations}</strong> Quotations</span>
+        <span><strong>${summary.orders}</strong> Active Orders</span>
+        <span><strong>${formatCurrency(summary.unpaidAmount, "USD")}</strong> Unpaid</span>
+      </div>`
+    : "";
+  const rows = items.map((item) => {
+    const typePill = item.type === "invoice"
+      ? `<span class="pill warning" style="font-size:0.7rem;padding:1px 7px">Invoice</span>`
+      : `<span class="pill info" style="font-size:0.7rem;padding:1px 7px">Order</span>`;
+    const entity = item.type === "invoice" ? "invoices" : "orders";
+    const dateStr = item.date ? new Date(item.date).toLocaleDateString() : "";
+    return `<div class="pipeline-row" data-pipeline-entity="${entity}" data-pipeline-id="${item.id}" style="cursor:pointer">
+      <div class="pipeline-row-left">
+        ${typePill}
+        <span class="pipeline-ref">${escapeHtml(item.ref || "-")}</span>
+        <span class="pipeline-account">${escapeHtml(item.account || "-")}</span>
+      </div>
+      <div class="pipeline-row-right">
+        <span class="pipeline-amount">${formatCurrency(item.amount, item.currency)}</span>
+        ${badge(item.statusType || "info", item.status || "-")}
+        <span class="pipeline-date">${dateStr}</span>
+      </div>
+    </div>`;
+  }).join("");
+  return `${summaryBar}<div class="pipeline-list">${rows}</div>`;
+}
+
 async function renderDashboard() {
   setSectionTitleForSection("dashboard");
   sectionContent.innerHTML = `
@@ -2683,7 +2636,7 @@ async function renderDashboard() {
       <div>
         <div class="eyebrow" data-i18n="dashboard.overview">Workspace Overview</div>
         <h2 class="page-title" data-i18n="nav.dashboard">Dashboard</h2>
-        <div class="page-meta" data-i18n="dashboard.subtitle">Live counts from D1 with quick pipeline and activity views.</div>
+        <div class="page-meta" data-i18n="dashboard.subtitle">Live workspace data with quick pipeline and activity views.</div>
       </div>
       <div class="actions">
         <button class="btn" id="refresh-dashboard">
@@ -2735,6 +2688,7 @@ async function renderDashboard() {
   let stats = { ...statDefaults };
   let activity = [];
   let pipelineRows = [];
+  let pipelineSummary = null;
 
   try {
     const res = await apiFetch("/api/dashboard");
@@ -2742,14 +2696,8 @@ async function renderDashboard() {
       const data = await res.json();
       stats = { ...stats, ...data.stats };
       activity = data.activity ?? activity;
-      pipelineRows = data.pipeline
-        ? data.pipeline.map((item) => [
-            item.ref,
-            item.account,
-            item.amount,
-            badge(item.statusType || "info", item.status)
-          ])
-        : pipelineRows;
+      pipelineRows = data.pipeline ?? [];
+      pipelineSummary = data.pipelineSummary ?? null;
     }
   } catch (err) {
     console.debug("Falling back to default dashboard data", err);
@@ -2878,7 +2826,7 @@ async function renderDashboard() {
             </div>
             <div class="stat-pill">
               <span class="badge-dot" style="background:${color}"></span>
-              Synced from D1
+              Live data
             </div>
           </div>
         `;
@@ -2888,12 +2836,15 @@ async function renderDashboard() {
 
   const pipelineTable = document.getElementById("pipeline-table");
   if (pipelineTable) {
-    pipelineTable.innerHTML = renderTable(
-      ["Ref", "Account", "Amount", "Status"],
-      pipelineRows,
-      "pipeline",
-      false
-    );
+    pipelineTable.innerHTML = renderPipelineList(pipelineRows, pipelineSummary);
+    pipelineTable.querySelectorAll("[data-pipeline-entity]").forEach((row) => {
+      row.addEventListener("click", () => {
+        const entity = row.dataset.pipelineEntity;
+        const id = row.dataset.pipelineId;
+        const record = (tableRecords[entity] || []).find((r) => String(r.id) === id);
+        if (record) openPreviewModal(entity, record);
+      });
+    });
   }
 
   const activityFeed = document.getElementById("activity-feed");
@@ -3127,44 +3078,35 @@ async function renderAnalytics() {
         <h2 class="page-title">Analytics</h2>
         <div class="page-meta">Core KPIs, operational trends, and forecasts.</div>
       </div>
-      <div class="actions">
-        <button class="btn" id="refresh-analytics">
-          <i data-lucide="refresh-ccw"></i>
-          Refresh
-        </button>
+    </div>
+    <div class="analytics-filter-bar">
+      <div class="date-presets">
+        <span class="analytics-filter-label">Period</span>
+        <button class="date-chip" data-days="7">7d</button>
+        <button class="date-chip" data-days="30">30d</button>
+        <button class="date-chip" data-days="90">90d</button>
+        <button class="date-chip" data-days="365">1y</button>
+      </div>
+      <div class="analytics-filter-row">
+        <div class="analytics-filter">
+          <label for="analytics-start">From</label>
+          <input type="date" id="analytics-start" />
+        </div>
+        <div class="analytics-filter">
+          <label for="analytics-end">To</label>
+          <input type="date" id="analytics-end" />
+        </div>
+        <div class="analytics-filter">
+          <label for="analytics-currency">Currency</label>
+          <input type="text" id="analytics-currency" placeholder="USD" style="max-width:80px" />
+        </div>
+        <div class="analytics-filter" style="flex-direction:row;align-items:flex-end;gap:8px;">
+          <button class="btn primary" id="analytics-apply">Apply</button>
+          <button class="btn" id="refresh-analytics" title="Refresh"><i data-lucide="refresh-ccw"></i></button>
+        </div>
       </div>
     </div>
-    <div class="analytics-filters">
-      <div class="analytics-filter">
-        <label for="analytics-start">Start date</label>
-        <input type="date" id="analytics-start" />
-      </div>
-      <div class="analytics-filter">
-        <label for="analytics-end">End date</label>
-        <input type="date" id="analytics-end" />
-      </div>
-      <div class="analytics-filter">
-        <label for="analytics-company">Company ID</label>
-        <input type="number" id="analytics-company" placeholder="Optional" />
-      </div>
-      <div class="analytics-filter">
-        <label for="analytics-currency">Currency</label>
-        <input type="text" id="analytics-currency" placeholder="USD" />
-      </div>
-      <div class="analytics-filter">
-        <label for="analytics-status">Status</label>
-        <input type="text" id="analytics-status" placeholder="Open" />
-      </div>
-      <div class="analytics-filter">
-        <label for="analytics-assignee">Assignee</label>
-        <input type="text" id="analytics-assignee" placeholder="Owner" />
-      </div>
-      <div class="analytics-filter">
-        <label>&nbsp;</label>
-        <button class="btn primary" id="analytics-apply">Apply filters</button>
-      </div>
-    </div>
-    <div class="stat-grid" id="analytics-kpis"></div>
+    <div id="analytics-kpis"></div>
     <div class="analytics-grid">
       <div class="panel">
         <div class="panel-header">
@@ -3226,6 +3168,26 @@ async function renderAnalytics() {
         </div>
         <div class="analytics-chart" id="analytics-samples-chart"></div>
       </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="building-2"></i>
+            Top companies by revenue
+          </h3>
+          <div class="stat-label">Paid invoices, selected period</div>
+        </div>
+        <div class="analytics-chart" id="analytics-companies-chart"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-header">
+          <h3 class="panel-title panel-title-icon">
+            <i data-lucide="alert-circle"></i>
+            Invoice aging
+          </h3>
+          <div class="stat-label">Unpaid invoices by days past due</div>
+        </div>
+        <div class="analytics-chart" id="analytics-aging-chart"></div>
+      </div>
     </div>
     <div class="panel">
       <div class="panel-header">
@@ -3255,28 +3217,34 @@ async function renderAnalytics() {
 
   const startInput = document.getElementById("analytics-start");
   const endInput = document.getElementById("analytics-end");
-  const companyInput = document.getElementById("analytics-company");
   const currencyInput = document.getElementById("analytics-currency");
-  const statusInput = document.getElementById("analytics-status");
-  const assigneeInput = document.getElementById("analytics-assignee");
   if (startInput) startInput.value = analyticsState.start;
   if (endInput) endInput.value = analyticsState.end;
-  if (companyInput) companyInput.value = analyticsState.companyId;
   if (currencyInput) currencyInput.value = analyticsState.currency;
-  if (statusInput) statusInput.value = analyticsState.status;
-  if (assigneeInput) assigneeInput.value = analyticsState.assignee;
 
   document.getElementById("analytics-apply")?.addEventListener("click", () => {
     analyticsState.start = startInput?.value || analyticsState.start;
     analyticsState.end = endInput?.value || analyticsState.end;
-    analyticsState.companyId = (companyInput?.value || "").trim();
     analyticsState.currency = (currencyInput?.value || "").trim().toUpperCase();
-    analyticsState.status = (statusInput?.value || "").trim();
-    analyticsState.assignee = (assigneeInput?.value || "").trim();
     renderAnalytics();
   });
 
   document.getElementById("refresh-analytics")?.addEventListener("click", () => renderAnalytics());
+
+  // Date preset chips
+  const daysDiff = Math.round((new Date(analyticsState.end).getTime() - new Date(analyticsState.start).getTime()) / 86400000);
+  document.querySelectorAll(".date-chip").forEach((chip) => {
+    if (parseInt(chip.dataset.days) === daysDiff) chip.classList.add("active");
+    chip.addEventListener("click", () => {
+      const days = parseInt(chip.dataset.days);
+      const end = new Date();
+      const start = new Date(Date.now() - days * 86400000);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      analyticsState.start = fmt(start);
+      analyticsState.end = fmt(end);
+      renderAnalytics();
+    });
+  });
 
   const baseParams = {
     start: analyticsState.start,
@@ -3288,22 +3256,10 @@ async function renderAnalytics() {
   };
 
   try {
-    const [
-      kpis,
-      revenueSeries,
-      openInvoicesSeries,
-      pipeline,
-      tasksStatus,
-      shippingStatus,
-      samplesSeries,
-      forecastRevenue,
-      forecastTasks,
-      forecastShipping,
-      dataQualityPayload
-    ] = await Promise.all([
+    const settled = await Promise.allSettled([
       fetchAnalyticsJson("/api/kpis", baseParams),
       fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "revenue", grain: "week" }),
-      fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "invoices", grain: "week", status: "Open" }),
+      fetchAnalyticsJson("/api/timeseries", { ...baseParams, metric: "invoices", grain: "week" }),
       fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "quotations", metric: "revenue" }),
       fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "tasks", metric: "count" }),
       fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "status", source: "shipping_schedules", metric: "count" }),
@@ -3311,48 +3267,93 @@ async function renderAnalytics() {
       fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "revenue", grain: "month", horizon: 12 }),
       fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "tasks", grain: "month", horizon: 12 }),
       fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "shipping", grain: "month", horizon: 12 }),
-      fetchAnalyticsJson("/api/data-quality", {})
+      fetchAnalyticsJson("/api/data-quality", {}),
+      fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "company_name", source: "invoices", metric: "revenue" }),
+      fetchAnalyticsJson("/api/invoice-aging", {})
     ]);
+    const ok = (i, fallback) => settled[i].status === "fulfilled" ? settled[i].value : (console.warn("Analytics call", i, "failed:", settled[i].reason), fallback);
+    const kpis = ok(0, {});
+    const revenueSeries = ok(1, { data: [] });
+    const openInvoicesSeries = ok(2, { data: [] });
+    const pipeline = ok(3, { data: [] });
+    const tasksStatus = ok(4, { data: [] });
+    const shippingStatus = ok(5, { data: [] });
+    const samplesSeries = ok(6, { data: [] });
+    const forecastRevenue = ok(7, {});
+    const forecastTasks = ok(8, {});
+    const forecastShipping = ok(9, {});
+    const dataQualityPayload = ok(10, { data: {} });
+    const companiesRevenue = ok(11, { data: [] });
+    const invoiceAging = ok(12, { data: [] });
 
     const currency = analyticsState.currency || "USD";
-    const kpiCards = [
-      { label: "Total revenue", value: formatCurrency(kpis.total_revenue, currency) },
-      { label: "Open invoices", value: formatCurrency(kpis.invoice_total_open, currency) },
-      { label: "Quotation pipeline", value: formatCurrency(kpis.quotation_pipeline, currency) },
-      { label: "Orders", value: formatCount(kpis.order_count) },
-      { label: "Invoices", value: formatCount(kpis.invoice_count) },
-      { label: "Quotations", value: formatCount(kpis.quotation_count) },
-      { label: "Active companies", value: formatCount(kpis.company_count_active) },
-      { label: "Overdue invoices", value: formatCount(kpis.overdue_invoice_count) },
-      { label: "Tasks due 7d", value: formatCount(kpis.tasks_due_7d) },
-      { label: "Tasks overdue", value: formatCount(kpis.tasks_overdue) }
+
+    const trendBadge = (rawValue, prev) => {
+      if (prev == null || prev === 0) return "";
+      const current = typeof rawValue === "number" ? rawValue : parseFloat(String(rawValue).replace(/[^0-9.-]/g, "")) || 0;
+      const pct = ((current - prev) / prev * 100).toFixed(1);
+      const up = current >= prev;
+      return `<div class="stat-trend ${up ? "trend-up" : "trend-down"}">${up ? "↑" : "↓"} ${Math.abs(Number(pct))}%</div>`;
+    };
+
+    const kpiGroups = [
+      {
+        label: "Financial", icon: "dollar-sign", color: "#2563eb",
+        cards: [
+          { label: "Total revenue", value: formatCurrency(kpis.total_revenue, currency), rawVal: kpis.total_revenue, prev: kpis.prev_total_revenue },
+          { label: "Open invoices", value: formatCurrency(kpis.invoice_total_open, currency) },
+          { label: "Quotation pipeline", value: formatCurrency(kpis.quotation_pipeline, currency) },
+          { label: "Overdue invoices", value: formatCount(kpis.overdue_invoice_count), alert: kpis.overdue_invoice_count > 0 }
+        ]
+      },
+      {
+        label: "Operations", icon: "layers", color: "#7c3aed",
+        cards: [
+          { label: "Orders", value: formatCount(kpis.order_count), rawVal: kpis.order_count, prev: kpis.prev_order_count },
+          { label: "Invoices", value: formatCount(kpis.invoice_count), rawVal: kpis.invoice_count, prev: kpis.prev_invoice_count },
+          { label: "Quotations", value: formatCount(kpis.quotation_count), rawVal: kpis.quotation_count, prev: kpis.prev_quotation_count },
+          { label: "Active companies", value: formatCount(kpis.company_count_active) }
+        ]
+      },
+      {
+        label: "Tasks", icon: "check-square", color: "#16a34a",
+        cards: [
+          { label: "Not Started", value: formatCount(kpis.tasks_not_started) },
+          { label: "In Progress", value: formatCount(kpis.tasks_in_progress), alert: kpis.tasks_in_progress > 0 },
+          { label: "Done", value: formatCount(kpis.tasks_done) },
+          { label: "Overdue", value: formatCount(kpis.tasks_overdue), alert: kpis.tasks_overdue > 0 }
+        ]
+      }
     ];
 
     const kpiSlot = document.getElementById("analytics-kpis");
     if (kpiSlot) {
-      kpiSlot.innerHTML = kpiCards
-        .map((card) => {
-          const color = accentColor(card.label);
-          const icon = iconForStatLabel(card.label);
-          return `
-            <div class="stat-card stat-card-icon">
-              <div class="stat-card-head">
-                <div class="stat-icon" style="background:${soften(color)};color:${color}">
-                  <i data-lucide="${icon}"></i>
+      kpiSlot.innerHTML = kpiGroups.map((group) => `
+        <div class="kpi-section">
+          <div class="kpi-section-head" style="color:${group.color}">
+            <i data-lucide="${group.icon}"></i>
+            ${group.label}
+          </div>
+          <div class="kpi-section-grid">
+            ${group.cards.map((card) => {
+              const color = card.alert ? "#ef4444" : group.color;
+              const icon = iconForStatLabel(card.label);
+              return `<div class="stat-card stat-card-icon">
+                <div class="stat-card-head">
+                  <div class="stat-icon" style="background:${soften(color)};color:${color}">
+                    <i data-lucide="${icon}"></i>
+                  </div>
+                  <div>
+                    <div class="stat-label">${card.label}</div>
+                    <div class="stat-value" style="color:${card.alert ? "#ef4444" : "var(--text)"}">${card.value}</div>
+                  </div>
                 </div>
-                <div>
-                  <div class="stat-label">${card.label}</div>
-                  <div class="stat-value">${card.value}</div>
-                </div>
-              </div>
-              <div class="stat-pill">
-                <span class="badge-dot" style="background:${color}"></span>
-                Updated
-              </div>
-            </div>
-          `;
-        })
-        .join("");
+                ${card.prev != null ? trendBadge(card.rawVal ?? card.value, card.prev) : ""}
+              </div>`;
+            }).join("")}
+          </div>
+        </div>
+      `).join("");
     }
 
     destroyAnalyticsCharts();
@@ -3382,6 +3383,14 @@ async function renderAnalytics() {
       buildAnalyticsLineOption(samplesSeries.data || [], "Samples", "#8b5cf6")
     );
     initAnalyticsChart(
+      "analytics-companies-chart",
+      buildAnalyticsBarOption((companiesRevenue.data || []).slice(0, 8), "Revenue", "#2563eb")
+    );
+    initAnalyticsChart(
+      "analytics-aging-chart",
+      buildAnalyticsBarOption(invoiceAging.data || [], "Invoices", "#ef4444")
+    );
+    initAnalyticsChart(
       "analytics-forecast-revenue",
       buildAnalyticsForecastOption(forecastRevenue, "Revenue", "#2563eb")
     );
@@ -3399,30 +3408,24 @@ async function renderAnalytics() {
     if (qualitySlot) {
       const missing = quality.missing_fields || {};
       const orphans = quality.orphans || {};
+      const allItems = [
+        ...Object.entries(missing).map(([key, value]) => ({ key, value: Number(value), type: "missing" })),
+        ...Object.entries(orphans).map(([key, value]) => ({ key, value: Number(value), type: "orphan" }))
+      ];
       qualitySlot.innerHTML = `
-        <div class="analytics-grid">
-          <div class="panel">
-            <div class="panel-header">
-              <h4 class="panel-title panel-title-icon">
-                <i data-lucide="notebook"></i>
-                Missing fields
-              </h4>
-            </div>
-            <div class="stat-label">${Object.entries(missing)
-              .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
-              .join("<br />")}</div>
-          </div>
-          <div class="panel">
-            <div class="panel-header">
-              <h4 class="panel-title panel-title-icon">
-                <i data-lucide="alert-triangle"></i>
-                Orphans
-              </h4>
-            </div>
-            <div class="stat-label">${Object.entries(orphans)
-              .map(([key, value]) => `${key.replace(/_/g, " ")}: ${formatCount(value)}`)
-              .join("<br />")}</div>
-          </div>
+        <div class="quality-grid">
+          ${allItems.map(({ key, value }) => {
+            const ok = value === 0;
+            const cls = ok ? "quality-item-ok" : value > 5 ? "quality-item-bad" : "quality-item-warn";
+            const icon = ok ? "check-circle" : value > 5 ? "alert-circle" : "alert-triangle";
+            return `<div class="quality-item ${cls}">
+              <i data-lucide="${icon}"></i>
+              <div>
+                <div class="quality-label">${key.replace(/_/g, " ")}</div>
+                <div class="quality-count">${formatCount(value)}</div>
+              </div>
+            </div>`;
+          }).join("")}
         </div>
       `;
     }
@@ -3432,305 +3435,6 @@ async function renderAnalytics() {
     destroyAnalyticsCharts();
   }
   lucide?.createIcons();
-}
-
-async function renderChat() {
-  setSectionTitleForSection("chat");
-  aiChatMessages = loadAiChatState();
-  const suggestions = [
-    { key: "chat.suggest.pipeline", fallback: "Summarize pipeline risk this month" },
-    { key: "chat.suggest.overdue", fallback: "Which invoices are overdue right now?" },
-    { key: "chat.suggest.followups", fallback: "What follow-ups are at risk this week?" }
-  ];
-
-  sectionContent.innerHTML = `
-    <div class="page-header">
-      <div>
-        <div class="eyebrow" data-i18n="chat.label">AI Assistant</div>
-        <h2 class="page-title" data-i18n="chat.title">Research chat</h2>
-        <div class="page-meta" data-i18n="chat.subtitle">Ask questions about pipeline, revenue, tasks, and data quality.</div>
-      </div>
-      <div class="actions">
-        <button class="btn ghost small" id="ai-chat-clear" data-i18n="chat.actions.clear">Clear chat</button>
-      </div>
-    </div>
-    <div class="panel ai-chat-panel">
-      <div class="ai-chat-thread" id="ai-chat-thread"></div>
-      <div class="ai-chat-suggestions" id="ai-chat-suggestions">
-        ${suggestions
-          .map(
-            (item) =>
-              `<button type="button" class="btn ghost small ai-chat-suggestion" data-ai-suggest-key="${escapeHtml(
-                item.key
-              )}" data-ai-suggest-fallback="${escapeHtml(item.fallback)}" data-i18n="${item.key}">${escapeHtml(
-                item.fallback
-              )}</button>`
-          )
-          .join("")}
-      </div>
-      <div class="ai-chat-footer">
-        <div class="ai-chat-controls">
-          <label class="ai-chat-toggle">
-            <input type="checkbox" id="ai-chat-data-quality" checked />
-            <span data-i18n="chat.toggle.dataQuality">Include data quality signals</span>
-          </label>
-          <label class="ai-chat-toggle">
-            <input type="checkbox" id="ai-chat-edit-mode" />
-            <span data-i18n="chat.toggle.editMode">Propose edits</span>
-          </label>
-          <label class="ai-chat-select">
-            <span data-i18n="chat.limit.label">Rows per table</span>
-            <select id="ai-chat-limit">
-              <option value="3">3</option>
-              <option value="5" selected>5</option>
-              <option value="8">8</option>
-              <option value="10">10</option>
-            </select>
-          </label>
-        </div>
-        <form id="ai-chat-form" class="ai-chat-form">
-          <label class="ai-chat-input-wrap">
-            <span class="sr-only" data-i18n="chat.input.label">Ask about your CRM data</span>
-            <textarea id="ai-chat-input" class="ai-chat-input" rows="3" data-i18n-placeholder="chat.input.placeholder" placeholder="e.g. Which invoices are overdue and need attention?"></textarea>
-          </label>
-          <button type="submit" class="btn primary" id="ai-chat-send" data-i18n="chat.actions.send">Send</button>
-        </form>
-        <div class="ai-chat-hint" data-i18n="chat.hint">Shift+Enter for a new line.</div>
-      </div>
-    </div>
-  `;
-
-  const thread = document.getElementById("ai-chat-thread");
-  const form = document.getElementById("ai-chat-form");
-  const input = document.getElementById("ai-chat-input");
-  const clearButton = document.getElementById("ai-chat-clear");
-  const suggestWrap = document.getElementById("ai-chat-suggestions");
-  const dataQualityToggle = document.getElementById("ai-chat-data-quality");
-  const editToggle = document.getElementById("ai-chat-edit-mode");
-  const limitSelect = document.getElementById("ai-chat-limit");
-  const sendButton = document.getElementById("ai-chat-send");
-
-  const renderThread = () => {
-    if (!thread) return;
-    if (!aiChatMessages.length) {
-      thread.innerHTML = `<div class="ai-chat-empty">${t("chat.empty", "Start a conversation to analyze your CRM data.")}</div>`;
-      return;
-    }
-    thread.innerHTML = aiChatMessages
-      .map((message) => {
-        const content = escapeHtml(formatAiChatText(message.content || ""));
-        const metaParts = [];
-        if (message.role === "assistant" && message.meta) {
-          if (message.meta.model) {
-            metaParts.push(`${t("chat.meta.model", "Model")}: ${escapeHtml(String(message.meta.model))}`);
-          }
-          if (Array.isArray(message.meta.tables) && message.meta.tables.length) {
-            metaParts.push(`${t("chat.meta.tables", "Tables")}: ${escapeHtml(message.meta.tables.join(", "))}`);
-          }
-        }
-        const meta = metaParts.length ? `<div class="ai-chat-meta">${metaParts.join(" · ")}</div>` : "";
-        const classes = ["ai-chat-message"];
-        if (message.pending) classes.push("pending");
-        if (message.error) classes.push("error");
-        const actions = Array.isArray(message.actions) ? message.actions : [];
-        const actionsMarkup = actions.length
-          ? `
-            <div class="ai-chat-actions">
-              <div class="ai-chat-actions-title">${t("chat.actions.proposed", "Proposed changes")}</div>
-              ${actions
-                .map((action, index) => {
-                  const changes = action?.changes && typeof action.changes === "object"
-                    ? Object.entries(action.changes)
-                      .map(([key, value]) => `${key}: ${formatAiChatText(value)}`)
-                      .join(" | ")
-                    : "";
-                  const disabled = action?.applied || action?.applying;
-                  const label = action?.applied
-                    ? t("chat.actions.applied", "Applied")
-                    : action?.applying
-                      ? t("chat.actions.applying", "Applying...")
-                      : t("chat.actions.apply", "Apply");
-                  return `
-                    <div class="ai-chat-action">
-                      <div class="ai-chat-action-main">
-                        <div class="ai-chat-action-title">${escapeHtml(String(action?.table || ""))} #${escapeHtml(String(action?.id || ""))}</div>
-                        <div class="ai-chat-action-changes">${escapeHtml(changes)}</div>
-                        ${action?.reason ? `<div class="ai-chat-action-reason">${escapeHtml(String(action.reason))}</div>` : ""}
-                      </div>
-                      <button type="button" class="btn small ai-chat-action-btn" data-ai-apply="true" data-message-id="${escapeHtml(String(message.id))}" data-action-index="${index}" ${disabled ? "disabled" : ""}>${escapeHtml(label)}</button>
-                    </div>
-                  `;
-                })
-                .join("")}
-            </div>
-          `
-          : "";
-        return `
-          <div class="${classes.join(" ")}" data-role="${escapeHtml(message.role || "assistant")}" data-message-id="${escapeHtml(String(message.id))}">
-            <div class="ai-chat-text">${content || ""}</div>
-            ${meta}
-            ${actionsMarkup}
-          </div>
-        `;
-      })
-      .join("");
-    thread.scrollTop = thread.scrollHeight;
-  };
-
-  const setSending = (sending) => {
-    if (input instanceof HTMLTextAreaElement) {
-      input.disabled = sending;
-    }
-    if (sendButton instanceof HTMLButtonElement) {
-      sendButton.disabled = sending;
-    }
-  };
-
-  const pushMessage = (message) => {
-    aiChatMessages.push(message);
-    if (aiChatMessages.length > aiChatMaxMessages) {
-      aiChatMessages = aiChatMessages.slice(aiChatMessages.length - aiChatMaxMessages);
-    }
-    persistAiChatState(aiChatMessages);
-  };
-
-  const handleSend = async (text) => {
-    const question = text.trim();
-    if (!question) return;
-    const now = new Date().toISOString();
-    const userMessage = { id: Date.now(), role: "user", content: question, createdAt: now };
-    const pendingMessage = {
-      id: Date.now() + 1,
-      role: "assistant",
-      content: t("chat.status.thinking", "Thinking..."),
-      createdAt: now,
-      pending: true
-    };
-    pushMessage(userMessage);
-    pushMessage(pendingMessage);
-    renderThread();
-    setSending(true);
-    if (input instanceof HTMLTextAreaElement) {
-      input.value = "";
-      input.focus();
-    }
-
-    try {
-      const editMode = editToggle instanceof HTMLInputElement ? editToggle.checked : false;
-      const payload = {
-        question,
-        includeDataQuality: dataQualityToggle instanceof HTMLInputElement ? dataQualityToggle.checked : true,
-        limit: limitSelect instanceof HTMLSelectElement ? Number(limitSelect.value) : undefined
-      };
-      const res = await apiFetch(editMode ? "/api/ai/propose" : "/api/ai/research", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!res.ok) {
-        throw new Error(await readApiError(res, t("chat.status.error", "Unable to reach AI assistant.")));
-      }
-      const data = await res.json().catch(() => ({}));
-      const responseText = formatAiChatText(
-        editMode ? data.summary || data.response || "" : data.response || data.output_text || data.reply || ""
-      );
-      pendingMessage.content = responseText || t("chat.status.error", "Unable to reach AI assistant.");
-      pendingMessage.pending = false;
-      pendingMessage.meta = { model: data.model || "", tables: data.tables || [] };
-      if (editMode && Array.isArray(data.actions)) {
-        pendingMessage.actions = data.actions;
-      }
-      pendingMessage.error = !responseText && !(pendingMessage.actions && pendingMessage.actions.length);
-    } catch (error) {
-      console.error("AI chat error", error);
-      const fallbackError = t("chat.status.error", "Unable to reach AI assistant.");
-      const errorMessage = error instanceof Error && error.message ? error.message : fallbackError;
-      pendingMessage.content = errorMessage;
-      pendingMessage.pending = false;
-      pendingMessage.error = true;
-      showToast(errorMessage);
-    } finally {
-      persistAiChatState(aiChatMessages);
-      renderThread();
-      setSending(false);
-    }
-  };
-
-  form?.addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (input instanceof HTMLTextAreaElement) {
-      handleSend(input.value);
-    }
-  });
-
-  input?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
-      if (input instanceof HTMLTextAreaElement) {
-        handleSend(input.value);
-      }
-    }
-  });
-
-  clearButton?.addEventListener("click", () => {
-    aiChatMessages = [];
-    persistAiChatState(aiChatMessages);
-    renderThread();
-  });
-
-  suggestWrap?.addEventListener("click", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const key = target.dataset.aiSuggestKey;
-    const fallback = target.dataset.aiSuggestFallback || "";
-    const suggestion = key ? t(key, fallback) : fallback;
-    if (!suggestion) return;
-    if (input instanceof HTMLTextAreaElement) {
-      input.value = suggestion;
-      input.focus();
-    }
-  });
-
-  thread?.addEventListener("click", async (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLElement)) return;
-    const button = target.closest("[data-ai-apply]");
-    if (!(button instanceof HTMLButtonElement)) return;
-    const messageId = Number(button.dataset.messageId);
-    const actionIndex = Number(button.dataset.actionIndex);
-    if (!Number.isFinite(messageId) || !Number.isFinite(actionIndex)) return;
-    const message = aiChatMessages.find((item) => item.id === messageId);
-    if (!message || !Array.isArray(message.actions)) return;
-    const action = message.actions[actionIndex];
-    if (!action || action.applied || action.applying) return;
-    if (!action.table || !action.id || !action.changes) {
-      showToast(t("chat.actions.failed", "Update failed"));
-      return;
-    }
-    action.applying = true;
-    renderThread();
-    try {
-      const res = await apiFetch(`/api/${action.table}/${action.id}`, {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(action.changes)
-      });
-      if (!res.ok) {
-        throw new Error(await readApiError(res, t("chat.actions.failed", "Update failed")));
-      }
-      action.applied = true;
-    } catch (error) {
-      console.error("AI apply error", error);
-      action.error = true;
-      showToast(error instanceof Error ? error.message : t("chat.actions.failed", "Update failed"));
-    } finally {
-      action.applying = false;
-      persistAiChatState(aiChatMessages);
-      renderThread();
-    }
-  });
-
-  renderThread();
 }
 
 async function renderCompanies() {
@@ -3749,6 +3453,11 @@ async function renderCompanies() {
     ],
     fallback.companies
   );
+
+  const companyRecords = tableRecords["companies"] || [];
+  const coActive = companyRecords.filter((r) => r.status === "Active").length;
+  const coProspect = companyRecords.filter((r) => r.status === "Prospect").length;
+  const coChurn = companyRecords.filter((r) => r.status === "Churn Risk").length;
 
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -3791,17 +3500,17 @@ async function renderCompanies() {
     <div class="stat-grid">
       <div class="stat-card">
         <div class="stat-label">Active</div>
-        <div class="stat-value">12</div>
+        <div class="stat-value">${coActive}</div>
         <div class="stat-pill"><span class="badge-dot" style="background:#16a34a"></span>Low churn</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Prospects</div>
-        <div class="stat-value">5</div>
+        <div class="stat-value">${coProspect}</div>
         <div class="stat-pill"><span class="badge-dot" style="background:#2563eb"></span>In nurture</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Churn Risk</div>
-        <div class="stat-value">1</div>
+        <div class="stat-value">${coChurn}</div>
         <div class="stat-pill"><span class="badge-dot" style="background:#f59e0b"></span>Monitor</div>
       </div>
     </div>
@@ -3812,7 +3521,7 @@ async function renderCompanies() {
             <i data-lucide="building-2"></i>
             All Companies
           </h3>
-          <div class="stat-label">Synced from D1, editable inline.</div>
+          <div class="stat-label">Live data, editable inline.</div>
         </div>
         <div class="table-actions">
           <label class="document-search-field">
@@ -3944,6 +3653,11 @@ async function renderProducts() {
     { fetchAll: true }
   );
 
+  const productRecords = tableRecords["products"] || [];
+  const prLive = productRecords.filter((r) => r.status === "Active").length;
+  const prDraft = productRecords.filter((r) => r.status === "Draft").length;
+  const prFirst = productRecords[0] ? productRecords[0].name : "-";
+
   sectionContent.innerHTML = `
     <div class="page-header">
       <div>
@@ -3961,18 +3675,18 @@ async function renderProducts() {
     <div class="stat-grid">
       <div class="stat-card">
         <div class="stat-label">Live SKUs</div>
-        <div class="stat-value">12</div>
+        <div class="stat-value">${prLive}</div>
         <div class="stat-pill"><span class="badge-dot" style="background:#2563eb"></span>Visible to sales</div>
       </div>
       <div class="stat-card">
         <div class="stat-label">Drafts</div>
-        <div class="stat-value">3</div>
+        <div class="stat-value">${prDraft}</div>
         <div class="stat-pill"><span class="badge-dot" style="background:#f59e0b"></span>Need review</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Most Popular</div>
-        <div class="stat-value">Premium Kit</div>
-        <div class="stat-pill"><span class="badge-dot" style="background:#16a34a"></span>+22% MoM</div>
+        <div class="stat-label">First Product</div>
+        <div class="stat-value">${escapeHtml(prFirst)}</div>
+        <div class="stat-pill"><span class="badge-dot" style="background:#16a34a"></span>In catalog</div>
       </div>
     </div>
     <div class="panel">
@@ -4150,7 +3864,7 @@ async function renderPricing() {
     console.debug("Unable to load quotations for pricing", err);
   }
 
-  const items = await loadQuotationItems();
+  const items = deduplicateQuotationItems(deduplicateById(await loadQuotationItems()));
   if (!Array.isArray(items) || !items.length) {
     const emptyPanel = sectionContent.querySelector(".panel");
     if (emptyPanel) {
@@ -4159,14 +3873,18 @@ async function renderPricing() {
     return;
   }
 
-  const quoteLookup = new Map(quotations.map((quote) => [String(quote.id), quote]));
+  const quoteLookup = new Map();
+  quotations.forEach((quote) => {
+    quoteLookup.set(String(quote.id), quote);
+    if (quote.legacy_id != null) quoteLookup.set(String(quote.legacy_id), quote);
+  });
   let companyLookup = null;
   if (quotations.some((quote) => !quote.company_name && quote.company_id)) {
     const companies = await fetchCompaniesList();
     companyLookup = new Map(companies.map((company) => [String(company.id), company.name]));
   }
 
-  const enrichedItems = items.map((item) => {
+  const enrichedItems = items.filter((item) => quoteLookup.has(String(item.quotation_id))).map((item) => {
     const quote = quoteLookup.get(String(item.quotation_id)) || {};
     const reference = quote.reference || quote.title || (item.quotation_id ? `Quotation #${item.quotation_id}` : "");
     const companyName =
@@ -4197,6 +3915,15 @@ async function renderPricing() {
       title: quote.title || item.title || ""
     };
   });
+  const extractPricingRefDate = (ref) => { const m = (ref || "").match(/(\d{8})/); return m ? m[1] : "00000000"; };
+  enrichedItems.sort((a, b) => {
+    const ra = a.quotation_reference || a.reference || "";
+    const rb = b.quotation_reference || b.reference || "";
+    const da = extractPricingRefDate(ra);
+    const db = extractPricingRefDate(rb);
+    if (db !== da) return db.localeCompare(da);
+    return rb.localeCompare(ra);
+  });
   tableRecords.quotation_items = enrichedItems;
 
   const rows = enrichedItems.map((item, recordIndex) => {
@@ -4217,8 +3944,15 @@ async function renderPricing() {
     const exchangeRateValue = Number(item.exchange_rate);
     const exchangeRateLabel = Number.isFinite(exchangeRateValue) ? exchangeRateValue.toLocaleString() : "-";
     const previewButton = `<button class="btn ghost small" data-action="preview" data-entity="quotation_items"><i data-lucide="eye"></i>Preview</button>`;
+    const quotationStatus = item.quotation_status || "";
+    const statusTone = quotationStatus === "Accepted" ? "success"
+      : quotationStatus === "Rejected" ? "danger"
+      : quotationStatus === "Draft" ? "warning"
+      : quotationStatus === "Sent" ? "info"
+      : "";
     return {
       recordIndex,
+      statusTone,
       companyKey: String(companyName || "").toLowerCase(),
       itemKey: String(productName || "").toLowerCase(),
       companyLabel: companyName,
@@ -4315,6 +4049,11 @@ async function renderPricing() {
       0,
       rowIndexList
     );
+    pageRows.forEach((row) => {
+      if (!row.statusTone) return;
+      const tr = tableSlot.querySelector(`tr[data-row-index="${row.recordIndex}"]`);
+      if (tr) tr.classList.add(`row-status-${row.statusTone}`);
+    });
     lucide?.createIcons();
   };
 
@@ -4493,24 +4232,28 @@ async function renderOrders() {
 
 async function renderQuotations() {
   setSectionTitleForSection("quotations");
-  const rows = await loadTableFromApi(
+  const seenQuotationRefs = new Set();
+  const quotationRowMapper = (r) => {
+    if (r.reference && seenQuotationRefs.has(r.reference)) return null;
+    if (r.reference) seenQuotationRefs.add(r.reference);
+    const tone = r.status === "Accepted" ? "success" : r.status === "Rejected" ? "danger" : r.status === "Draft" ? "warning" : "info";
+    const companyName = r.company_name || "-";
+    const productNames = r.product_names || r.product_name || "-";
+    return [
+      r.reference,
+      r.title || "-",
+      productNames,
+      companyName,
+      badge(tone, r.status || "Draft"),
+      formatCurrency(r.amount, r.currency),
+      r.valid_until || "-"
+    ];
+  };
+  const allRows = await loadTableFromApi(
     "quotations",
-    (r) => {
-      const tone = r.status === "Accepted" ? "success" : r.status === "Draft" ? "warning" : "info";
-      const companyName = r.company_name || "-";
-      const productNames = r.product_names || r.product_name || "-";
-      return [
-        r.reference,
-        r.title || "-",
-        productNames,
-        companyName,
-        badge(tone, r.status || "Draft"),
-        formatCurrency(r.amount, r.currency),
-        r.valid_until || "-"
-      ];
-    },
+    quotationRowMapper,
     fallback.quotations.map((row) => {
-      const tone = row[4] === "Accepted" ? "success" : row[4] === "Draft" ? "warning" : "info";
+      const tone = row[4] === "Accepted" ? "success" : row[4] === "Rejected" ? "danger" : row[4] === "Draft" ? "warning" : "info";
       const hasProducts = Array.isArray(row) && row.length >= 7;
       const productCell = hasProducts ? row[2] : "-";
       const companyCell = hasProducts ? row[3] : row[1];
@@ -4519,6 +4262,11 @@ async function renderQuotations() {
       return [row[0], "-", productCell, companyCell, badge(tone, row[4]), amountCell, validCell];
     })
   );
+  const extractRefDate = (ref) => { const m = (ref || "").match(/(\d{8})/); return m ? m[1] : "00000000"; };
+  const indexedRows = allRows.map((row, idx) => ({ row, idx })).filter(({ row }) => row != null);
+  indexedRows.sort((a, b) => extractRefDate(b.row[0]).localeCompare(extractRefDate(a.row[0])));
+  const rows = indexedRows.map(({ row }) => row);
+  const sortedIndices = indexedRows.map(({ idx }) => idx);
 
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -4550,7 +4298,7 @@ async function renderQuotations() {
           </label>
         </div>
       </div>
-      ${renderPaginatedTable(["Quote #", "Title", "Products", "Company", "Status", "Amount", "Valid Until"], rows, "quotations")}
+      ${renderPaginatedTable(["Quote #", "Title", "Products", "Company", "Status", "Amount", "Valid Until"], rows, "quotations", true, 10, sortedIndices)}
     </div>
   `;
   attachTableSearch("quotations-search-input", "quotations");
@@ -4712,7 +4460,7 @@ async function renderDocuments() {
               <th class="doc-select-cell">
                 <input type="checkbox" id="doc-select-all" aria-label="Select all documents" />
               </th>
-              <th>Doc No.</th>
+              <th>Title</th>
               <th>Company</th>
               <th>Invoice</th>
               <th>Type</th>
@@ -4826,7 +4574,7 @@ async function renderDocuments() {
         const downloadAction = downloadUrl
           ? `<button class="btn ghost small" type="button" data-doc-download="${idx}"><i data-lucide="download"></i>Download</button>`
           : `<button class="btn ghost small" type="button" disabled><i data-lucide="download"></i>Download</button>`;
-        const canDelete = Number.isFinite(Number(doc.id));
+        const canDelete = Boolean(doc.id);
         const deleteAction = canDelete
           ? `<button class="btn danger ghost small" data-action="delete" data-entity="documents" data-row-index="${idx}"><i data-lucide="trash-2"></i>Delete</button>`
           : `<button class="btn danger ghost small" type="button" disabled><i data-lucide="trash-2"></i>Delete</button>`;
@@ -4835,7 +4583,7 @@ async function renderDocuments() {
             <td class="doc-select-cell">
               <input class="doc-select" type="checkbox" data-doc-key="${sanitizeText(docKey)}" aria-label="Select document" ${checked} />
             </td>
-            <td>${sanitizeText(getDocNumber(doc))}</td>
+            <td>${sanitizeText(doc.title || "-")}</td>
             <td>${sanitizeText(companyLabel)}</td>
             <td>${sanitizeText(invoiceLabel)}</td>
             <td>${sanitizeText(typeLabel)}</td>
@@ -5062,6 +4810,22 @@ async function renderDocuments() {
   applyFilters();
 }
 
+function computeShippingStatus(record) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const d = (v) => {
+    if (!v) return null;
+    const p = new Date(v);
+    p.setHours(0, 0, 0, 0);
+    return isNaN(p.getTime()) ? null : p;
+  };
+  if (d(record.eta) && today >= d(record.eta)) return "Delivered";
+  if (d(record.etd_date) && today >= d(record.etd_date)) return "Shipped";
+  if (d(record.etc_date) && today >= d(record.etc_date)) return "Cut Off";
+  if (d(record.factory_exit_date) && today >= d(record.factory_exit_date)) return "Dispatched";
+  return null;
+}
+
 async function renderShipping() {
   setSectionTitleForSection("shipping");
   const formatShipDate = (value) => {
@@ -5082,7 +4846,10 @@ async function renderShipping() {
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
-      const tone = r.status === "Delivered" ? "success" : r.status === "Shipped" ? "info" : "warning";
+      const displayStatus = computeShippingStatus(r) || r.status || "Factory exit";
+      const tone = displayStatus === "Delivered" ? "success"
+        : (displayStatus === "Shipped" || displayStatus === "Dispatched" || displayStatus === "Cut Off") ? "info"
+        : "warning";
       return [
         r.company_name || "Unknown Company",
         r.order_reference || "-",
@@ -5091,7 +4858,7 @@ async function renderShipping() {
         formatShipDate(r.etc_date),
         formatShipDate(r.etd_date),
         formatShipDate(r.eta),
-        badge(tone, r.status || "Factory exit")
+        badge(tone, displayStatus)
       ];
     },
     fallback.shipping_schedules.map((row) => {
@@ -5541,30 +5308,148 @@ async function renderTags() {
   });
 }
 
-function formatBackupFilename() {
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
-  return `crm-backup-${stamp}.zip`;
+function formatFileSize(bytes) {
+  if (bytes >= 1048576) return (bytes / 1048576).toFixed(1) + " MB";
+  if (bytes >= 1024) return Math.round(bytes / 1024) + " KB";
+  return bytes + " B";
 }
 
-const backupRestoreOrder = [
-  "users",
-  "site_config",
-  "companies",
-  "contacts",
-  "products",
-  "quotations",
-  "orders",
-  "invoices",
-  "doc_types",
-  "documents",
-  "shipping_schedules",
-  "quotation_items",
-  "sample_shipments",
-  "tasks",
-  "notes",
-  "tags",
-  "tag_links"
-];
+function renderBackupList(backups) {
+  const wrap = document.getElementById("backup-list-wrap");
+  if (!wrap) return;
+  if (!backups || !backups.length) {
+    wrap.innerHTML = `<div class="backup-empty">No backups found. Click "Create Backup Now" to create one.</div>`;
+    return;
+  }
+  const rows = backups.map(b => {
+    const d = new Date(b.created_at);
+    const dateStr = d.toLocaleDateString(undefined, { day:"2-digit", month:"short", year:"numeric" })
+      + " " + d.toLocaleTimeString(undefined, { hour:"2-digit", minute:"2-digit" });
+    const fn = b.filename.replace(/'/g, "&#39;");
+    return `<tr>
+      <td>${b.filename}</td>
+      <td>${dateStr}</td>
+      <td>${formatFileSize(b.size)}</td>
+      <td><div class="backup-row-actions">
+        <button class="btn ghost small" data-backup-action="download" data-filename="${fn}"><i data-lucide="download"></i> Download</button>
+        <button class="btn primary small" data-backup-action="restore" data-filename="${fn}"><i data-lucide="rotate-ccw"></i> Restore</button>
+        <button class="btn danger small" data-backup-action="delete" data-filename="${fn}"><i data-lucide="trash-2"></i></button>
+      </div></td>
+    </tr>`;
+  }).join("");
+  wrap.innerHTML = `<table class="backup-table">
+    <thead><tr><th>Filename</th><th>Date</th><th>Size</th><th>Actions</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+  if (window.lucide) lucide.createIcons();
+  wrap.addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-backup-action]");
+    if (!btn) return;
+    const action = btn.dataset.backupAction;
+    const filename = btn.dataset.filename;
+    if (action === "download") await downloadBackup(filename);
+    else if (action === "restore") await restoreBackup(filename);
+    else if (action === "delete") await deleteBackup(filename);
+  });
+}
+
+async function loadBackupList() {
+  const wrap = document.getElementById("backup-list-wrap");
+  if (wrap) wrap.innerHTML = `<div class="backup-empty">Loading…</div>`;
+  try {
+    const res = await apiFetch("/api/backup/list");
+    const data = await res.json().catch(() => ({}));
+    renderBackupList(data.backups || []);
+  } catch {
+    if (wrap) wrap.innerHTML = `<div class="backup-empty">Failed to load backups.</div>`;
+  }
+}
+
+async function createBackupNow() {
+  const btn = document.getElementById("backup-create-btn");
+  const log = document.getElementById("backup-log");
+  if (btn instanceof HTMLButtonElement) btn.disabled = true;
+  if (log) log.textContent = "Creating backup…";
+  try {
+    const res = await apiFetch("/api/backup/create", { method: "POST" });
+    if (!res.ok) throw new Error(await readApiError(res, "Backup failed"));
+    if (log) log.textContent = "Backup created.";
+    showToast("Backup created successfully");
+    await loadBackupList();
+  } catch (err) {
+    if (log) log.textContent = err instanceof Error ? err.message : "Backup failed";
+    showToast(err instanceof Error ? err.message : "Backup failed");
+  } finally {
+    if (btn instanceof HTMLButtonElement) btn.disabled = false;
+    setTimeout(() => { const l = document.getElementById("backup-log"); if (l) l.textContent = ""; }, 5000);
+  }
+}
+
+async function uploadAndRestoreBackup(file) {
+  if (!file) return;
+  if (!file.name.endsWith(".tar.gz")) { showToast("Only .tar.gz backup files are supported"); return; }
+  if (!confirm(`Upload and restore "${file.name}"?\n\nThis will DROP all current data and replace it with this backup. This cannot be undone.`)) return;
+  const log = document.getElementById("backup-log");
+  if (log) log.textContent = `Uploading ${file.name}…`;
+  const form = new FormData();
+  form.append("backup", file);
+  try {
+    const res = await apiFetch("/api/backup/upload-restore", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Restore failed");
+    showToast("Restore complete — please refresh the page.");
+    if (log) log.textContent = "";
+    await loadBackupList();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Restore failed");
+    if (log) log.textContent = "";
+  }
+}
+
+async function downloadBackup(filename) {
+  try {
+    const res = await apiFetch(`/api/backup/download/${encodeURIComponent(filename)}`);
+    if (!res.ok) throw new Error(`Download failed: ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Download failed: " + err.message);
+  }
+}
+
+async function deleteBackup(filename) {
+  if (!confirm(`Delete backup "${filename}"? This cannot be undone.`)) return;
+  try {
+    const res = await apiFetch(`/api/backup/${encodeURIComponent(filename)}`, { method: "DELETE" });
+    if (!res.ok) throw new Error(await readApiError(res, "Delete failed"));
+    showToast("Backup deleted");
+    await loadBackupList();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Delete failed");
+  }
+}
+
+async function restoreBackup(filename) {
+  if (!confirm(`RESTORE from "${filename}"?\n\nThis will DROP all current data and replace it with this snapshot.\nMake sure you have a recent backup. This cannot be undone.`)) return;
+  const wrap = document.getElementById("backup-list-wrap");
+  if (wrap) wrap.innerHTML = `<div class="backup-empty">Restoring — please wait, do not close this page…</div>`;
+  try {
+    const res = await apiFetch(`/api/backup/restore/${encodeURIComponent(filename)}`, { method: "POST" });
+    if (!res.ok) throw new Error(await readApiError(res, "Restore failed"));
+    showToast("Restore complete — please refresh the page.");
+    await loadBackupList();
+  } catch (err) {
+    showToast(err instanceof Error ? err.message : "Restore failed");
+    await loadBackupList();
+  }
+}
 
 async function fetchBackupManifest() {
   const res = await apiFetch("/api/backup/manifest");
@@ -5693,118 +5578,40 @@ async function buildBackupZip(onStatus) {
   return zip;
 }
 
-async function readZipJson(zip, path) {
-  const entry = zip.file(path);
-  if (!entry) return null;
-  const text = await entry.async("string");
+
+async function loadDbStatus() {
+  const meta = document.getElementById("db-status-meta");
+  const body = document.getElementById("db-status-body");
+  if (!meta || !body) return;
   try {
-    return JSON.parse(text);
-  } catch (error) {
-    console.error("Backup JSON parse failed", path, error);
-    return null;
+    const res = await apiFetch("/api/db/status");
+    const d = await res.json();
+    if (!res.ok) throw new Error(d.error || "Failed");
+    const toMB = (kb) => kb >= 1024 ? (kb / 1024).toFixed(1) + " MB" : kb + " KB";
+    meta.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px"><span class="badge-dot" style="background:#22c55e;flex-shrink:0"></span>Connected · ${d.host}</span>`;
+    const topCollections = d.collections.slice(0, 6);
+    body.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-label">Database</div>
+        <div class="stat-value" style="font-size:1rem">${d.dbName}</div>
+        <div class="stat-pill">Data: ${toMB(d.dataSize)} &nbsp;·&nbsp; Storage: ${toMB(d.storageSize)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Collections</div>
+        <div class="stat-value">${d.collections.length}</div>
+        <div class="stat-pill">${d.collections.reduce((s, c) => s + c.count, 0).toLocaleString()} total documents</div>
+      </div>
+      ${topCollections.map(c => `
+      <div class="stat-card">
+        <div class="stat-label">${c.name}</div>
+        <div class="stat-value">${c.count.toLocaleString()}</div>
+        <div class="stat-pill">documents</div>
+      </div>`).join("")}
+    `;
+    if (window.lucide) lucide.createIcons();
+  } catch (err) {
+    if (meta) meta.textContent = "Unable to load database status";
   }
-}
-
-async function restoreBackupTable(table, rows, onStatus) {
-  const pageSize = 200;
-  let offset = 0;
-  let isFirst = true;
-  while (offset < rows.length) {
-    const batch = rows.slice(offset, offset + pageSize);
-    if (typeof onStatus === "function") {
-      onStatus(`Restoring ${table} (${Math.min(offset + batch.length, rows.length)}/${rows.length})`);
-    }
-    const res = await apiFetch(`/api/backup/restore/table/${table}?clear=${isFirst ? "1" : "0"}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rows: batch, clear: isFirst })
-    });
-    if (!res.ok) {
-      throw new Error(await readApiError(res, `Restore failed for ${table}`));
-    }
-    offset += batch.length;
-    isFirst = false;
-  }
-  if (isFirst) {
-    await apiFetch(`/api/backup/restore/table/${table}?clear=1`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ rows: [], clear: true })
-    });
-  }
-}
-
-async function restoreBackupZip(file, onStatus) {
-  if (!window.JSZip) {
-    throw new Error("Zip restore is unavailable");
-  }
-  if (typeof onStatus === "function") {
-    onStatus("Reading backup zip...");
-  }
-  const zip = await window.JSZip.loadAsync(file);
-  const tablesFromZip = await readZipJson(zip, "d1/tables.json");
-  const tables = Array.isArray(tablesFromZip)
-    ? tablesFromZip.filter((name) => typeof name === "string")
-    : [];
-  const availableTables = tables.length
-    ? tables
-    : backupRestoreOrder.filter((name) => zip.file(`d1/${name}.json`));
-
-  const orderedTables = backupRestoreOrder.filter((name) => availableTables.includes(name));
-  for (let i = 0; i < orderedTables.length; i += 1) {
-    const table = orderedTables[i];
-    const rows = await readZipJson(zip, `d1/${table}.json`);
-    if (!Array.isArray(rows)) {
-      if (typeof onStatus === "function") {
-        onStatus(`Skipping ${table} (missing or invalid)`);
-      }
-      continue;
-    }
-    if (typeof onStatus === "function") {
-      onStatus(`Restoring ${table} (${i + 1}/${orderedTables.length})`);
-    }
-    await restoreBackupTable(table, rows, onStatus);
-  }
-
-  const manifest = await readZipJson(zip, "documents/manifest.json");
-  const items = Array.isArray(manifest) ? manifest : [];
-  let uploaded = 0;
-  let failed = 0;
-  for (let i = 0; i < items.length; i += 1) {
-    const item = items[i] || {};
-    const key = item.key ? String(item.key) : "";
-    if (!key) {
-      failed += 1;
-      continue;
-    }
-    if (typeof onStatus === "function") {
-      onStatus(`Uploading files ${i + 1}/${items.length}`);
-    }
-    const entry = zip.file(`documents/objects/${key}`);
-    if (!entry) {
-      failed += 1;
-      continue;
-    }
-    try {
-      const buffer = await entry.async("arraybuffer");
-      const contentType = item.content_type || "application/octet-stream";
-      const res = await apiFetch(`/api/backup/files/${normalizeFileKey(key)}`, {
-        method: "PUT",
-        headers: { "content-type": contentType },
-        body: buffer
-      });
-      if (!res.ok) {
-        failed += 1;
-      } else {
-        uploaded += 1;
-      }
-    } catch (error) {
-      console.debug("Backup file upload failed", error);
-      failed += 1;
-    }
-  }
-
-  return { tables: orderedTables.length, files: items.length, uploaded, failed };
 }
 
 async function renderSettings() {
@@ -5825,49 +5632,23 @@ async function renderSettings() {
       <div>
         <div class="eyebrow">Workspace</div>
         <h2 class="page-title">Settings</h2>
-        <div class="page-meta">Cloudflare bindings and data sources.</div>
+        <div class="page-meta">Database and workspace configuration.</div>
       </div>
     </div>
-    <div class="panel">
+    <div class="panel" id="db-status-panel">
       <div class="panel-header">
         <h3 class="panel-title panel-title-icon">
-          <i data-lucide="cloud"></i>
-          Cloudflare Bindings
+          <i data-lucide="database"></i>
+          MongoDB — crmmango
         </h3>
-        <div class="stat-label">D1 for relational data, R2 for documents.</div>
+        <div class="stat-label" id="db-status-meta">Loading…</div>
       </div>
-      <div class="stat-grid">
-        <div class="stat-card">
-          <div class="stat-label">D1 Database</div>
-          <div class="stat-value">crmforall-db</div>
-          <div class="stat-pill">
-            <span class="badge-dot" style="background:#22c55e"></span>
-            Binding: DB
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">R2 Bucket</div>
-          <div class="stat-value">crmforall-files</div>
-          <div class="stat-pill">
-            <span class="badge-dot" style="background:#0ea5e9"></span>
-            Binding: FILES
-          </div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">Static Assets</div>
-          <div class="stat-value">public/</div>
-          <div class="stat-pill">
-            <span class="badge-dot" style="background:#6366f1"></span>
-            Binding: ASSETS
-          </div>
-        </div>
-      </div>
+      <div id="db-status-body" class="stat-grid"></div>
     </div>
     <div class="settings-layout">
       <div class="tabs-container">
         <div class="tabs">
           <button class="tab active" data-tab="site-config">Site configuration</button>
-          ${canManageUsers ? `<button class="tab" data-tab="ai-settings">AI settings</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
@@ -5941,53 +5722,6 @@ async function renderSettings() {
             </form>
           </div>
         </div>
-        ${canManageUsers ? `
-        <div class="tab-content" id="ai-settings">
-          <div class="panel configuration-panel">
-            <div class="panel-header">
-              <h3 class="panel-title panel-title-icon">
-                <i data-lucide="sparkles"></i>
-                AI chat configuration
-              </h3>
-              <div class="stat-label">Choose the provider for AI Chat responses.</div>
-            </div>
-            <form id="ai-settings-form" class="form-grid">
-              <label>
-                <span>Provider</span>
-                <select name="aiProvider">
-                  <option value="cloudflare" ${siteConfigState.aiProvider === "cloudflare" ? "selected" : ""}>Cloudflare AI</option>
-                  <option value="custom" ${siteConfigState.aiProvider === "custom" ? "selected" : ""}>Custom API (OpenAI compatible)</option>
-                </select>
-              </label>
-              <label class="${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
-                <span>Custom API URL</span>
-                <input name="aiApiUrl" type="url" placeholder="https://api.openai.com/v1/chat/completions" value="${siteConfigState.aiApiUrl || ""}" />
-              </label>
-              <label class="${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
-                <span>Model</span>
-                <input name="aiModel" type="text" placeholder="gpt-4o-mini" value="${siteConfigState.aiModel || ""}" />
-              </label>
-              <label class="input-with-action ${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
-                <span>API key</span>
-                <div class="input-action-row">
-                  <input name="aiApiKey" type="password" placeholder="Leave blank to keep existing key" autocomplete="off" />
-                </div>
-                <p class="field-hint" id="ai-key-status">${siteConfigState.aiKeySet ? "API key stored." : "No API key stored."}</p>
-              </label>
-              <label class="toggle-row ${siteConfigState.aiProvider === "custom" ? "" : "hidden"}" data-ai-custom>
-                <span>Clear stored API key</span>
-                <input name="aiClearKey" type="checkbox" />
-              </label>
-              <div class="form-actions">
-                <button type="submit" class="btn primary">
-                  <i data-lucide="check"></i>
-                  Save AI settings
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-        ` : ""}
         ${canManageUsers ? `
         <div class="tab-content" id="add-user">
           <div class="panel add-user-panel">
@@ -6095,30 +5829,26 @@ async function renderSettings() {
           <div class="panel backup-panel">
             <div class="panel-header">
               <h3 class="panel-title panel-title-icon">
-                <i data-lucide="archive"></i>
-                Backup export
+                <i data-lucide="database"></i>
+                Database Backup
               </h3>
-              <div class="stat-label">Download D1 data, users, site config, and R2 files in one zip.</div>
+              <div class="stat-label">MongoDB snapshots — auto-backup runs daily at 02:00, kept for 7 days</div>
             </div>
-            <div class="backup-body">
-              <div class="backup-actions">
-                <button type="button" class="btn primary" id="backup-download">
-                  <i data-lucide="download"></i>
-                  Download backup zip
-                </button>
-              </div>
-              <div class="backup-restore">
-                <label class="backup-file">
-                  <span>Restore zip</span>
-                  <input type="file" id="backup-file" accept=".zip" />
-                </label>
-                <button type="button" class="btn danger" id="backup-restore">
-                  <i data-lucide="rotate-ccw"></i>
-                  Restore backup
-                </button>
-              </div>
-              <div class="backup-warning">Restoring replaces current data and users. Download a backup first.</div>
-              <div class="backup-status" id="backup-status" role="status">Ready to create a backup.</div>
+            <div class="backup-toolbar">
+              <button type="button" class="btn primary" id="backup-create-btn">
+                <i data-lucide="plus-circle"></i>
+                Create Backup Now
+              </button>
+              <label class="btn ghost small backup-upload-label" title="Upload a .tar.gz backup file and restore it">
+                <i data-lucide="upload"></i> Upload & Restore
+                <input type="file" id="backup-upload-input" accept=".tar.gz" style="display:none">
+              </label>
+              <span class="backup-log-inline" id="backup-log"></span>
+            </div>
+            <div id="backup-list-wrap"></div>
+            <div class="backup-warning">
+              <i data-lucide="alert-triangle"></i>
+              Restoring drops ALL current data and replaces it with the selected snapshot. This cannot be undone — create a fresh backup first.
             </div>
           </div>
         </div>
@@ -6519,89 +6249,6 @@ async function renderSettings() {
   });
   updateCustomRoleVisibility();
 
-  const aiSettingsForm = document.getElementById("ai-settings-form");
-  const aiProviderSelect = aiSettingsForm?.querySelector("select[name='aiProvider']");
-  const aiCustomFields = aiSettingsForm?.querySelectorAll("[data-ai-custom]") ?? [];
-  const aiKeyStatus = document.getElementById("ai-key-status");
-
-  const setAiKeyStatus = (hasKey) => {
-    if (!aiKeyStatus) return;
-    aiKeyStatus.textContent = hasKey ? "API key stored." : "No API key stored.";
-  };
-
-  const updateAiCustomVisibility = () => {
-    const provider = aiProviderSelect instanceof HTMLSelectElement ? aiProviderSelect.value : "cloudflare";
-    aiCustomFields.forEach((field) => {
-      if (!(field instanceof HTMLElement)) return;
-      if (provider === "custom") {
-        field.classList.remove("hidden");
-      } else {
-        field.classList.add("hidden");
-      }
-    });
-  };
-
-  setAiKeyStatus(siteConfigState.aiKeySet);
-  aiProviderSelect?.addEventListener("change", updateAiCustomVisibility);
-  updateAiCustomVisibility();
-
-  aiSettingsForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (currentRole !== adminRole) {
-      showToast("Only admins can update AI settings");
-      return;
-    }
-    const data = new FormData(aiSettingsForm);
-    const provider = normalizeAiProvider(data.get("aiProvider"));
-    const aiApiUrl = data.get("aiApiUrl")?.toString().trim() || "";
-    const aiModel = data.get("aiModel")?.toString().trim() || "";
-    const aiApiKey = data.get("aiApiKey")?.toString().trim() || "";
-    const clearKey = data.get("aiClearKey") === "on";
-
-    if (provider === "custom") {
-      if (!aiApiUrl) {
-        showToast("Custom AI API URL is required");
-        return;
-      }
-      if (!aiModel) {
-        showToast("Custom AI model is required");
-        return;
-      }
-    }
-
-    const updatedConfig = {
-      ...siteConfigState,
-      aiProvider: provider,
-      aiApiUrl: provider === "custom" ? aiApiUrl : siteConfigState.aiApiUrl,
-      aiModel: provider === "custom" ? aiModel : siteConfigState.aiModel
-    };
-
-    const overrides = {};
-    if (clearKey) {
-      overrides.aiApiKey = "";
-    } else if (aiApiKey) {
-      overrides.aiApiKey = aiApiKey;
-    }
-
-    try {
-      const response = await saveSiteConfigToServer(updatedConfig, overrides);
-      const serverConfig = response?.config && typeof response.config === "object"
-        ? normalizeSiteConfigState(response.config)
-        : normalizeSiteConfigState(updatedConfig);
-      siteConfigState = serverConfig;
-      persistSiteConfigState(siteConfigState);
-      setAiKeyStatus(siteConfigState.aiKeySet);
-      showToast("AI settings saved");
-      const keyInput = aiSettingsForm.querySelector("input[name='aiApiKey']");
-      if (keyInput instanceof HTMLInputElement) keyInput.value = "";
-      const clearInput = aiSettingsForm.querySelector("input[name='aiClearKey']");
-      if (clearInput instanceof HTMLInputElement) clearInput.checked = false;
-    } catch (error) {
-      console.error("Unable to save AI settings", error);
-      showToast("Unable to save AI settings");
-    }
-  });
-
   const siteConfigForm = document.getElementById("site-config-form");
   siteConfigForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -6632,134 +6279,59 @@ async function renderSettings() {
     }
   });
 
-  const backupButton = document.getElementById("backup-download");
-  const backupStatus = document.getElementById("backup-status");
-  const backupFileInput = document.getElementById("backup-file");
-  const backupRestoreButton = document.getElementById("backup-restore");
-  const setBackupStatus = (message) => {
-    if (backupStatus) {
-      backupStatus.textContent = message;
-    }
-  };
-
-  backupButton?.addEventListener("click", async () => {
-    if (currentRole !== adminRole) {
-      showToast("Only admins can download backups");
-      return;
-    }
-    if (!window.JSZip) {
-      showToast("Zip download is unavailable");
-      return;
-    }
-    if (backupButton instanceof HTMLButtonElement) {
-      backupButton.disabled = true;
-    }
-    setBackupStatus("Preparing backup...");
-    try {
-      const zip = await buildBackupZip(setBackupStatus);
-      setBackupStatus("Creating zip file...");
-      const blob = await zip.generateAsync({ type: "blob" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = formatBackupFilename();
-      link.click();
-      URL.revokeObjectURL(url);
-      setBackupStatus("Backup ready.");
-      showToast("Backup downloaded");
-    } catch (error) {
-      console.error(error);
-      setBackupStatus("Backup failed.");
-      showToast(error instanceof Error ? error.message : "Backup failed");
-    } finally {
-      if (backupButton instanceof HTMLButtonElement) {
-        backupButton.disabled = false;
+  loadDbStatus();
+  if (canManageUsers) {
+    document.getElementById("backup-create-btn")?.addEventListener("click", createBackupNow);
+    document.getElementById("backup-upload-input")?.addEventListener("change", (e) => {
+      const input = e.target;
+      if (input instanceof HTMLInputElement && input.files?.[0]) {
+        uploadAndRestoreBackup(input.files[0]);
+        input.value = "";
       }
-    }
-  });
-
-  backupRestoreButton?.addEventListener("click", async () => {
-    if (currentRole !== adminRole) {
-      showToast("Only admins can restore backups");
-      return;
-    }
-    if (!window.JSZip) {
-      showToast("Zip restore is unavailable");
-      return;
-    }
-    if (!(backupFileInput instanceof HTMLInputElement)) {
-      showToast("Select a backup zip");
-      return;
-    }
-    const file = backupFileInput.files?.[0];
-    if (!file) {
-      showToast("Select a backup zip");
-      return;
-    }
-    const confirmed = window.confirm("This will replace current data and users. Continue?");
-    if (!confirmed) return;
-    if (backupRestoreButton instanceof HTMLButtonElement) {
-      backupRestoreButton.disabled = true;
-    }
-    if (backupButton instanceof HTMLButtonElement) {
-      backupButton.disabled = true;
-    }
-    if (backupFileInput) {
-      backupFileInput.disabled = true;
-    }
-    setBackupStatus("Restoring backup...");
-    try {
-      const summary = await restoreBackupZip(file, setBackupStatus);
-      setBackupStatus(
-        `Restore complete. Tables: ${summary.tables}. Files: ${summary.uploaded}/${summary.files} uploaded.`
-      );
-      showToast("Restore complete. Refresh the page.");
-    } catch (error) {
-      console.error(error);
-      setBackupStatus("Restore failed.");
-      showToast(error instanceof Error ? error.message : "Restore failed");
-    } finally {
-      if (backupRestoreButton instanceof HTMLButtonElement) {
-        backupRestoreButton.disabled = false;
-      }
-      if (backupButton instanceof HTMLButtonElement) {
-        backupButton.disabled = false;
-      }
-      if (backupFileInput) {
-        backupFileInput.disabled = false;
-        backupFileInput.value = "";
-      }
-    }
-  });
+    });
+    loadBackupList();
+  }
 }
 
 async function fetchCompaniesList() {
   try {
-    const res = await apiFetch("/api/companies");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/companies?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({ id: row.id, name: row.name }));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({ id: row.id, name: row.name })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    if (all.length) return all.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   } catch (err) {
     console.debug("Fallback companies", err);
   }
   return fallback.companies.map((c, idx) => ({
     id: c?.id ?? idx + 1,
     name: c?.name || c?.[0] || `Company ${idx + 1}`
-  }));
+  })).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
 async function fetchContactsList() {
   try {
-    const res = await apiFetch("/api/contacts");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/contacts?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({ id: row.id, name: `${row.first_name} ${row.last_name}` }));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({ id: row.id, name: `${row.first_name} ${row.last_name}` })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    return all.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   } catch (err) {
     console.debug("Fallback contacts", err);
   }
@@ -6768,17 +6340,27 @@ async function fetchContactsList() {
 
 async function fetchProductsList() {
   try {
-    const res = await apiFetch("/api/products");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/products?limit=${limit}&offset=${offset}&_=${Date.now()}`, { cache: 'no-store' });
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({ id: row.id, name: row.name, price: row.price || 0 }));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({ id: row.id, name: row.name, price: row.price || 0, legacy_id: row.legacy_id ?? null })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    if (all.length) {
+      all.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+      tableRecords.products = all;
+    }
+    return all;
   } catch (err) {
     console.debug("Fallback products", err);
   }
-  return [];
+  return tableRecords.products?.map((row) => ({ id: row.id, name: row.name, price: row.price || 0, legacy_id: row.legacy_id ?? null })) || [];
 }
 
 async function fetchOrdersList() {
@@ -6792,7 +6374,7 @@ async function fetchOrdersList() {
           reference: row.reference,
           company_id: row.company_id,
           company: row.company_name || row.company
-        }));
+        })).sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
       }
     }
   } catch (err) {
@@ -6816,7 +6398,7 @@ async function fetchInvoicesList() {
           currency: row.currency,
           created_at: row.created_at,
           due_date: row.due_date
-        }));
+        })).sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
       }
     }
   } catch (err) {
@@ -6860,7 +6442,7 @@ async function fetchQuotationsList() {
           amount: row.amount,
           currency: row.currency,
           tax_rate: row.tax_rate
-        }));
+        })).sort((a, b) => (a.reference || a.title || "").localeCompare(b.reference || b.title || ""));
       }
     }
   } catch (err) {
@@ -6887,7 +6469,7 @@ async function fetchDocumentsList() {
           contact_id: row.contact_id,
           doc_type_id: row.doc_type_id,
           invoice_id: row.invoice_id || row.invoiceId
-        }));
+        })).sort((a, b) => (a.title || a.storage_key || "").localeCompare(b.title || b.storage_key || ""));
       }
     }
   } catch (err) {
@@ -7314,7 +6896,7 @@ function refreshBankChargeSelects(root = document) {
 
 function renderTable(columns, rows, tableKey = "", includeActions = true, rowIndexOffset = 0, rowIndexList = null) {
   if (!rows.length) {
-    return `<div class="empty">No records yet. Connect D1 to start storing data.</div>`;
+    return `<div class="empty">No records yet.</div>`;
   }
 
   const header =
@@ -7349,11 +6931,13 @@ function renderTable(columns, rows, tableKey = "", includeActions = true, rowInd
 
 const paginationState = new Map();
 
-function renderPaginatedTable(columns, rows, tableKey = "", includeActions = true, pageSize = 10) {
+function renderPaginatedTable(columns, rows, tableKey = "", includeActions = true, pageSize = 10, recordIndices = null) {
   if (!rows.length) {
     return renderTable(columns, rows, tableKey, includeActions);
   }
-  const rowIndices = rows.map((_, idx) => idx);
+  const rowIndices = Array.isArray(recordIndices) && recordIndices.length === rows.length
+    ? recordIndices
+    : rows.map((_, idx) => idx);
   const state = {
     columns,
     rows,
@@ -7495,7 +7079,10 @@ async function resolveQuotationForItem(item) {
       console.debug("Unable to load quotations for pricing preview", err);
     }
   }
-  return (quotes || []).find((quote) => String(quote.id) === String(quoteId)) || null;
+  return (quotes || []).find((quote) =>
+    String(quote.id) === String(quoteId) ||
+    (quote.legacy_id != null && String(quote.legacy_id) === String(quoteId))
+  ) || null;
 }
 
 async function openPreviewModal(tableKey, record) {
@@ -7523,7 +7110,7 @@ async function openPreviewModal(tableKey, record) {
     }
   } else if (tableKey === "invoices") {
     try {
-      content = renderInvoicePreview(record);
+      content = await renderInvoicePreview(record);
     } catch (err) {
       console.warn("Invoice preview fell back", err);
       content = renderRecordPreview(tableKey, record);
@@ -7539,7 +7126,7 @@ async function openPreviewModal(tableKey, record) {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const canDelete = Boolean(record?.id);
-  const showPrint = tableKey === "quotations" || tableKey === "quotation_items";
+  const showPrint = tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "orders";
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
@@ -7555,6 +7142,9 @@ async function openPreviewModal(tableKey, record) {
     </div>
   `;
   document.body.appendChild(overlay);
+  if (tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "invoices" || tableKey === "orders") {
+    overlay.querySelector(".modal")?.classList.add("modal-xlarge");
+  }
   hydratePdfPreviews(overlay).catch((err) => console.error("PDF preview failed", err));
   overlay.querySelector(".btn-close")?.addEventListener("click", () => overlay.remove());
   overlay.querySelector("[data-close]")?.addEventListener("click", () => overlay.remove());
@@ -7564,9 +7154,25 @@ async function openPreviewModal(tableKey, record) {
       openDeleteConfirm(tableKey, record);
     });
   }
-  if (tableKey === "quotations") {
+  if (tableKey === "orders") {
     overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
-      const items = await getQuotationItems(record.id);
+      const quoteKeyCandidates = [record.quotation_id, record.quote_id, record.quotationId, record.quotation, record.quote]
+        .map((v) => (v == null ? "" : String(v).trim())).filter(Boolean);
+      const quotationList = await fetchQuotationsList();
+      let matchedQuote = null;
+      let quotationId = quoteKeyCandidates[0] || null;
+      if (quotationId) matchedQuote = quotationList.find((q) => String(q.id) === String(quotationId)) || null;
+      if (!quotationId && record.reference) {
+        const nr = record.reference.toLowerCase();
+        matchedQuote = quotationList.find((q) => (q.reference || "").toLowerCase() === nr) || null;
+        quotationId = matchedQuote?.id ? String(matchedQuote.id) : null;
+      }
+      const items = quotationId ? await getQuotationItems(quotationId) : [];
+      openOrderPrintView(record, items, matchedQuote);
+    });
+  } else if (tableKey === "quotations") {
+    overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
+      const items = await getQuotationItems(record.id, record.legacy_id);
       const payload = buildQuotePayloadFromRecord(record, items);
       openQuotationPrintView(payload);
     });
@@ -7587,25 +7193,15 @@ async function openPreviewModal(tableKey, record) {
               <span>Loading attachment...</span>
             </div>
           `;
-          resolveFileUrlForPreview(key || url)
-            .then((resolved) => {
-              const viewerUrl = resolved.url || url;
-              const viewerMime = resolved.mime || mime || "application/pdf";
-              slot.innerHTML = renderDocumentViewer(viewerUrl, viewerMime, title, {
-                storage_key: key,
-                content_type: viewerMime,
-                forceIframe: false
-              });
-              hydratePdfPreviews(slot).catch((err) => console.error("PDF preview failed", err));
-              slot.scrollIntoView({ behavior: "smooth", block: "start" });
-            })
-            .catch(() => {
-              slot.innerHTML = renderDocumentViewer(url, mime, title, {
-                storage_key: key,
-                content_type: mime,
-                forceIframe: false
-              });
-            });
+          const directUrl = key ? getFileUrl(key) : url;
+          const viewerMime = mime || guessMimeFromKey(key || url) || "application/pdf";
+          slot.innerHTML = renderDocumentViewer(directUrl, viewerMime, title, {
+            storage_key: key,
+            content_type: viewerMime,
+            forceIframe: false
+          });
+          hydratePdfPreviews(slot).catch((err) => console.error("PDF preview failed", err));
+          slot.scrollIntoView({ behavior: "smooth", block: "start" });
         } else {
           window.open(url, "_blank", "noopener");
         }
@@ -7662,25 +7258,15 @@ async function openPreviewModal(tableKey, record) {
               <span>Loading attachment...</span>
             </div>
           `;
-          resolveFileUrlForPreview(key || url)
-            .then((resolved) => {
-              const viewerUrl = resolved.url || url;
-              const viewerMime = resolved.mime || mime || "application/pdf";
-              slot.innerHTML = renderDocumentViewer(viewerUrl, viewerMime, title, {
-                storage_key: key,
-                content_type: viewerMime,
-                forceIframe: false
-              });
-              hydratePdfPreviews(slot).catch((err) => console.error("PDF preview failed", err));
-              slot.scrollIntoView({ behavior: "smooth", block: "start" });
-            })
-            .catch(() => {
-              slot.innerHTML = renderDocumentViewer(url, mime, title, {
-                storage_key: key,
-                content_type: mime,
-                forceIframe: false
-              });
-            });
+          const directUrl = key ? getFileUrl(key) : url;
+          const viewerMime = mime || guessMimeFromKey(key || url) || "application/pdf";
+          slot.innerHTML = renderDocumentViewer(directUrl, viewerMime, title, {
+            storage_key: key,
+            content_type: viewerMime,
+            forceIframe: false
+          });
+          hydratePdfPreviews(slot).catch((err) => console.error("PDF preview failed", err));
+          slot.scrollIntoView({ behavior: "smooth", block: "start" });
         } else {
           window.open(url, "_blank", "noopener");
         }
@@ -7721,27 +7307,16 @@ async function openPreviewModal(tableKey, record) {
       openLink?.remove();
       return;
     }
-    resolveFileUrlForPreview(fileKey)
-      .then((resolved) => {
-        if (!resolved.url) {
-          previewSlot.innerHTML = renderDocumentViewer(null, record?.content_type || "", record?.title || "Document", record);
-          openLink?.remove();
-          return;
-        }
-        const mime = resolved.mime || record?.content_type || guessMimeFromKey(fileKey) || "application/octet-stream";
-        previewSlot.innerHTML = renderDocumentViewer(resolved.url, mime, record?.title || "Document", record);
-        hydratePdfPreviews(previewSlot).catch((err) => console.error("PDF preview failed", err));
-        if (openLink) {
-          openLink.href = resolved.url;
-          openLink.target = "_blank";
-          openLink.rel = "noopener";
-        }
-      })
-      .catch((err) => {
-        console.error("Document preview failed", err);
-        previewSlot.innerHTML = renderDocumentViewer(null, record?.content_type || "", record?.title || "Document", record);
-        openLink?.remove();
-      });
+    // Use direct file URL — /api/files/* is open (no auth needed)
+    const directUrl = getFileUrl(fileKey);
+    const mime = record?.content_type || guessMimeFromKey(fileKey) || "application/octet-stream";
+    previewSlot.innerHTML = renderDocumentViewer(directUrl, mime, record?.title || "Document", record);
+    hydratePdfPreviews(previewSlot).catch((err) => console.error("PDF preview failed", err));
+    if (openLink) {
+      openLink.href = directUrl;
+      openLink.target = "_blank";
+      openLink.rel = "noopener";
+    }
   }
 }
 
@@ -7903,10 +7478,9 @@ async function hydrateSampleTracking(overlay, record) {
   }
 }
 
-function renderInvoicePreview(record) {
+async function renderInvoicePreview(record) {
   const currency = record.currency || "USD";
   const tone = statusToneFront(record.status || "Unpaid");
-  const updated = record.updated_at ? new Date(record.updated_at).toLocaleDateString() : "";
   const company = record.company_name || record.company || "???";
   const contact = record.contact_name || record.contact || "???";
   const customer = record.customer_name || company || contact || "???";
@@ -7938,57 +7512,152 @@ function renderInvoicePreview(record) {
   const attachmentCount = attachments.length;
   const attachmentsMarkup = attachmentCount
     ? `
-        <section class="quote-attachment">
-          <div class="preview-header">
-            <div class="preview-title-section">
-              <div class="preview-title">Attachments</div>
-              <div class="preview-meta"><span class="stat-label">${attachmentCount} file${attachmentCount === 1 ? "" : "s"}</span></div>
-            </div>
-          </div>
-          <div class="attachment-list">
+        <div class="odv-section">
+          <div class="odv-section-title">Attachments <span class="stat-label" style="font-weight:400;text-transform:none;font-size:12px;">${attachmentCount} file${attachmentCount === 1 ? "" : "s"}</span></div>
+          <div class="odv-attachment-list">
             ${attachments
               .map((att, index) => {
                 const url = getFileUrl(att.key);
                 const title = sanitizeText(att.title || att.key);
                 const mimeLabel = att.mime ? `<span class="stat-label">${sanitizeText(att.mime)}</span>` : "";
                 return `
-                  <div class="attachment-row">
-                    <div class="preview-title-section">
-                      <div class="preview-title">${title}</div>
-                      <div class="preview-meta">${mimeLabel}</div>
+                  <div class="odv-attachment-row">
+                    <div>
+                      <div style="font-size:13px;font-weight:500;color:#0f172a;">${title}</div>
+                      <div>${mimeLabel}</div>
                     </div>
-                    <a class="btn ghost" href="#" role="button" data-open-invoice-attachment data-url="${url}" data-mime="${att.mime || ""}" data-title="${title}" data-key="${att.key}" data-attachment-index="${index}">Preview</a>
+                    <a class="btn ghost small" href="#" role="button" data-open-invoice-attachment data-url="${url}" data-mime="${att.mime || ""}" data-title="${title}" data-key="${att.key}" data-attachment-index="${index}">Preview</a>
                   </div>
                 `;
               })
               .join("")}
           </div>
           <div class="quote-attachment-viewer" data-invoice-attachment-slot></div>
-        </section>
+        </div>
       `
     : "";
 
+  const totalAmt = record.total_amount || 0;
+  const subtotalAmt = record.subtotal != null ? record.subtotal : totalAmt;
+  const taxRate = parsePercent(record.tax_rate);
+  const taxAmt = record.tax_amount != null ? record.tax_amount : subtotalAmt * taxRate / 100;
+  const owner = record.owner || record.owner_email || "";
+  const terms = record.terms || record.payment_terms || "";
+  const notes = record.notes || "";
+  const issueDate = record.issue_date || record.created_at || "";
+  const issueDateLabel = issueDate ? new Date(issueDate).toLocaleDateString() : "";
+  const dueDateLabel = dueDate && dueDate !== "???" ? (() => { try { return new Date(dueDate).toLocaleDateString(); } catch(e) { return dueDate; } })() : dueDate;
+
+  const chips = [
+    company !== "???" ? `<span class="odv-chip">${sanitizeText(company)}</span>` : "",
+    contact !== "???" && contact !== company ? `<span class="odv-chip">${sanitizeText(contact)}</span>` : "",
+    `<span class="odv-chip">${sanitizeText(currency)}</span>`,
+    `<span class="odv-chip">Due ${sanitizeText(dueDateLabel)}</span>`,
+    issueDateLabel ? `<span class="odv-chip">Issued ${sanitizeText(issueDateLabel)}</span>` : "",
+  ].filter(Boolean).join("");
+
+  const extraFields = [
+    owner ? ["Owner", owner] : null,
+    terms ? ["Terms", terms] : null,
+    notes ? ["Notes", notes] : null,
+    customer && customer !== company ? ["Customer", customer] : null,
+  ].filter(Boolean);
+  const extraGrid = extraFields.map(([label, val]) => `
+    <div class="odv-extra-row">
+      <span class="odv-extra-label">${sanitizeText(label)}</span>
+      <span class="odv-extra-val">${sanitizeText(String(val))}</span>
+    </div>
+  `).join("");
+
+  // Resolve line items via linked order → quotation
+  let lineItemsMarkup = "";
+  try {
+    let orders = Array.isArray(tableRecords.orders) && tableRecords.orders.length
+      ? tableRecords.orders
+      : null;
+    if (!orders) {
+      const res = await apiFetch("/api/orders");
+      if (res.ok) {
+        const data = await res.json();
+        orders = Array.isArray(data.rows) ? data.rows : [];
+      }
+    }
+    const invoiceIdStr = String(record.id ?? "");
+    const linkedOrder = (orders || []).find((o) => {
+      const rawIds = o.invoice_ids ?? o.invoice_links ?? o.invoice_id ?? "";
+      const ids = Array.isArray(rawIds)
+        ? rawIds.map(String)
+        : String(rawIds).split(",").map((s) => s.trim()).filter(Boolean);
+      return ids.includes(invoiceIdStr);
+    });
+    const quotationId = linkedOrder?.quotation_id ?? null;
+    if (quotationId) {
+      const items = await getQuotationItems(quotationId);
+      if (items.length) {
+        const lineRows = items.map((item) => {
+          const qty  = Number(item.qty) || 0;
+          const unit = Number(item.unit_price) || 0;
+          const drum = Number(item.drums_price) || 0;
+          const bank = Number(item.bank_charge_price) || 0;
+          const ship = Number(item.shipping_price) || 0;
+          const comm = Number(item.customer_commission) || 0;
+          const uTotal = unit + drum + bank + ship + comm;
+          const lTotal = resolveQuoteLineTotal(item);
+          const pName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
+          return `<tr>
+            <td>${sanitizeText(pName)}</td>
+            <td class="odv-num">${qty}</td>
+            <td class="odv-num">${formatCurrency(unit, currency)}</td>
+            <td class="odv-num">${formatCurrency(drum, currency)}</td>
+            <td class="odv-num">${formatCurrency(bank, currency)}</td>
+            <td class="odv-num">${formatCurrency(ship, currency)}</td>
+            <td class="odv-num">${formatCurrency(comm, currency)}</td>
+            <td class="odv-num odv-unit-total">${formatCurrency(uTotal, currency)}</td>
+            <td class="odv-num odv-line-total"><strong>${formatCurrency(lTotal, currency)}</strong></td>
+          </tr>`;
+        }).join("");
+        lineItemsMarkup = `
+          <div class="odv-section">
+            <div class="odv-section-title">Line Items</div>
+            <div class="odv-table-wrap">
+              <table class="odv-table">
+                <thead><tr>
+                  <th>Product</th><th>Qty</th><th>Unit</th><th>Drums</th>
+                  <th>Bank</th><th>Shipping</th><th>Commission</th><th>Unit Total</th><th>Line Total</th>
+                </tr></thead>
+                <tbody>${lineRows}</tbody>
+              </table>
+            </div>
+          </div>`;
+      }
+    }
+  } catch (err) {
+    console.debug("Invoice line items resolve failed", err);
+  }
+
   return `
-    <div class="quote-preview-card">
-      <div class="quote-preview-header">
-        <div>
-          <h2>${record.reference || `Invoice #${record.id}`}</h2>
-          <p class="muted">${formatCurrency(record.total_amount, currency)}</p>
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(record.reference || `Invoice #${record.id}`)}</div>
+          <div class="odv-title">Invoice</div>
         </div>
-        <div class="quote-badges">
-          <span class="badge ${tone}">${record.status || "Unpaid"}</span>
-          ${updated ? `<span class="stat-label">Updated ${updated}</span>` : ""}
-          <span class="stat-label">${currency}</span>
+        <div class="odv-hero-right">
+          <span class="badge ${tone}">${sanitizeText(record.status || "Unpaid")}</span>
+          <div class="odv-amount">${formatCurrency(totalAmt, currency)}</div>
         </div>
       </div>
-      <div class="quote-meta-grid">
-        <div><strong>Company</strong><span>${company}</span></div>
-        <div><strong>Contact</strong><span>${contact}</span></div>
-        <div><strong>Customer</strong><span>${customer}</span></div>
-        <div><strong>Total</strong><span>${formatCurrency(record.total_amount, currency)}</span></div>
-        <div><strong>Status</strong><span>${record.status || "Unpaid"}</span></div>
-        <div><strong>Due date</strong><span>${dueDate}</span></div>
+      <div class="odv-chips">${chips}</div>
+      <div class="odv-section">
+        <div class="odv-section-title">Financial Summary</div>
+        <div class="odv-totals">
+          <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(subtotalAmt, currency)}</strong></div>
+          <div class="odv-total-row"><span>Tax${taxRate ? ` (${taxRate}%)` : ""}</span><strong>${formatCurrency(taxAmt, currency)}</strong></div>
+          <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(totalAmt, currency)}</strong></div>
+        </div>
       </div>
+      ${lineItemsMarkup}
+      ${extraGrid ? `<div class="odv-section"><div class="odv-section-title">Details</div><div class="odv-extra-grid">${extraGrid}</div></div>` : ""}
       ${attachmentsMarkup}
     </div>
   `;
@@ -8061,29 +7730,6 @@ async function renderPricingItemPreview(record) {
   const totals = calculateQuoteTotals(items, taxRate);
   const lineCount = items.length === 1 ? "1 line item" : `${items.length} line items`;
 
-  const metaRows = [
-    ["Company", company],
-    ["Contact", contact],
-    ["Customer", customer],
-    ["Quote date", quoteDateLabel],
-    ["Valid until", validUntil],
-    ["Currency", currency],
-    ["USD to NTD rate", exchangeRateLabel],
-    ["Tax rate", taxRate ? `${taxRate}%` : "-"],
-    ["Bank charge", bankMethod]
-  ];
-
-  const metaGrid = metaRows
-    .map(
-      ([label, value]) => `
-        <div>
-          <strong>${sanitizeText(label)}</strong>
-          <span>${sanitizeText(value || "-")}</span>
-        </div>
-      `
-    )
-    .join("");
-
   const notesBlock = notes
     ? `
       <section class="quote-notes-block">
@@ -8093,50 +7739,52 @@ async function renderPricingItemPreview(record) {
     `
     : "";
 
+  const chips = [
+    company !== "-" ? `<span class="odv-chip">${sanitizeText(company)}</span>` : "",
+    contact !== "-" && contact !== company ? `<span class="odv-chip">${sanitizeText(contact)}</span>` : "",
+    `<span class="odv-chip">${sanitizeText(currency)}</span>`,
+    quoteDateLabel !== "-" ? `<span class="odv-chip">${sanitizeText(quoteDateLabel)}</span>` : "",
+    validUntil && validUntil !== "-" ? `<span class="odv-chip">Valid until ${sanitizeText(String(validUntil))}</span>` : "",
+  ].filter(Boolean).join("");
+
   return `
-    <div class="quote-preview-card">
-      <div class="quote-preview-header">
-        <div>
-          <h2>${sanitizeText(reference)}</h2>
-          <p class="muted">${sanitizeText(title || "Pricing detail")} - ${sanitizeText(lineCount)}</p>
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(reference)}</div>
+          <div class="odv-title">${sanitizeText(title || "Pricing detail")} &middot; ${sanitizeText(lineCount)}</div>
         </div>
-        <div class="quote-badges">
+        <div class="odv-hero-right">
           ${statusBadge}
-          <span class="stat-label">${sanitizeText(currency)}</span>
+          <span style="color:#94a3b8;font-size:12px;font-weight:600;">${sanitizeText(currency)}</span>
         </div>
       </div>
-      <div class="quote-meta-grid">
-        ${metaGrid}
+      <div class="odv-chips">${chips}</div>
+      <div class="odv-section">
+        <div class="odv-section-title">Line Items</div>
+        <div class="quote-line-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Unit price</th>
+                <th>Drums</th>
+                <th>Bank charge</th>
+                <th>Shipping</th>
+                <th>Commission</th>
+                <th>Unit total</th>
+                <th>Line price</th>
+              </tr>
+            </thead>
+            <tbody>${lineRows}</tbody>
+          </table>
+        </div>
       </div>
-      <section class="quote-line-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Unit price</th>
-              <th>Drums</th>
-              <th>Bank charge</th>
-              <th>Shipping</th>
-              <th>Commission</th>
-              <th>Unit total</th>
-              <th>Line price</th>
-            </tr>
-          </thead>
-          <tbody>${lineRows}</tbody>
-        </table>
-      </section>
-      <div class="quote-summary">
-        <div>
-          <span>Subtotal</span>
-          <strong>${formatCurrency(totals.subtotal, currency)}</strong>
-        </div>
-        <div>
-          <span>Tax ${taxRate ? `(${taxRate}%)` : ""}</span>
-          <strong>${formatCurrency(totals.tax, currency)}</strong>
-        </div>
-        <div>
-          <span>Total</span>
-          <strong>${formatCurrency(totals.total, currency)}</strong>
+      <div class="odv-section">
+        <div class="odv-totals">
+          <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal, currency)}</strong></div>
+          <div class="odv-total-row"><span>Tax${taxRate ? ` (${taxRate}%)` : ""}</span><strong>${formatCurrency(totals.tax, currency)}</strong></div>
+          <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(totals.total, currency)}</strong></div>
         </div>
       </div>
       ${notesBlock}
@@ -8194,6 +7842,14 @@ function openEditModal(tableKey, record) {
   }
   if (tableKey === "products") {
     openForm("products", { initialValues: record, mode: "edit" });
+    return;
+  }
+  if (tableKey === "tasks") {
+    openForm("tasks", { initialValues: record, mode: "edit" });
+    return;
+  }
+  if (tableKey === "contacts") {
+    openForm("contacts", { initialValues: record, mode: "edit" });
     return;
   }
   const overlay = document.createElement("div");
@@ -8449,10 +8105,52 @@ function renderRecordPreview(tableKey, record) {
   }
 
   const tone = statusToneFront(record.status || "");
-  const statusBadge = record.status ? `<span class="badge ${tone}">${record.status}</span>` : "";
+  const statusBadge = record.status ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>` : "";
   const updatedMeta = record.updated_at ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>` : "";
 
-  // Enhanced field display with better formatting
+  // Entity-specific context chips
+  let chips = "";
+  switch (tableKey) {
+    case "companies":
+      chips = [
+        record.industry ? `<span class="odv-chip">${sanitizeText(record.industry)}</span>` : "",
+        record.country ? `<span class="odv-chip">${sanitizeText(record.country)}</span>` : "",
+        record.owner ? `<span class="odv-chip">Owner: ${sanitizeText(record.owner)}</span>` : "",
+      ].filter(Boolean).join("");
+      break;
+    case "contacts":
+      chips = [
+        record.role ? `<span class="odv-chip">${sanitizeText(record.role)}</span>` : "",
+        record.company_name ? `<span class="odv-chip">${sanitizeText(record.company_name)}</span>` : "",
+        record.email ? `<span class="odv-chip">${sanitizeText(record.email)}</span>` : "",
+      ].filter(Boolean).join("");
+      break;
+    case "products":
+      chips = [
+        record.sku ? `<span class="odv-chip">SKU: ${sanitizeText(record.sku)}</span>` : "",
+        record.price ? `<span class="odv-chip">${formatCurrency(record.price, record.currency)}</span>` : "",
+        record.category ? `<span class="odv-chip">${sanitizeText(record.category)}</span>` : "",
+      ].filter(Boolean).join("");
+      break;
+    case "tasks":
+      chips = [
+        record.assignee ? `<span class="odv-chip">${sanitizeText(record.assignee)}</span>` : "",
+        record.due_date ? `<span class="odv-chip">Due ${sanitizeText(record.due_date)}</span>` : "",
+        relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "",
+      ].filter(Boolean).join("");
+      break;
+    case "notes":
+      chips = [
+        record.author ? `<span class="odv-chip">${sanitizeText(record.author)}</span>` : "",
+        record.entity_type ? `<span class="odv-chip">${sanitizeText(record.entity_type)}</span>` : "",
+        relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "",
+      ].filter(Boolean).join("");
+      break;
+    default:
+      chips = relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "";
+  }
+
+  // Field display (same filtering logic, new grid layout)
   const ignore = new Set(["id", "created_at", "updated_at", "company_id", "contact_id", "product_id"]);
   if (tableKey === "companies") {
     ignore.delete("id");
@@ -8465,33 +8163,31 @@ function renderRecordPreview(tableKey, record) {
     ["company_name", "contact_name", "customer_name"].forEach((k) => ignore.add(k));
   }
   const orderedKeys = orderPreviewKeys(Object.keys(previewRecord).filter((k) => !ignore.has(k)));
-  const rows = orderedKeys
-    .map(
-      (key) => {
-        const value = formatPreviewValue(previewRecord[key], key, previewRecord);
-        const label = formatPreviewLabel(key, previewRecord, tableKey);
-        return `
-          <div class="preview-row">
-            <div class="preview-label">${label}</div>
-            <div class="preview-value">${value}</div>
-          </div>
-        `;
-      }
-    )
-    .join("");
+  const extraGrid = orderedKeys.map((key) => {
+    const value = formatPreviewValue(previewRecord[key], key, previewRecord);
+    const label = formatPreviewLabel(key, previewRecord, tableKey);
+    return `
+      <div class="odv-extra-row">
+        <span class="odv-extra-label">${label}</span>
+        <span class="odv-extra-val">${value}</span>
+      </div>
+    `;
+  }).join("");
 
   return `
-    <div class="preview-card">
-      <div class="preview-header">
-        <div class="preview-title-section">
-          <div class="preview-title">${title}</div>
-          ${subtitle ? `<div class="preview-subtitle">${subtitle}</div>` : ""}
-          ${relatedInfo ? `<div class="preview-related">${relatedInfo}</div>` : ""}
-          <div class="preview-meta">${statusBadge} ${updatedMeta}</div>
+    <div class="odv">
+      <div class="preview-hero">
+        <div class="preview-hero-main">
+          <div class="preview-hero-title">${sanitizeText(title)}</div>
+          ${subtitle ? `<div class="preview-hero-subtitle">${sanitizeText(subtitle)}</div>` : ""}
+          ${relatedInfo && tableKey !== "tasks" && tableKey !== "notes" ? `<div class="preview-hero-related">${sanitizeText(relatedInfo)}</div>` : ""}
+          <div class="preview-hero-meta">${statusBadge} ${updatedMeta}</div>
         </div>
+        <div class="preview-hero-right"></div>
       </div>
-      <div class="preview-grid">
-        ${rows}
+      ${chips ? `<div class="odv-chips">${chips}</div>` : ""}
+      <div class="odv-section">
+        <div class="odv-extra-grid">${extraGrid}</div>
       </div>
     </div>
   `;
@@ -8508,40 +8204,47 @@ function renderDocumentPreview(record) {
   const docTypeName = record.doc_type_id ? getDocTypeName(record.doc_type_id) : "";
   const storageKey = record.storage_key || record.key || "Not provided";
 
-  const metaRows = [
-    ...(linked ? [["Linked To", linked]] : []),
-    ...(docTypeName ? [["Document Type", docTypeName]] : []),
-    ["Content Type", mime || "File"],
-    ["Size", sizeLabel],
-    ["Updated", updatedLabel],
-    ["Storage Key", storageKey]
-  ];
+  let fileIcon = "📁";
+  if (mime.includes("pdf")) fileIcon = "📄";
+  else if (mime.startsWith("image/")) fileIcon = "🖼";
+  else if (mime.includes("spreadsheet") || mime.includes("excel") || mime.includes("xls")) fileIcon = "📊";
+  else if (mime.includes("zip") || mime.includes("rar") || mime.includes("archive")) fileIcon = "📦";
+  else if (mime.includes("word") || mime.includes("msword") || mime.includes("document")) fileIcon = "📝";
 
-  const metaGrid = metaRows
-    .map(
-      ([label, value]) => `
-          <div class="preview-row">
-            <div class="preview-label">${label}</div>
-            <div class="preview-value">${value}</div>
-          </div>
-        `
-    )
-    .join("");
+  const chips = [
+    linked ? `<span class="odv-chip">${sanitizeText(linked)}</span>` : "",
+    docTypeName ? `<span class="odv-chip">${sanitizeText(docTypeName)}</span>` : "",
+    `<span class="odv-chip">${sanitizeText(sizeLabel)}</span>`,
+    mime ? `<span class="odv-chip">${sanitizeText(mime)}</span>` : "",
+  ].filter(Boolean).join("");
+
+  const extraGrid = [
+    ["Updated", updatedLabel],
+    ["Storage key", storageKey],
+  ].map(([label, val]) => `
+    <div class="odv-extra-row">
+      <span class="odv-extra-label">${sanitizeText(label)}</span>
+      <span class="odv-extra-val">${sanitizeText(String(val))}</span>
+    </div>
+  `).join("");
 
   return `
-    <div class="preview-card document-preview">
-      <div class="preview-header">
-        <div class="preview-title-section">
-          <div class="preview-title">${title}</div>
-          ${linked ? `<div class="preview-related">${linked}</div>` : ""}
-          <div class="preview-meta">
-            ${docTypeName ? `<span class="badge info">${docTypeName}</span>` : ""}
-            <span class="stat-label">${mime || "File"}</span>
-            <span class="stat-label">${sizeLabel}</span>
+    <div class="odv">
+      <div class="doc-hero">
+        <div class="doc-hero-icon">${fileIcon}</div>
+        <div class="doc-hero-info">
+          <div class="doc-hero-title">${sanitizeText(title)}</div>
+          <div class="doc-hero-meta">
+            ${docTypeName ? `<span class="badge info">${sanitizeText(docTypeName)}</span>` : ""}
+            <span style="color:#94a3b8;font-size:12px;">${sanitizeText(mime || "File")}</span>
+            <span style="color:#94a3b8;font-size:12px;">${sanitizeText(sizeLabel)}</span>
           </div>
         </div>
-        ${hasFile ? `<a class="btn ghost" href="#" data-doc-open>Open in new tab</a>` : ""}
+        <div class="doc-hero-right">
+          ${hasFile ? `<a class="btn ghost" href="#" data-doc-open style="color:#fff;border-color:rgba(255,255,255,0.3);">Open</a>` : ""}
+        </div>
       </div>
+      <div class="odv-chips">${chips}</div>
       ${
         hasFile
           ? `<div class="doc-preview-media" data-doc-preview>
@@ -8552,8 +8255,9 @@ function renderDocumentPreview(record) {
             </div>`
           : renderDocumentViewer(null, mime, title, record)
       }
-      <div class="preview-grid">
-        ${metaGrid}
+      <div class="odv-section">
+        <div class="odv-section-title">Details</div>
+        <div class="odv-extra-grid">${extraGrid}</div>
       </div>
     </div>
   `;
@@ -8576,34 +8280,6 @@ function renderShippingSchedulePreview(record) {
   const updatedMeta = record.updated_at
     ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>`
     : "";
-  const metaItems = [
-    statusBadge,
-    updatedMeta,
-    record.carrier ? `<span class="stat-label">Carrier: ${sanitizeText(record.carrier)}</span>` : "",
-    record.tracking_number ? `<span class="stat-label">Tracking: ${sanitizeText(record.tracking_number)}</span>` : ""
-  ]
-    .filter(Boolean)
-    .join("");
-
-  const infoRows = [
-    ["Company", company || null, "company_name"],
-    ["Order #", orderRef || null, "order_reference"],
-    ["Invoice #", invoiceRef || null, "invoice_reference"],
-    ["Carrier", record.carrier || null, "carrier"],
-    ["Tracking #", record.tracking_number || null, "tracking_number"]
-  ];
-
-  const infoMarkup = infoRows
-    .map(
-      ([label, value, key]) => `
-        <div class="preview-row">
-          <div class="preview-label">${sanitizeText(label)}</div>
-          <div class="preview-value">${formatPreviewValue(value, key, record)}</div>
-        </div>
-      `
-    )
-    .join("");
-
   const scheduleRows = [
     ["Factory exit", "factory_exit_date", record.factory_exit_date],
     ["ETC", "etc_date", record.etc_date],
@@ -8611,48 +8287,46 @@ function renderShippingSchedulePreview(record) {
     ["ETA", "eta", record.eta]
   ];
 
-  const timelineMarkup = scheduleRows
-    .map(
-      ([label, key, value]) => `
-        <div class="timeline-item">
-          <div class="timeline-label">${sanitizeText(label)}</div>
-          <div class="timeline-value">${formatPreviewValue(value, key, record)}</div>
-        </div>
-      `
-    )
-    .join("");
-
   const notesText = record.notes ? sanitizeText(record.notes).replace(/\n/g, "<br>") : "";
-  const notesMarkup = notesText
-    ? `
-      <div class="preview-note">
-        <div class="preview-label">Notes</div>
-        <div class="preview-value">${notesText}</div>
-      </div>
-    `
-    : "";
+
+  const chips = [
+    orderRef ? `<span class="odv-chip">Order ${sanitizeText(orderRef)}</span>` : "",
+    invoiceRef ? `<span class="odv-chip">Invoice ${sanitizeText(invoiceRef)}</span>` : "",
+    record.carrier ? `<span class="odv-chip">${sanitizeText(record.carrier)}</span>` : "",
+    record.tracking_number ? `<span class="odv-chip">Tracking: ${sanitizeText(record.tracking_number)}</span>` : "",
+  ].filter(Boolean).join("");
+
+  const scheduleGrid = scheduleRows.map(([label, key, value]) => `
+    <div class="odv-extra-row">
+      <span class="odv-extra-label">${sanitizeText(label)}</span>
+      <span class="odv-extra-val">${formatPreviewValue(value, key, record)}</span>
+    </div>
+  `).join("");
+
+  const notesSection = notesText ? `
+    <div class="odv-section">
+      <div class="odv-section-title">Notes</div>
+      <p style="margin:0;color:#475569;font-size:14px;">${notesText}</p>
+    </div>
+  ` : "";
 
   return `
-    <div class="preview-card shipping-preview">
-      <div class="preview-header">
-        <div class="preview-title-section">
-          <div class="preview-title">${sanitizeText(title)}</div>
-          ${subtitle ? `<div class="preview-subtitle">${sanitizeText(subtitle)}</div>` : ""}
-          <div class="preview-meta">${metaItems}</div>
+    <div class="odv">
+      <div class="odv-hero" style="background: linear-gradient(135deg, #0f2027 0%, #1a3a4a 100%);">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(title)}</div>
+          <div class="odv-title">${sanitizeText(subtitle || "Shipping Schedule")}</div>
+        </div>
+        <div class="odv-hero-right">
+          ${statusBadge}
         </div>
       </div>
-      <div class="preview-shipping-layout">
-        <div class="preview-grid">
-          ${infoMarkup}
-        </div>
-        <div class="shipping-timeline">
-          <div class="shipping-timeline-title">Schedule</div>
-          <div class="shipping-timeline-grid">
-            ${timelineMarkup}
-          </div>
-        </div>
+      <div class="odv-chips">${chips}</div>
+      <div class="odv-section">
+        <div class="odv-section-title">Schedule</div>
+        <div class="odv-extra-grid">${scheduleGrid}</div>
       </div>
-      ${notesMarkup}
+      ${notesSection}
     </div>
   `;
 }
@@ -8666,41 +8340,6 @@ function renderSampleShipmentPreview(record) {
   const companyLabel = record.company_name || (record.company_id ? `Company #${record.company_id}` : "Company");
   const productLabel = record.product_name || (record.product_id ? `Product #${record.product_id}` : "Product");
   const documentLabel = record.document_title || (record.document_id ? `Document #${record.document_id}` : "");
-
-  const fields = [
-    ["Company", companyLabel || "—"],
-    ["Product", productLabel || "—"],
-    ["Document ID", record.document_id ?? "—"],
-    ["Document Title", documentLabel || "—"],
-    ["Quantity", record.quantity ?? "—"],
-    ["Receiving Address", record.receiving_address || "—"],
-    ["Phone", record.phone || "—"],
-    ["Waybill Number", record.waybill_number || "—"],
-    ["Courier", record.courier || "—"],
-    ["Status", record.status || "—"],
-    ["Notes", record.notes || "—"]
-  ];
-
-  const rows = fields
-    .map(
-      ([label, value]) => `
-        <div class="preview-row">
-          <div class="preview-label">${label}</div>
-          <div class="preview-value">${value}</div>
-        </div>
-      `
-    )
-    .join("");
-
-  const chips = [companyLabel, productLabel, documentLabel].filter(Boolean);
-  const chipRow = chips.length
-    ? `<div class="preview-chips">${chips.map((c) => `<span class="badge secondary">${c}</span>`).join("")}</div>`
-    : "";
-
-  const docAction =
-    record.document_id && documentLabel
-      ? `<div class="preview-actions"><button class="btn ghost" type="button" data-sample-doc="${record.document_id}">Open Document</button></div>`
-      : "";
 
   const trackingCard = record.waybill_number
     ? `
@@ -8741,23 +8380,52 @@ function renderSampleShipmentPreview(record) {
     `
     : "";
 
+  const odvChips = [
+    companyLabel ? `<span class="odv-chip">${sanitizeText(companyLabel)}</span>` : "",
+    productLabel ? `<span class="odv-chip">${sanitizeText(productLabel)}</span>` : "",
+    documentLabel ? `<span class="odv-chip">${sanitizeText(documentLabel)}</span>` : "",
+  ].filter(Boolean).join("");
+
+  const deliveryFields = [
+    record.receiving_address ? ["Address", record.receiving_address] : null,
+    record.phone ? ["Phone", record.phone] : null,
+    record.quantity != null ? ["Quantity", String(record.quantity)] : null,
+  ].filter(Boolean);
+
+  const deliveryGrid = deliveryFields.map(([label, val]) => `
+    <div class="odv-extra-row">
+      <span class="odv-extra-label">${sanitizeText(label)}</span>
+      <span class="odv-extra-val">${sanitizeText(val)}</span>
+    </div>
+  `).join("");
+
+  const odvNotesBlock = record.notes ? `
+    <div class="odv-section">
+      <div class="odv-section-title">Notes</div>
+      <p style="margin:0;color:#475569;font-size:14px;">${sanitizeText(record.notes)}</p>
+    </div>
+  ` : "";
+
+  const odvDocAction = record.document_id && documentLabel
+    ? `<div style="padding:12px 20px 16px;"><button class="btn ghost" type="button" data-sample-doc="${record.document_id}">Open Document</button></div>`
+    : "";
+
   const mainCard = `
-    <div class="preview-card">
-      <div class="preview-header">
-        <div class="preview-title-section">
-          <div class="preview-title">${title}</div>
-          ${subtitle ? `<div class="preview-subtitle">${subtitle}</div>` : ""}
-          ${chipRow}
-          ${docAction}
-          <div class="preview-meta">
-            ${statusBadge}
-            ${updatedMeta}
-          </div>
+    <div class="odv">
+      <div class="odv-hero" style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(title)}</div>
+          <div class="odv-title">${subtitle ? sanitizeText(subtitle) : "Sample Shipment"}</div>
+        </div>
+        <div class="odv-hero-right">
+          ${statusBadge}
+          ${updatedMeta}
         </div>
       </div>
-      <div class="preview-grid">
-        ${rows}
-      </div>
+      <div class="odv-chips">${odvChips}</div>
+      ${deliveryGrid ? `<div class="odv-section"><div class="odv-section-title">Delivery Details</div><div class="odv-extra-grid">${deliveryGrid}</div></div>` : ""}
+      ${odvNotesBlock}
+      ${odvDocAction}
     </div>
   `;
 
@@ -8944,159 +8612,161 @@ async function resolveOrderInvoiceInfo(orderId, record) {
 async function renderOrderPreview(record) {
   const baseRecord = { ...(record || {}) };
   const invoiceInfo = await resolveOrderInvoiceInfo(baseRecord.id, baseRecord);
-  if (invoiceInfo.labels.length) {
-    baseRecord.invoice_reference = invoiceInfo.labels.join(", ");
-  }
-  if (invoiceInfo.dates.length) {
-    baseRecord.invoice_date = invoiceInfo.dates[0];
-  }
+  const invoiceRef = invoiceInfo.labels.length ? invoiceInfo.labels.join(", ") : null;
+  const invoiceDate = invoiceInfo.dates.length ? invoiceInfo.dates[0] : null;
+
   const quoteKeyCandidates = [
-    record.quotation_id,
-    record.quote_id,
-    record.quotationId,
-    record.quotation,
-    record.quote
-  ]
-    .map((val) => (val === null || val === undefined ? "" : String(val).trim()))
-    .filter(Boolean);
+    record.quotation_id, record.quote_id, record.quotationId, record.quotation, record.quote
+  ].map((v) => (v == null ? "" : String(v).trim())).filter(Boolean);
+
   const orderRef = (record.reference || "").trim();
   const quotationList = await fetchQuotationsList();
   let matchedQuote = null;
   let quotationId = quoteKeyCandidates[0] || null;
-
   if (quotationId) {
     matchedQuote = quotationList.find((q) => String(q.id) === String(quotationId)) || null;
   }
   if (!quotationId && orderRef) {
-    const normalizedRef = orderRef.toLowerCase();
-    matchedQuote = quotationList.find((q) => (q.reference || "").toLowerCase() === normalizedRef) || null;
+    const nr = orderRef.toLowerCase();
+    matchedQuote = quotationList.find((q) => (q.reference || "").toLowerCase() === nr) || null;
     quotationId = matchedQuote?.id ? String(matchedQuote.id) : null;
   }
-  if (matchedQuote) {
-    baseRecord.quotation_reference = matchedQuote.reference || matchedQuote.title || `Quotation #${quotationId}`;
-  }
+  const quoteLabel = matchedQuote?.reference || matchedQuote?.title || (quotationId ? `Quotation #${quotationId}` : null);
 
-  if (!quotationId) {
-    const base = renderRecordPreview("orders", baseRecord);
-    return `
-      <div class="preview-stack">
-        ${base}
-        <div class="preview-card">
-          <div class="preview-header">
-            <div class="preview-title-section">
-              <div class="preview-title">Quotation line items</div>
-              <div class="preview-subtitle">No linked quotation found for this order.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  const items = await getQuotationItems(quotationId);
-  if (!items.length) {
-    const base = renderRecordPreview("orders", baseRecord);
-    return `
-      <div class="preview-stack">
-        ${base}
-        <div class="preview-card">
-          <div class="preview-header">
-            <div class="preview-title-section">
-              <div class="preview-title">Quotation line items</div>
-              <div class="preview-subtitle">No line items found for the linked quotation.</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
+  const items = quotationId ? await getQuotationItems(quotationId) : [];
   const currency = (record.currency || matchedQuote?.currency || "USD").toUpperCase();
   const taxRate = parsePercent(matchedQuote?.tax_rate);
+
   const lineTotals = [];
-  const lineRows = items
-    .map((item) => {
-      const qty = Number(item.qty) || 0;
-      const unit = Number(item.unit_price) || 0;
-      const drum = Number(item.drums_price) || 0;
-      const bank = Number(item.bank_charge_price) || 0;
-      const ship = Number(item.shipping_price) || 0;
-      const commission = Number(item.customer_commission) || 0;
-      const lineTotal = resolveQuoteLineTotal(item);
-      lineTotals.push({ line_total: lineTotal });
-      const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
-      return `
-        <tr>
-          <td>${sanitizeText(productName)}</td>
-          <td>${qty}</td>
-          <td>${formatCurrency(unit, currency)}</td>
-          <td>${formatCurrency(drum, currency)}</td>
-          <td>${formatCurrency(bank, currency)}</td>
-          <td>${formatCurrency(ship, currency)}</td>
-          <td>${formatCurrency(commission, currency)}</td>
-          <td>${formatCurrency(lineTotal, currency)}</td>
-        </tr>
-      `;
-    })
-    .join("");
+  const lineRows = items.map((item) => {
+    const qty    = Number(item.qty) || 0;
+    const unit   = Number(item.unit_price) || 0;
+    const drum   = Number(item.drums_price) || 0;
+    const bank   = Number(item.bank_charge_price) || 0;
+    const ship   = Number(item.shipping_price) || 0;
+    const comm   = Number(item.customer_commission) || 0;
+    const uTotal = unit + drum + bank + ship + comm;
+    const lTotal = resolveQuoteLineTotal(item);
+    lineTotals.push({ line_total: lTotal });
+    const pName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "Item");
+    return `
+      <tr>
+        <td class="odv-item-name">${sanitizeText(pName)}</td>
+        <td class="odv-num">${qty}</td>
+        <td class="odv-num">${formatCurrency(unit, currency)}</td>
+        <td class="odv-num">${formatCurrency(drum, currency)}</td>
+        <td class="odv-num">${formatCurrency(bank, currency)}</td>
+        <td class="odv-num">${formatCurrency(ship, currency)}</td>
+        <td class="odv-num">${formatCurrency(comm, currency)}</td>
+        <td class="odv-num odv-unit-total">${formatCurrency(uTotal, currency)}</td>
+        <td class="odv-num odv-line-total"><strong>${formatCurrency(lTotal, currency)}</strong></td>
+      </tr>`;
+  }).join("");
+
   const totals = calculateQuoteTotals(lineTotals, taxRate);
   const computedTotal = Number(totals.total) || 0;
-  if (!Number(baseRecord.total_amount)) {
-    baseRecord.total_amount = computedTotal;
-  }
-  baseRecord.currency = currency;
-  const quoteLabel = matchedQuote?.reference || matchedQuote?.title || `Quotation #${quotationId}`;
-  const base = renderRecordPreview("orders", baseRecord);
+  const displayTotal = Number(record.total_amount) || computedTotal;
+
+  const tone = statusToneFront(record.status || "");
+  const statusBadge = record.status
+    ? `<span class="badge ${tone}">${record.status}</span>`
+    : "";
+
+  // Info chips
+  const chips = [];
+  if (record.created_at) chips.push({ icon: "calendar", label: "Created", val: formatPreviewValue(record.created_at, "created_at", record) });
+  if (record.updated_at) chips.push({ icon: "clock", label: "Updated", val: formatPreviewValue(record.updated_at, "updated_at", record) });
+  if (quoteLabel) chips.push({ icon: "file-text", label: "Quotation", val: sanitizeText(quoteLabel) });
+  if (invoiceRef) chips.push({ icon: "receipt", label: "Invoice", val: sanitizeText(invoiceRef) });
+  if (invoiceDate) chips.push({ icon: "calendar-check", label: "Invoice date", val: formatPreviewValue(invoiceDate, "invoice_date", record) });
+  if (currency) chips.push({ icon: "coins", label: "Currency", val: currency });
+  if (record.carrier) chips.push({ icon: "truck", label: "Carrier", val: sanitizeText(record.carrier) });
+  if (record.tracking_number) chips.push({ icon: "package", label: "Tracking", val: sanitizeText(record.tracking_number) });
+  if (record.eta) chips.push({ icon: "map-pin", label: "ETA", val: formatPreviewValue(record.eta, "eta", record) });
+  if (record.etd_date) chips.push({ icon: "anchor", label: "ETD", val: formatPreviewValue(record.etd_date, "etd_date", record) });
+  if (record.factory_exit_date) chips.push({ icon: "door-open", label: "Factory exit", val: formatPreviewValue(record.factory_exit_date, "factory_exit_date", record) });
+
+  const chipsHtml = chips.map(c => `
+    <div class="odv-chip">
+      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
+      <span class="odv-chip-val">${c.val}</span>
+    </div>`).join("");
+
+  // Extra fields (notes, tags, anything not shown yet)
+  const shownKeys = new Set(["id","reference","status","company_name","contact_name","currency",
+    "total_amount","created_at","updated_at","company_id","contact_id","product_id","owner_email",
+    "quotation_id","quote_id","quotationId","quotation","quote",
+    "invoice_id","invoice_ids","invoice_links","carrier","tracking_number","eta","etd_date","factory_exit_date"]);
+  const extraFields = Object.entries(record)
+    .filter(([k]) => !shownKeys.has(k) && record[k] != null && record[k] !== "")
+    .map(([k, v]) => `
+      <div class="odv-extra-row">
+        <span class="odv-extra-label">${formatPreviewLabel(k, record, "orders")}</span>
+        <span class="odv-extra-val">${formatPreviewValue(v, k, record)}</span>
+      </div>`).join("");
+
+  const itemsSection = items.length ? `
+    <div class="odv-section">
+      <div class="odv-section-title">
+        <i data-lucide="list"></i>
+        Line items
+        ${quoteLabel ? `<span class="odv-section-sub">from ${sanitizeText(quoteLabel)}</span>` : ""}
+      </div>
+      <div class="odv-table-wrap">
+        <table class="odv-table">
+          <thead>
+            <tr>
+              <th>Product</th><th>Qty</th><th>Unit</th><th>Drums</th>
+              <th>Bank</th><th>Shipping</th><th>Commission</th>
+              <th>Unit total</th><th>Line total</th>
+            </tr>
+          </thead>
+          <tbody>${lineRows}</tbody>
+        </table>
+      </div>
+      <div class="odv-totals">
+        <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal || 0, currency)}</strong></div>
+        ${taxRate ? `<div class="odv-total-row"><span>Tax (${taxRate}%)</span><strong>${formatCurrency(totals.tax || 0, currency)}</strong></div>` : ""}
+        <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(totals.total || 0, currency)}</strong></div>
+      </div>
+    </div>` : `
+    <div class="odv-section odv-no-items">
+      <i data-lucide="inbox"></i>
+      <span>${quotationId ? "No line items found for the linked quotation." : "No quotation linked to this order."}</span>
+    </div>`;
 
   return `
-    <div class="preview-stack">
-      ${base}
-      <div class="preview-card">
-        <div class="preview-header">
-          <div class="preview-title-section">
-            <div class="preview-title">Quotation line items</div>
-            <div class="preview-subtitle">${sanitizeText(quoteLabel)}</div>
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(record.reference || `Order #${record.id}`)}</div>
+          <div class="odv-parties">
+            ${record.company_name ? `<span><i data-lucide="building-2"></i>${sanitizeText(record.company_name)}</span>` : ""}
+            ${record.contact_name ? `<span><i data-lucide="user"></i>${sanitizeText(record.contact_name)}</span>` : ""}
           </div>
+          <div class="odv-hero-badges">${statusBadge}</div>
         </div>
-        <div class="quote-line-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Product</th>
-                <th>Qty</th>
-                <th>Unit price</th>
-                <th>Drums price</th>
-                <th>Bank charge</th>
-                <th>Shipping</th>
-                <th>Commission</th>
-                <th>Unit total</th>
-                <th>Line total</th>
-              </tr>
-            </thead>
-            <tbody>${lineRows}</tbody>
-          </table>
-        </div>
-        <div class="quote-summary order-quote-summary">
-          <div>
-            <span>Subtotal</span>
-            <strong>${formatCurrency(totals.subtotal || 0, currency)}</strong>
-          </div>
-          <div>
-            <span>Tax ${taxRate ? `(${taxRate}%)` : ""}</span>
-            <strong>${formatCurrency(totals.tax || 0, currency)}</strong>
-          </div>
-          <div>
-            <span>Total</span>
-            <strong>${formatCurrency(totals.total || 0, currency)}</strong>
-          </div>
+        <div class="odv-hero-right">
+          <div class="odv-amount">${formatCurrency(displayTotal, currency)}</div>
+          <div class="odv-currency">${currency}</div>
         </div>
       </div>
-    </div>
-  `;
+      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
+      ${itemsSection}
+      ${extraFields ? `
+      <div class="odv-section">
+        <div class="odv-section-title"><i data-lucide="info"></i> Details</div>
+        <div class="odv-extra-grid">${extraFields}</div>
+      </div>` : ""}
+    </div>`;
 }
 
 async function renderQuotationPreview(record) {
-  const items = await getQuotationItems(record.id);
+  // For new quotations (no legacy_id), items are embedded in record.items
+  let items = await getQuotationItems(record.id, record.legacy_id);
+  if (!items.length && Array.isArray(record.items) && record.items.length) {
+    items = record.items.filter(item => item && (item.product_name || item.product_id || item.qty));
+  }
   const currency = record.currency || "USD";
   const statusTone = statusToneFront(record.status || "Draft");
   const subtotal = items.reduce((sum, item) => sum + resolveQuoteLineTotal(item), 0);
@@ -9118,16 +8788,17 @@ async function renderQuotationPreview(record) {
     record.attachment_mime || record.attachment_content_type || record.content_type || guessMimeFromKey(attachmentKey);
   const attachmentBlock = attachmentUrl
     ? `
-      <section class="quote-attachment">
-        <div class="preview-header">
-          <div class="preview-title-section">
-            <div class="preview-title">Attachment</div>
-            <div class="preview-meta"><span class="stat-label">${attachmentTitle}</span></div>
+      <div class="odv-section">
+        <div class="odv-section-title">Attachment</div>
+        <div class="odv-attachment-row">
+          <div>
+            <div style="font-size:13px;font-weight:500;color:#0f172a;">${sanitizeText(attachmentTitle)}</div>
+            ${attachmentMime ? `<div><span class="stat-label">${sanitizeText(attachmentMime)}</span></div>` : ""}
           </div>
-          <a class="btn ghost" href="#" role="button" data-open-quote-attachment data-url="${attachmentUrl}" data-mime="${attachmentMime || ""}" data-title="${attachmentTitle}" data-key="${attachmentKey}">Open attachment</a>
+          <a class="btn ghost small" href="#" role="button" data-open-quote-attachment data-url="${attachmentUrl}" data-mime="${attachmentMime || ""}" data-title="${sanitizeText(attachmentTitle)}" data-key="${attachmentKey}">Open</a>
         </div>
         <div class="quote-attachment-viewer" data-attachment-slot></div>
-      </section>
+      </div>
     `
     : "";
 
@@ -9140,6 +8811,7 @@ async function renderQuotationPreview(record) {
           const bank = Number(item.bank_charge_price) || 0;
           const ship = Number(item.shipping_price) || 0;
           const commission = Number(item.customer_commission) || 0;
+          const unitTotal = unit + drum + bank + ship + commission;
           const lineTotal = resolveQuoteLineTotal(item);
           return `
             <tr>
@@ -9150,12 +8822,13 @@ async function renderQuotationPreview(record) {
               <td>${formatCurrency(bank, currency)}</td>
               <td>${formatCurrency(ship, currency)}</td>
               <td>${formatCurrency(commission, currency)}</td>
+              <td><strong>${formatCurrency(unitTotal, currency)}</strong></td>
               <td>${formatCurrency(lineTotal, currency)}</td>
             </tr>
           `;
         })
         .join("")
-    : `<tr><td colspan="8" class="empty-row">No line items on this quotation.</td></tr>`;
+    : `<tr><td colspan="9" class="empty-row">No line items on this quotation.</td></tr>`;
 
   let tagList = resolveTagList(record.tags);
   if (!tagList.length && Array.isArray(tableRecords.quotations)) {
@@ -9169,66 +8842,62 @@ async function renderQuotationPreview(record) {
   const notesText = record.notes ? sanitizeText(record.notes) : "No additional notes provided.";
   const validUntil = record.valid_until ? record.valid_until : "—";
 
+  const quotChips = [
+    record.company_name ? `<span class="odv-chip">${sanitizeText(record.company_name)}</span>` : "",
+    record.contact_name ? `<span class="odv-chip">${sanitizeText(record.contact_name)}</span>` : "",
+    `<span class="odv-chip">${sanitizeText(currency)}</span>`,
+    validUntil && validUntil !== "—" ? `<span class="odv-chip">Valid until ${sanitizeText(validUntil)}</span>` : "",
+    record.exchange_rate ? `<span class="odv-chip">Rate: ${sanitizeText(String(record.exchange_rate))}</span>` : "",
+  ].filter(Boolean).join("");
+
   return `
-    <div class="quote-preview-card">
-      <div class="quote-preview-header">
-        <div>
-          <h2>${record.reference || `Quotation #${record.id}`}</h2>
-          <p class="muted">${record.title || "Untitled"} · ${record.status || "Draft"}</p>
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          <div class="odv-ref">${sanitizeText(record.reference || `Quotation #${record.id}`)}</div>
+          <div class="odv-title">${sanitizeText(record.title || "Quotation")}</div>
         </div>
-        <div class="quote-badges">
-          <span class="badge ${statusTone}">${record.status || "Draft"}</span>
-          <span class="stat-label">Valid until ${validUntil}</span>
-          <span class="stat-label">${currency}</span>
-        </div>
-      </div>
-      <div class="quote-meta-grid">
-        <div><strong>Company</strong><span>${record.company_name || "—"}</span></div>
-        <div><strong>Contact</strong><span>${record.contact_name || "—"}</span></div>
-        <div><strong>Customer</strong><span>${record.customer_name || record.company_name || record.contact_name || "—"}</span></div>
-        <div><strong>Bank charge</strong><span>${bankMethodLabel}</span></div>
-        <div><strong>Tax rate</strong><span>${record.tax_rate ? `${record.tax_rate}%` : "—"}</span></div>
-        <div><strong>USD to NTD rate</strong><span>${record.exchange_rate ? record.exchange_rate : "—"}</span></div>
-      </div>
-      <section class="quote-line-table">
-        <table>
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Qty</th>
-              <th>Unit</th>
-              <th>Drums</th>
-              <th>Bank</th>
-              <th>Shipping</th>
-              <th>Commission</th>
-              <th>Total</th>
-            </tr>
-          </thead>
-          <tbody>${lineRows}</tbody>
-        </table>
-      </section>
-      <div class="quote-summary-print">
-        <div>
-          <span>Subtotal</span>
-          <strong>${formatCurrency(subtotal, currency)}</strong>
-        </div>
-        <div>
-          <span>Tax ${taxRate ? `(${taxRate}%)` : ""}</span>
-          <strong>${formatCurrency(tax, currency)}</strong>
-        </div>
-        <div>
-          <span>Total</span>
-          <strong>${formatCurrency(total || record.amount || 0, currency)}</strong>
+        <div class="odv-hero-right">
+          <span class="badge ${statusTone}">${sanitizeText(record.status || "Draft")}</span>
+          <div class="odv-amount">${formatCurrency(total || record.amount || 0, currency)}</div>
         </div>
       </div>
-      <section class="quote-notes-print">
-        <p style="margin:0 0 6px;font-weight:600;color:#0f172a;">Notes & terms</p>
-        <p style="margin:0 0 10px;">${notesText}</p>
-        <p style="margin:0;font-weight:600;color:#0f172a;">Bank charge method</p>
-        <p style="margin:0 0 10px;color:#475569;">${bankMethodLabel}</p>
-        <p style="margin:0;font-weight:600;color:#0f172a;">Tags</p>
-        <p style="margin:0;color:#475569;">${tagText}</p>
-      </section>
+      <div class="odv-chips">${quotChips}</div>
+      <div class="odv-section">
+        <div class="odv-section-title">Line Items</div>
+        <div class="quote-line-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Unit</th>
+                <th>Drums</th>
+                <th>Bank</th>
+                <th>Shipping</th>
+                <th>Commission</th>
+                <th>Unit total</th>
+                <th>Line total</th>
+              </tr>
+            </thead>
+            <tbody>${lineRows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="odv-section">
+        <div class="odv-totals">
+          <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(subtotal, currency)}</strong></div>
+          <div class="odv-total-row"><span>Tax${taxRate ? ` (${taxRate}%)` : ""}</span><strong>${formatCurrency(tax, currency)}</strong></div>
+          <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(total || record.amount || 0, currency)}</strong></div>
+        </div>
+      </div>
+      <div class="odv-section">
+        <div class="odv-extra-grid">
+          ${notesText ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes &amp; terms</span><span class="odv-extra-val" style="white-space:pre-wrap;">${notesText}</span></div>` : ""}
+          <div class="odv-extra-row"><span class="odv-extra-label">Bank charge method</span><span class="odv-extra-val">${sanitizeText(bankMethodLabel)}</span></div>
+          <div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${sanitizeText(tagText)}</span></div>
+        </div>
+      </div>
       ${attachmentBlock}
     </div>
   `;
@@ -9304,38 +8973,84 @@ async function loadQuotationItems() {
   return tableRecords.quotation_items;
 }
 
-async function fetchQuotationItemsForId(quotationId) {
+function resolveQuotationLegacyId(quotationId) {
+  // quotation_items store the legacy integer id; quotations now have legacy_id matching that
+  const quote = (tableRecords.quotations || []).find((q) => String(q.id) === String(quotationId));
+  return quote?.legacy_id ?? null;
+}
+
+async function fetchQuotationItemsForId(quotationId, legacyIdHint) {
   if (!quotationId) return [];
   try {
-    const params = new URLSearchParams();
-    params.set("quotation_id", String(quotationId));
-    params.set("limit", "200");
-    params.set("cache", "0");
-    const res = await apiFetch(`/api/quotation_items?${params.toString()}`);
-    if (!res.ok) return [];
-    const data = await res.json().catch(() => ({}));
-    return Array.isArray(data.rows) ? data.rows : [];
+    const legacyId = legacyIdHint ?? resolveQuotationLegacyId(quotationId);
+    // Try MongoDB string id first (items saved after migration fix), then legacy integer id
+    const idsToTry = [String(quotationId)];
+    if (legacyId != null && String(legacyId) !== String(quotationId)) {
+      idsToTry.push(String(legacyId));
+    }
+    const allRows = [];
+    const seenIds = new Set();
+    for (const qid of idsToTry) {
+      const params = new URLSearchParams({ quotation_id: qid, limit: "200", cache: "0" });
+      const res = await apiFetch(`/api/quotation_items?${params.toString()}`);
+      if (!res.ok) continue;
+      const data = await res.json().catch(() => ({}));
+      const rows = Array.isArray(data.rows) ? data.rows : [];
+      rows.forEach((r) => {
+        const k = String(r.id ?? "");
+        if (!k || seenIds.has(k)) return;
+        seenIds.add(k);
+        allRows.push(r);
+      });
+      if (allRows.length) break; // found items under this id, no need to try legacy id
+    }
+    return allRows;
   } catch (err) {
     console.debug("Unable to fetch quotation items", err);
   }
   return [];
 }
 
-async function getQuotationItems(quotationId) {
+function deduplicateById(arr) {
+  const seen = new Set();
+  return arr.filter((item) => {
+    const key = String(item.id ?? "");
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function deduplicateQuotationItems(items) {
+  const seen = new Set();
+  return items.filter((item) => {
+    const key = `${item.product_id || ""}|${item.product_name || ""}|${item.unit_price || 0}|${item.qty || 0}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function getQuotationItems(quotationId, legacyIdHint) {
   if (!quotationId) return [];
   if (!quotationItemsPromise) {
     quotationItemsPromise = loadQuotationItems();
   }
   await quotationItemsPromise;
-  const cached = (tableRecords.quotation_items || []).filter((item) => item.quotation_id == quotationId);
+  const legacyId = legacyIdHint ?? resolveQuotationLegacyId(quotationId);
+  const cached = deduplicateQuotationItems(deduplicateById(
+    (tableRecords.quotation_items || []).filter(
+      (item) => item.quotation_id == quotationId || (legacyId != null && item.quotation_id == legacyId)
+    )
+  ));
   if (cached.length) return cached;
-  const fresh = await fetchQuotationItemsForId(quotationId);
+  const fresh = await fetchQuotationItemsForId(quotationId, legacyId);
   if (fresh.length) {
     const existing = Array.isArray(tableRecords.quotation_items) ? tableRecords.quotation_items : [];
     const existingIds = new Set(existing.map((item) => String(item.id ?? "")));
     const merged = existing.concat(fresh.filter((item) => !existingIds.has(String(item.id ?? ""))));
     tableRecords.quotation_items = merged;
-    return fresh;
+    return deduplicateQuotationItems(deduplicateById(fresh));
   }
   return cached;
 }
@@ -9840,7 +9555,8 @@ function orderPreviewKeys(keys) {
 function statusToneFront(status) {
   const s = (status || "").toLowerCase();
   if (s.includes("paid") || s.includes("completed") || s.includes("active")) return "success";
-  if (s.includes("overdue") || s.includes("pending") || s.includes("draft")) return "warning";
+  if (s.includes("rejected") || s.includes("overdue")) return "danger";
+  if (s.includes("pending") || s.includes("draft")) return "warning";
   return "info";
 }
 
@@ -10070,11 +9786,21 @@ function openForm(key, options = {}) {
 
   applyInitialValues(initialValues);
 
+  // Auto-fill computed status for shipping schedules based on milestone dates
+  if (key === "shipping" && mode === "edit" && initialValues) {
+    const computed = computeShippingStatus(initialValues);
+    if (computed) {
+      const statusSel = overlay.querySelector('select[name="status"]');
+      if (statusSel) statusSel.value = computed;
+    }
+  }
+
   const tagSelects = overlay.querySelectorAll('select[name="tags"]');
   if (tagSelects.length) {
     fetchRecords("tags", fallback.tags).then((tags) => {
-      const options = tags.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+      const options = tags.sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
       tagSelects.forEach((sel) => {
+        if (sel === document.activeElement) return; // skip if user is interacting
         sel.setAttribute("multiple", "multiple");
         sel.innerHTML = options;
         if (initialValues?.tags) {
@@ -10098,7 +9824,11 @@ function openForm(key, options = {}) {
       });
     }
   }
+  if (key === "companies" || key === "products") {
+    overlay.querySelector(".modal")?.classList.add("modal-large");
+  }
   if (key === "contacts") {
+    overlay.querySelector(".modal")?.classList.add("modal-large");
     const companySelect = overlay.querySelector('select[name="company_id"]');
     if (companySelect) {
       companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
@@ -10154,9 +9884,26 @@ function openForm(key, options = {}) {
       companySelect.value = "";
     };
 
+    // Hidden input so company_name is submitted directly alongside company_id
+    const form = overlay.querySelector("form");
+    let companyNameInput = form?.querySelector('input[name="company_name"]');
+    if (form && !companyNameInput) {
+      companyNameInput = document.createElement("input");
+      companyNameInput.type = "hidden";
+      companyNameInput.name = "company_name";
+      form.appendChild(companyNameInput);
+    }
+
+    const syncCompanyName = () => {
+      if (!companyNameInput || !companySelect) return;
+      const opt = companySelect.selectedOptions[0];
+      companyNameInput.value = opt?.value ? (opt.textContent || "") : "";
+    };
+
     if (companySelect) {
       const placeholder = i18nPlaceholderOption("-- Select company (optional) --");
       const applyCompanies = (companies) => {
+        if (companySelect === document.activeElement) return;
         const selectedValue = companySelect.value;
         const list = Array.isArray(companies) ? companies : [];
         const options = list.map((c) => `<option value="${c.id}">${c.name}</option>`).join("");
@@ -10172,7 +9919,10 @@ function openForm(key, options = {}) {
         } else if (selectedCompany?.id) {
           companySelect.value = selectedCompany.id;
         }
+        syncCompanyName();
       };
+
+      companySelect.addEventListener("change", syncCompanyName);
 
       const cachedCompanies = Array.isArray(tableRecords.companies)
         ? tableRecords.companies.map((c) => ({ id: c.id, name: c.name }))
@@ -10222,11 +9972,18 @@ function openForm(key, options = {}) {
       applyInitialCompany();
     }
 
-    fetchOrdersList().then((orders) => {
+    let ordersLoaded = false;
+    const applyOrders = (orders) => {
       if (!orderSelect) return;
+      const isRefresh = ordersLoaded;
+      const previousValue = isRefresh ? orderSelect.value : null;
+      ordersLoaded = true;
+      // Skip rebuild if user currently has this dropdown open
+      if (isRefresh && orderSelect === document.activeElement) return;
+      const list = Array.isArray(orders) ? orders : [];
       orderSelect.innerHTML =
         `${i18nPlaceholderOption("-- Optional: select an order --")}` +
-        orders
+        list
           .map(
             (o) =>
               `<option data-company="${o.company_id || ""}" value="${o.id}">${o.reference || o.id} - ${
@@ -10234,17 +9991,42 @@ function openForm(key, options = {}) {
               }</option>`
           )
           .join("");
-      if (initialOrderId) {
+      if (previousValue !== null) {
+        // Refresh call: restore current selection; do NOT call applyCompanyFromOption
+        if (previousValue) {
+          ensureSelectedOption(orderSelect, previousValue, previousValue, "");
+        }
+        // If previousValue is "", user cleared it — keep placeholder
+      } else if (initialOrderId) {
+        // Initial load: apply the record's saved order and derive company
         ensureSelectedOption(orderSelect, initialOrderId, initialOrderLabel, initialCompanyId);
         applyCompanyFromOption(orderSelect.selectedOptions[0]) || applyInitialCompany();
       }
-    });
+    };
+    const cachedOrders = Array.isArray(tableRecords.orders) && tableRecords.orders.length
+      ? tableRecords.orders.map((o) => ({ id: o.id, reference: o.reference, company_id: o.company_id, company: o.company_name }))
+      : [];
+    if (cachedOrders.length) {
+      applyOrders(cachedOrders);
+    } else if (orderSelect) {
+      orderSelect.innerHTML = i18nPlaceholderOption("Loading orders...");
+    }
+    fetchOrdersList()
+      .then((orders) => { if (orderSelect) applyOrders(orders); })
+      .catch(() => { if (!cachedOrders.length && orderSelect) applyOrders([]); });
 
-    fetchInvoicesList().then((invoices) => {
+    let invoicesLoaded = false;
+    const applyInvoices = (invoices) => {
       if (!invoiceSelect) return;
+      const isRefresh = invoicesLoaded;
+      const previousValue = isRefresh ? invoiceSelect.value : null;
+      invoicesLoaded = true;
+      // Skip rebuild if user currently has this dropdown open
+      if (isRefresh && invoiceSelect === document.activeElement) return;
+      const list = Array.isArray(invoices) ? invoices : [];
       invoiceSelect.innerHTML =
         `${i18nPlaceholderOption("-- Optional: select an invoice --")}` +
-        invoices
+        list
           .map(
             (inv) =>
               `<option data-company="${inv.company_id || ""}" value="${inv.id}">${inv.reference || inv.id} - ${
@@ -10252,11 +10034,29 @@ function openForm(key, options = {}) {
               }</option>`
           )
           .join("");
-      if (!initialOrderId && initialInvoiceId) {
+      if (previousValue !== null) {
+        // Refresh call: restore current selection; do NOT call applyCompanyFromOption
+        if (previousValue) {
+          ensureSelectedOption(invoiceSelect, previousValue, previousValue, "");
+        }
+        // If previousValue is "", user cleared it — keep placeholder
+      } else if (initialInvoiceId) {
+        // Initial load: apply the record's saved invoice and derive company
         ensureSelectedOption(invoiceSelect, initialInvoiceId, initialInvoiceLabel, initialCompanyId);
         applyCompanyFromOption(invoiceSelect.selectedOptions[0]) || applyInitialCompany();
       }
-    });
+    };
+    const cachedInvoices = Array.isArray(tableRecords.invoices) && tableRecords.invoices.length
+      ? tableRecords.invoices.map((inv) => ({ id: inv.id, reference: inv.reference, company_id: inv.company_id, company: inv.company_name }))
+      : [];
+    if (cachedInvoices.length) {
+      applyInvoices(cachedInvoices);
+    } else if (invoiceSelect) {
+      invoiceSelect.innerHTML = i18nPlaceholderOption("Loading invoices...");
+    }
+    fetchInvoicesList()
+      .then((invoices) => { if (invoiceSelect) applyInvoices(invoices); })
+      .catch(() => { if (!cachedInvoices.length && invoiceSelect) applyInvoices([]); });
 
     orderSelect?.addEventListener("change", () => {
       const opt = orderSelect.selectedOptions[0];
@@ -10368,13 +10168,23 @@ function openForm(key, options = {}) {
       const select = row.querySelector("[data-sample-product]");
       productsPromise
         .then((products) => {
+          const strId = prefill?.product_id != null
+            ? String(prefill.product_id)
+            : (initialProductId && rowsContainer?.children.length === 1 ? initialProductId : "");
+          const match = strId
+            ? products.find((p) => p.id === strId || (p.legacy_id != null && String(p.legacy_id) === strId))
+            : null;
+          const currentProductName = initialValues?.product_name || "";
+          const currentOption = strId && !match && currentProductName
+            ? `<option value="${strId}">${escapeHtml(currentProductName)}</option>`
+            : "";
           select.innerHTML =
-            `${i18nPlaceholderOption("-- Select product --")}` +
+            `${i18nPlaceholderOption("-- Select product --")}${currentOption}` +
             products.map((p) => `<option value="${p.id}">${p.name || p.sku || p.id}</option>`).join("");
-          if (prefill?.product_id) {
-            select.value = String(prefill.product_id);
-          } else if (initialProductId && rowsContainer?.children.length === 1) {
-            select.value = initialProductId;
+          if (match) {
+            select.value = match.id;
+          } else if (strId) {
+            select.value = strId;
           }
         })
         .catch(() => {});
@@ -10424,8 +10234,11 @@ function openForm(key, options = {}) {
             const qty = row.querySelector("[data-sample-qty]")?.value;
             const qtyNumber =
               qty === "" || qty === undefined || qty === null ? initialQuantity || 1 : Number(qty) || 0;
+            const safeProductId = productId && !String(productId).startsWith("--")
+              ? (num(productId) ?? productId)
+              : undefined;
             return {
-              product_id: productId ? Number(productId) : undefined,
+              product_id: safeProductId,
               quantity: qtyNumber
             };
           })
@@ -10785,6 +10598,7 @@ function openForm(key, options = {}) {
               : computeLineTotal(item);
           lineTotals.push({ line_total: lineTotal });
           const productName = item.product_name || (item.product_id ? `Product #${item.product_id}` : "-");
+          const unitTotal = (Number(item.unit_price)||0) + (Number(item.drums_price)||0) + (Number(item.bank_charge_price)||0) + (Number(item.shipping_price)||0) + (Number(item.customer_commission)||0);
           return `
             <tr>
               <td>${sanitizeText(productName)}</td>
@@ -10794,6 +10608,7 @@ function openForm(key, options = {}) {
               <td>${formatCurrency(Number(item.bank_charge_price) || 0, currency)}</td>
               <td>${formatCurrency(Number(item.shipping_price) || 0, currency)}</td>
               <td>${formatCurrency(Number(item.customer_commission) || 0, currency)}</td>
+              <td>${formatCurrency(unitTotal || 0, currency)}</td>
               <td>${formatCurrency(lineTotal || 0, currency)}</td>
             </tr>
           `;
@@ -10814,6 +10629,7 @@ function openForm(key, options = {}) {
                 <th>Bank charge</th>
                 <th>Shipping</th>
                 <th>Commission</th>
+                <th>Unit total</th>
                 <th>Line total</th>
               </tr>
             </thead>
@@ -10958,6 +10774,7 @@ function openForm(key, options = {}) {
             <span>Bank charge</span>
             <span>Shipping</span>
             <span>Commission</span>
+            <span>Unit total</span>
             <span>Line total</span>
             <span></span>
           </div>
@@ -10991,11 +10808,6 @@ function openForm(key, options = {}) {
     });
 
     form.append(metaSection, customerSection, lineSection, summarySection, notesSection, actions);
-
-    const referenceInput = form.querySelector('input[name="reference"]');
-    if (referenceInput && !referenceInput.value && !initialValues?.reference) {
-      referenceInput.value = `QT-${Date.now().toString().slice(-6)}`;
-    }
 
     const companySelect = form.querySelector('select[name="company_id"]');
     const contactSelect = form.querySelector('select[name="contact_id"]');
@@ -11063,7 +10875,7 @@ function openForm(key, options = {}) {
     if (tagsSelect) {
       tagsSelect.setAttribute("multiple", "multiple");
       fetchRecords("tags", fallback.tags).then((tags) => {
-        tagsSelect.innerHTML = tags.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+        tagsSelect.innerHTML = tags.sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
         if (initialValues?.tags?.length) {
           const tagIds = Array.isArray(initialValues.tags) ? initialValues.tags.map(String) : [];
           tagIds.forEach((id) => {
@@ -11115,6 +10927,7 @@ function openForm(key, options = {}) {
         <input type="number" class="line-bank" min="0" step="0.01" value="0" />
         <input type="number" class="line-ship" min="0" step="0.01" value="0" />
         <input type="number" class="line-comm" min="0" step="0.01" value="0" />
+        <input type="number" class="line-unit-total" step="0.01" value="0" readonly />
         <input type="number" class="line-total" min="0" step="0.01" value="0" readonly />
         <button type="button" class="btn danger line-remove" title="Remove line">×</button>
       `;
@@ -11126,6 +10939,7 @@ function openForm(key, options = {}) {
       const shipInput = row.querySelector(".line-ship");
       const commInput = row.querySelector(".line-comm");
       const totalInput = row.querySelector(".line-total");
+      const unitTotalInput = row.querySelector(".line-unit-total");
 
       const updateTotal = () => {
         const qty = Number(qtyInput.value) || 0;
@@ -11134,6 +10948,8 @@ function openForm(key, options = {}) {
         const bank = Number(bankInput.value) || 0;
         const ship = Number(shipInput.value) || 0;
         const comm = Number(commInput.value) || 0;
+        const unitTotalVal = unit + drums + bank + ship + comm;
+        if (unitTotalInput) unitTotalInput.value = unitTotalVal.toFixed(2);
         const lineTotal = computeQuoteLineTotal({
           qty,
           unit_price: unit,
@@ -11150,6 +10966,16 @@ function openForm(key, options = {}) {
         const price = Number(productSelect.selectedOptions[0]?.getAttribute("data-price")) || 0;
         if (unitInput) unitInput.value = price.toFixed(2);
         updateTotal();
+        // Warn if this product is already selected in another row
+        const selectedVal = productSelect.value;
+        if (selectedVal) {
+          const duplicateRow = Array.from(lineBody?.querySelectorAll(".line-product") || [])
+            .find((s) => s !== productSelect && s.value === selectedVal);
+          if (duplicateRow) {
+            const label = productSelect.selectedOptions[0]?.textContent?.trim() || selectedVal;
+            showToast(`"${label}" is already added in another line.`);
+          }
+        }
       });
 
       [qtyInput, unitInput, drumsInput, bankInput, shipInput, commInput].forEach((inp) =>
@@ -11163,7 +10989,14 @@ function openForm(key, options = {}) {
 
       lineBody?.appendChild(row);
       if (prefill) {
-        if (productSelect && prefill.product_id) productSelect.value = String(prefill.product_id);
+        if (productSelect && (prefill.product_id || prefill.product_name)) {
+          productSelect.value = String(prefill.product_id || "");
+          // Fallback: match by product name (for legacy integer IDs that don't match ObjectId options)
+          if (productSelect.selectedIndex <= 0 && prefill.product_name) {
+            const opt = Array.from(productSelect.options).find((o) => o.textContent.trim() === prefill.product_name);
+            if (opt) productSelect.value = opt.value;
+          }
+        }
         if (qtyInput) qtyInput.value = prefill.qty ?? qtyInput.value;
         if (unitInput) unitInput.value = prefill.unit_price ?? unitInput.value;
         if (drumsInput) drumsInput.value = prefill.drums_price ?? drumsInput.value;
@@ -11177,10 +11010,15 @@ function openForm(key, options = {}) {
 
     addLineBtn?.addEventListener("click", addRow);
     if (mode === "edit" && initialValues?.id) {
-      getQuotationItems(initialValues.id).then((items) => {
+      getQuotationItems(initialValues.id, initialValues.legacy_id).then((items) => {
         lineBody.innerHTML = "";
-        if (items.length) {
-          items.forEach((itm) => addRow(itm));
+        const effectiveItems = items.length
+          ? items
+          : (Array.isArray(initialValues.items)
+              ? initialValues.items.filter((i) => i && (i.product_name || i.product_id || i.qty))
+              : []);
+        if (effectiveItems.length) {
+          effectiveItems.forEach((itm) => addRow(itm));
         } else {
           addRow();
         }
@@ -11276,7 +11114,7 @@ function openForm(key, options = {}) {
       if (!docTypeSelect) return;
       docTypeSelect.innerHTML =
         `${i18nPlaceholderOption("-- Select document type --")}` +
-        types.map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
+        types.sort((a, b) => (a.name || "").localeCompare(b.name || "")).map((t) => `<option value="${t.id}">${t.name}</option>`).join("");
       if (initialDocTypeId) {
         docTypeSelect.value = initialDocTypeId;
       }
@@ -11382,8 +11220,8 @@ function openForm(key, options = {}) {
             currency: values.currency || "USD",
             exchange_rate: num(values.exchange_rate),
             amount: Number.isFinite(totals.total) ? totals.total : initialValues.amount || 0,
-            company_id: num(values.company_id) || num(values.company_id_manual) || null,
-            contact_id: num(values.contact_id) || num(values.contact_id_manual) || null,
+            company_id: num(values.company_id_manual) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
+            contact_id: num(values.contact_id_manual) ?? (values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null),
             tags: values.tags,
             items
           };
@@ -11396,9 +11234,10 @@ function openForm(key, options = {}) {
               ? initialAttachmentKey
               : attachmentKeys[0] || "";
           const payload = {
-            company_id: num(values.company_id),
-            contact_id: num(values.contact_id),
+            company_id: num(values.company_id) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
+            contact_id: num(values.contact_id) ?? (values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null),
             total_amount: num(values.total_amount) ?? initialValues.total_amount ?? 0,
+            due_date: values.due_date || initialValues.due_date || null,
             currency: values.currency || initialValues.currency || "USD",
             status: values.status || initialValues.status || "Unpaid",
             reference: values.reference || initialValues.reference || undefined,
@@ -11416,6 +11255,11 @@ function openForm(key, options = {}) {
       } else {
         await submitJson(config.endpoint || `/api/${key}`, transformed);
       }
+
+      // Clear cached product list so dropdowns reload fresh next time
+      if (key === "products") tableRecords.products = null;
+      // Reset quotation items cache so preview reloads fresh after edit
+      if (key === "quotations") { quotationItemsPromise = null; tableRecords.quotation_items = null; }
 
       showToast("Saved");
       overlay.remove();
@@ -11442,7 +11286,9 @@ function gatherQuoteLineItems(form) {
       const bank_charge_price = parseCurrency(row.querySelector(".line-bank")?.value) ?? 0;
       const shipping_price = parseCurrency(row.querySelector(".line-ship")?.value) ?? 0;
       const customer_commission = parseCurrency(row.querySelector(".line-comm")?.value) ?? 0;
-      const product_id = num(productSelect.value);
+      // Keep product_id as raw string (MongoDB ObjectId) or integer legacy id
+      const rawProductId = productSelect.value || "";
+      const product_id = rawProductId && !rawProductId.startsWith("-- ") ? (num(rawProductId) ?? rawProductId) : null;
       let product_name = productSelect.selectedOptions[0]?.textContent?.trim() || "";
       if (product_name.toLowerCase().includes("select product")) {
         product_name = "";
@@ -11733,7 +11579,8 @@ function openQuotationPrintView(payload) {
                   <th>Bank</th>
                   <th>Shipping</th>
                   <th>Commission</th>
-                  <th>Total</th>
+                  <th>Unit total</th>
+                  <th>Line total</th>
                 </tr>
               </thead>
               <tbody>
@@ -11782,6 +11629,124 @@ function openQuotationPrintView(payload) {
   printWindow.print();
 }
 
+function openOrderPrintView(record, items, matchedQuote) {
+  const currency = (record.currency || matchedQuote?.currency || "USD").toUpperCase();
+  const taxRate = parsePercent(matchedQuote?.tax_rate);
+  const fmt = (v) => formatCurrency(v, currency);
+  const quoteLabel = matchedQuote?.reference || matchedQuote?.title || "";
+
+  const lineTotals = [];
+  const tableRows = items.length
+    ? items.map((item) => {
+        const qty   = Number(item.qty) || 0;
+        const unit  = Number(item.unit_price) || 0;
+        const drum  = Number(item.drums_price) || 0;
+        const bank  = Number(item.bank_charge_price) || 0;
+        const ship  = Number(item.shipping_price) || 0;
+        const comm  = Number(item.customer_commission) || 0;
+        const uTot  = unit + drum + bank + ship + comm;
+        const lTot  = resolveQuoteLineTotal(item);
+        lineTotals.push({ line_total: lTot });
+        return `<tr>
+          <td>${sanitizeText(item.product_name || item.product_id || "Item")}</td>
+          <td style="text-align:right">${qty}</td>
+          <td style="text-align:right">${fmt(unit)}</td>
+          <td style="text-align:right">${fmt(drum)}</td>
+          <td style="text-align:right">${fmt(bank)}</td>
+          <td style="text-align:right">${fmt(ship)}</td>
+          <td style="text-align:right">${fmt(comm)}</td>
+          <td style="text-align:right;font-weight:600">${fmt(uTot)}</td>
+          <td style="text-align:right;font-weight:700;color:#1e40af">${fmt(lTot)}</td>
+        </tr>`;
+      }).join("")
+    : `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px">No line items found.</td></tr>`;
+
+  const totals = calculateQuoteTotals(lineTotals, taxRate);
+  const metaItems = [];
+  if (record.company_name) metaItems.push({ label: "Company", val: sanitizeText(record.company_name) });
+  if (record.contact_name) metaItems.push({ label: "Contact", val: sanitizeText(record.contact_name) });
+  if (quoteLabel) metaItems.push({ label: "Quotation", val: sanitizeText(quoteLabel) });
+  if (record.status) metaItems.push({ label: "Status", val: sanitizeText(record.status) });
+  metaItems.push({ label: "Currency", val: currency });
+  if (record.carrier) metaItems.push({ label: "Carrier", val: sanitizeText(record.carrier) });
+  if (record.tracking_number) metaItems.push({ label: "Tracking", val: sanitizeText(record.tracking_number) });
+  if (record.eta) metaItems.push({ label: "ETA", val: String(record.eta) });
+  if (record.etd_date) metaItems.push({ label: "ETD", val: String(record.etd_date) });
+  const metaHtml = metaItems.map(m => `<div><strong>${m.label}</strong><span>${m.val}</span></div>`).join("");
+  const notesHtml = record.notes ? `<section class="notes-section"><strong>Notes</strong><p>${sanitizeText(record.notes).replace(/\n/g,"<br>")}</p></section>` : "";
+
+  const html = `<!doctype html><html><head><meta charset="utf-8"/>
+  <title>${sanitizeText(record.reference || `Order #${record.id}`)} | Order Print</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:"Inter",system-ui,sans-serif;background:#f5f6fb;color:#0f172a;margin:0;padding:24px}
+    .card{max-width:960px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0}
+    .hero{background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 100%);color:#fff;padding:28px 32px;display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
+    .hero-left h1{margin:0;font-size:22px;font-weight:700}
+    .hero-left p{margin:6px 0 0;font-size:13px;opacity:.7}
+    .hero-right{text-align:right}
+    .hero-right .amount{font-size:28px;font-weight:800;letter-spacing:-0.5px}
+    .hero-right .cur{font-size:12px;opacity:.55;margin-top:3px;letter-spacing:.5px}
+    .body{padding:24px 32px}
+    .meta{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:24px}
+    .meta div{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px}
+    .meta strong{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:#475569;margin-bottom:3px}
+    .meta span{font-size:13px;color:#0f172a;font-weight:500}
+    .section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#64748b;margin:0 0 10px}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{background:#f1f5f9;padding:9px 8px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:#475569;border-bottom:1px solid #e2e8f0}
+    th:not(:first-child){text-align:right}
+    td{padding:10px 8px;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+    tr:last-child td{border-bottom:none}
+    .totals{display:flex;flex-direction:column;align-items:flex-end;gap:6px;margin-top:16px}
+    .total-row{display:flex;justify-content:space-between;width:220px;font-size:13px;color:#475569}
+    .total-row strong{color:#0f172a}
+    .total-final{border-top:2px solid #1e40af;padding-top:8px;margin-top:2px;font-size:15px;font-weight:700;color:#1e40af;width:220px;display:flex;justify-content:space-between}
+    .notes-section{margin-top:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;font-size:13px;line-height:1.6}
+    .notes-section strong{display:block;margin-bottom:6px;color:#0f172a}
+    .footer{margin-top:24px;text-align:center;font-size:12px;color:#94a3b8;padding:16px 32px;border-top:1px solid #f1f5f9}
+    @media print{body{padding:0;background:#fff}.card{box-shadow:none;border:none}}
+  </style>
+  </head><body>
+  <div class="card">
+    <div class="hero">
+      <div class="hero-left">
+        <h1>${sanitizeText(record.reference || `Order #${record.id}`)}</h1>
+        <p>${sanitizeText(record.company_name || "")}${record.contact_name ? " · " + sanitizeText(record.contact_name) : ""}</p>
+      </div>
+      <div class="hero-right">
+        <div class="amount">${fmt(Number(record.total_amount) || totals.total || 0)}</div>
+        <div class="cur">${currency}</div>
+      </div>
+    </div>
+    <div class="body">
+      <div class="meta">${metaHtml}</div>
+      ${items.length ? `<p class="section-title">Line items${quoteLabel ? " — " + sanitizeText(quoteLabel) : ""}</p>
+      <table>
+        <thead><tr>
+          <th>Product</th><th>Qty</th><th>Unit</th><th>Drums</th><th>Bank</th><th>Shipping</th><th>Commission</th><th>Unit total</th><th>Line total</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+      <div class="totals">
+        <div class="total-row"><span>Subtotal</span><strong>${fmt(totals.subtotal || 0)}</strong></div>
+        ${taxRate ? `<div class="total-row"><span>Tax (${taxRate}%)</span><strong>${fmt(totals.tax || 0)}</strong></div>` : ""}
+        <div class="total-final"><span>Total</span><span>${fmt(totals.total || 0)}</span></div>
+      </div>` : ""}
+      ${notesHtml}
+    </div>
+    <div class="footer">Printed from CRM For All · ${new Date().toLocaleDateString()}</div>
+  </div>
+  </body></html>`;
+
+  const win = window.open("", "_blank", "width=1000,height=750");
+  if (!win) { showToast("Popup blocked. Enable popups to print."); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
 async function submitJson(endpoint, payload) {
   const res = await apiFetch(endpoint, {
     method: "POST",
@@ -11810,7 +11775,8 @@ function badge(type, label) {
   const map = {
     success: "success",
     warning: "warning",
-    info: "info"
+    info: "info",
+    danger: "danger"
   };
   const tone = map[type] || "info";
   return `<span class="pill ${tone}">${label}</span>`;
