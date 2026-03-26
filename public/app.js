@@ -2208,14 +2208,15 @@ const formConfigs = {
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] }
     ],
     transform(values) {
-      const companyId = num(values.company_id);
-      const relatedId = num(values.related_id);
-      const effectiveId = relatedId ?? companyId;
+      const companyId = values.company_id || null;
+      const relatedId = values.related_id || null;
+      const effectiveId = relatedId || companyId || null;
       const effectiveType = values.related_type || (companyId ? "company" : "note");
       const noteDate = values.note_date ? new Date(values.note_date).toISOString() : null;
       return {
         entity_type: effectiveType,
         entity_id: effectiveId,
+        company_id: companyId,
         body: values.body,
         author: values.author,
         note_date: noteDate,
@@ -7852,6 +7853,10 @@ function openEditModal(tableKey, record) {
     openForm("contacts", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "notes") {
+    openForm("notes", { initialValues: record, mode: "edit" });
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const isQuotation = tableKey === "quotations";
@@ -9812,6 +9817,15 @@ function openForm(key, options = {}) {
 
   if (key === "notes") {
     overlay.querySelector(".modal")?.classList.add("modal-large");
+
+    // Make body textarea taller
+    const bodyTextarea = overlay.querySelector('textarea[name="body"]');
+    if (bodyTextarea) bodyTextarea.setAttribute("rows", "8");
+
+    // Make tags multi-select show multiple rows
+    const tagsSelect = overlay.querySelector('select[name="tags"]');
+    if (tagsSelect) tagsSelect.setAttribute("size", "5");
+
     const companySelect = overlay.querySelector('select[name="company_id"]');
     if (companySelect) {
       companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
@@ -9819,6 +9833,9 @@ function openForm(key, options = {}) {
         companySelect.innerHTML = `${i18nPlaceholderOption("-- Select company --")}${companies
           .map((c) => `<option value="${c.id}">${c.name}</option>`)
           .join("")}`;
+        // Restore selected value — note records store company as entity_id
+        const selectedId = initialValues?.company_id || initialValues?.entity_id;
+        if (selectedId) companySelect.value = String(selectedId);
       }).catch(() => {
         companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
       });
@@ -11715,6 +11732,7 @@ function openOrderPrintView(record, items, matchedQuote) {
         <p>${sanitizeText(record.company_name || "")}${record.contact_name ? " · " + sanitizeText(record.contact_name) : ""}</p>
       </div>
       <div class="hero-right">
+        ${siteConfigState.baseCompany ? `<div class="cur" style="font-size:13px;font-weight:600;opacity:1;margin-bottom:4px">${sanitizeText(siteConfigState.baseCompany)}</div>` : ""}
         <div class="amount">${fmt(Number(record.total_amount) || totals.total || 0)}</div>
         <div class="cur">${currency}</div>
       </div>
