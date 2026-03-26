@@ -1,0 +1,14 @@
+node_modules/
+dist/
+uploads/
+.git/
+.env
+.env.*
+.wrangler/
+venv/
+python_app/
+*.log
+*.md
+.gitignore
+.gitattributes
+screenshots/
