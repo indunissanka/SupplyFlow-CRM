@@ -4281,6 +4281,10 @@ async function renderQuotations() {
           <i data-lucide="plus"></i>
           New Quote
         </button>
+        <button class="btn ai-trigger-btn" id="btn-ai-draft-quote" title="Draft a quotation from plain text using AI">
+          <i data-lucide="zap"></i>
+          AI Draft
+        </button>
       </div>
     </div>
     <div class="panel">
@@ -4303,6 +4307,7 @@ async function renderQuotations() {
     </div>
   `;
   attachTableSearch("quotations-search-input", "quotations");
+  document.getElementById("btn-ai-draft-quote")?.addEventListener("click", openAiDraftQuoteModal);
 }
 
 async function renderInvoices() {
@@ -4400,6 +4405,10 @@ async function renderDocuments() {
         <button class="btn primary" data-form="documents">
           <i data-lucide="upload-cloud"></i>
           Upload Documents
+        </button>
+        <button class="btn ai-trigger-btn" id="btn-ai-extract-pdf" title="Extract fields from a PDF using AI">
+          <i data-lucide="zap"></i>
+          Extract PDF
         </button>
       </div>
     </div>
@@ -4809,6 +4818,7 @@ async function renderDocuments() {
     updateSelectAllState(visibleItems);
   });
   applyFilters();
+  document.getElementById("btn-ai-extract-pdf")?.addEventListener("click", openAiExtractPdfModal);
 }
 
 function computeShippingStatus(record) {
@@ -5000,6 +5010,10 @@ async function renderTasks() {
           <i data-lucide="plus"></i>
           New Task
         </button>
+        <button class="btn ai-trigger-btn" id="btn-ai-suggest-tasks" title="Let AI suggest follow-up tasks">
+          <i data-lucide="zap"></i>
+          Suggest Follow-ups
+        </button>
       </div>
     </div>
     <div class="panel">
@@ -5022,6 +5036,7 @@ async function renderTasks() {
     </div>
   `;
   attachTableSearch("tasks-search-input", "tasks");
+  document.getElementById("btn-ai-suggest-tasks")?.addEventListener("click", openAiSuggestTasksModal);
 }
 
 async function renderNotes() {
@@ -5050,6 +5065,10 @@ async function renderNotes() {
         <button class="btn primary" data-form="notes">
           <i data-lucide="plus"></i>
           Add Note
+        </button>
+        <button class="btn ai-trigger-btn" id="btn-ai-smart-note" title="Create a structured note using AI">
+          <i data-lucide="zap"></i>
+          Smart Note
         </button>
       </div>
     </div>
@@ -5163,6 +5182,7 @@ async function renderNotes() {
 
   searchInput?.addEventListener("input", applyNotesSearch);
   applyNotesSearch();
+  document.getElementById("btn-ai-smart-note")?.addEventListener("click", openAiSmartNoteModal);
 }
 
 async function renderTags() {
@@ -5654,6 +5674,7 @@ async function renderSettings() {
           <button class="tab" data-tab="change-password">Change password</button>
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
+          ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
@@ -5869,6 +5890,36 @@ async function renderSettings() {
             </div>
           </div>
         </div>
+        <div class="tab-content" id="ai-config">
+          <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="zap"></i>
+                AI Configuration
+              </h3>
+              <div class="stat-label">Enter your Anthropic API key to enable AI features.</div>
+            </div>
+            <div style="padding:20px 0 8px">
+              <div style="margin-bottom:16px">
+                <div class="stat-label" style="margin-bottom:4px">Status</div>
+                <div id="ai-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                  <span style="color:var(--text-muted)">Loading...</span>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label class="form-label" for="ai-config-key-input">Anthropic API Key</label>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                  <input id="ai-config-key-input" type="password" class="form-input" placeholder="sk-ant-..." autocomplete="off" style="flex:1;min-width:0" />
+                  <button class="btn ghost small" id="ai-config-toggle-vis" type="button" title="Show/hide key">
+                    <i data-lucide="eye"></i>
+                  </button>
+                  <button class="btn primary" id="ai-config-save-btn" type="button">Save</button>
+                </div>
+              </div>
+              <p class="stat-label">Get your key at <strong>console.anthropic.com</strong> &mdash; AI features work without restarting the server once saved.</p>
+            </div>
+          </div>
+        </div>
         ` : ""}
       </div>
     </div>
@@ -5890,6 +5941,61 @@ async function renderSettings() {
       });
     });
   });
+
+  // AI Config tab handlers
+  if (canManageUsers) {
+    const aiStatusEl = document.getElementById("ai-config-status");
+    const aiKeyInput = document.getElementById("ai-config-key-input");
+    const aiSaveBtn = document.getElementById("ai-config-save-btn");
+    const aiToggleVis = document.getElementById("ai-config-toggle-vis");
+
+    const loadAiStatus = async () => {
+      if (!aiStatusEl) return;
+      try {
+        const res = await apiFetch("/api/settings/ai-config");
+        const data = await res.json();
+        if (data.configured) {
+          const sourceLabel = data.source === "env" ? "environment variable" : "saved in database";
+          aiStatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${sourceLabel})</span>`;
+        } else {
+          aiStatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured</span>`;
+        }
+      } catch (_) {
+        aiStatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
+      }
+    };
+    loadAiStatus();
+
+    aiToggleVis?.addEventListener("click", () => {
+      if (!aiKeyInput) return;
+      aiKeyInput.type = aiKeyInput.type === "password" ? "text" : "password";
+    });
+
+    aiSaveBtn?.addEventListener("click", async () => {
+      const key = aiKeyInput?.value.trim() || "";
+      if (!key) { showToast("Please enter an API key"); return; }
+      aiSaveBtn.disabled = true; aiSaveBtn.textContent = "Saving...";
+      try {
+        const res = await apiFetch("/api/settings/ai-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ anthropic_api_key: key })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        showToast("API key saved");
+        if (aiKeyInput) aiKeyInput.value = "";
+        await loadAiStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        aiSaveBtn.disabled = false; aiSaveBtn.textContent = "Save";
+      }
+    });
+
+    // Also trigger status load when tab is clicked
+    document.querySelector("[data-tab='ai-config']")?.addEventListener("click", loadAiStatus);
+  }
 
   const passwordForm = document.getElementById("password-form");
   const cancelButton = passwordForm?.querySelector("[data-action='cancel']");
@@ -7137,6 +7243,7 @@ async function openPreviewModal(tableKey, record) {
       <div class="modal-body preview-body">${content}</div>
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
+        ${tableKey === "orders" ? `<button class="btn ai-trigger-btn" data-ai-track>⚡ Track &amp; Summarize</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -7156,6 +7263,9 @@ async function openPreviewModal(tableKey, record) {
     });
   }
   if (tableKey === "orders") {
+    overlay.querySelector("[data-ai-track]")?.addEventListener("click", () => {
+      openAiTrackSummarizeModal(record, overlay);
+    });
     overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
       const quoteKeyCandidates = [record.quotation_id, record.quote_id, record.quotationId, record.quotation, record.quote]
         .map((v) => (v == null ? "" : String(v).trim())).filter(Boolean);
@@ -12180,5 +12290,470 @@ function attachBulkCsvHandlers({ uploadBtnId, uploadInputId, downloadBtnId, pars
     }
   });
 }
+
+// ── AI Feature Functions ──────────────────────────────────────────────────────
+
+async function aiPost(endpoint, body) {
+  const res = await apiFetch(endpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `Request failed (${res.status})`);
+  }
+  return res.json();
+}
+
+// Feature 3: Smart Note
+function openAiSmartNoteModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>&#9889; Smart Note</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="stat-label" style="margin-bottom:12px">Describe the interaction and AI will structure it for you.</p>
+        <textarea id="ai-smart-note-input" class="form-input" rows="5" placeholder="e.g. Called John at Acme about Q3 pricing, he wants 10% discount, follow up next week..." style="width:100%;resize:vertical"></textarea>
+        <div id="ai-smart-note-result" style="display:none;margin-top:16px">
+          <label class="form-label">Structured Note</label>
+          <textarea id="ai-smart-note-body" class="form-input" rows="5" style="width:100%;resize:vertical"></textarea>
+          <label class="form-label" style="margin-top:10px">Company</label>
+          <select id="ai-smart-note-company" class="form-input"><option value="">&#8212; None &#8212;</option></select>
+          <label class="form-label" style="margin-top:10px">Tags</label>
+          <div id="ai-smart-note-tags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+          <div id="ai-smart-note-task-wrap" style="margin-top:12px;display:none">
+            <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+              <input type="checkbox" id="ai-smart-note-task-check" checked>
+              <span>Also create follow-up task: <strong id="ai-smart-note-task-title"></strong> (due <span id="ai-smart-note-task-due"></span>)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-smart-note-generate">Generate</button>
+        <button class="btn primary" id="ai-smart-note-save" style="display:none">Save Note</button>
+        <button class="btn" data-close>Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  let aiResult = null;
+
+  overlay.querySelector("#ai-smart-note-generate").addEventListener("click", async () => {
+    const text = overlay.querySelector("#ai-smart-note-input").value.trim();
+    if (!text) { showToast("Please enter some text first"); return; }
+    const btn = overlay.querySelector("#ai-smart-note-generate");
+    btn.disabled = true; btn.textContent = "Generating...";
+    try {
+      const data = await aiPost("/api/ai/smart-note", { text });
+      aiResult = data.note;
+      overlay.querySelector("#ai-smart-note-body").value = aiResult.structured_body || "";
+
+      const select = overlay.querySelector("#ai-smart-note-company");
+      try {
+        const res = await apiFetch("/api/companies");
+        const cData = await res.json();
+        (cData.rows || []).forEach((c) => {
+          const opt = document.createElement("option");
+          opt.value = c.id; opt.textContent = c.name;
+          if (aiResult.suggested_company_name && c.name.toLowerCase().includes((aiResult.suggested_company_name || "").toLowerCase())) opt.selected = true;
+          select.appendChild(opt);
+        });
+      } catch (_) {}
+
+      const tagsWrap = overlay.querySelector("#ai-smart-note-tags");
+      tagsWrap.innerHTML = "";
+      (aiResult.suggested_tags || []).forEach((tag) => {
+        const chip = document.createElement("span");
+        chip.className = "badge";
+        chip.style.cssText = "cursor:pointer;user-select:none;padding:4px 10px";
+        chip.textContent = tag;
+        chip.dataset.selected = "true";
+        chip.addEventListener("click", () => {
+          const on = chip.dataset.selected === "true";
+          chip.dataset.selected = on ? "false" : "true";
+          chip.style.opacity = on ? "0.4" : "1";
+        });
+        tagsWrap.appendChild(chip);
+      });
+
+      if (aiResult.follow_up_task) {
+        overlay.querySelector("#ai-smart-note-task-title").textContent = aiResult.follow_up_task.title;
+        overlay.querySelector("#ai-smart-note-task-due").textContent = aiResult.follow_up_task.due_date || "";
+        overlay.querySelector("#ai-smart-note-task-wrap").style.display = "block";
+      }
+
+      overlay.querySelector("#ai-smart-note-result").style.display = "block";
+      overlay.querySelector("#ai-smart-note-save").style.display = "inline-flex";
+    } catch (err) {
+      showToast("AI error: " + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Generate";
+    }
+  });
+
+  overlay.querySelector("#ai-smart-note-save").addEventListener("click", async () => {
+    const body = overlay.querySelector("#ai-smart-note-body").value.trim();
+    if (!body) { showToast("Note body is empty"); return; }
+    const companyId = overlay.querySelector("#ai-smart-note-company").value || null;
+    const tags = Array.from(overlay.querySelectorAll("#ai-smart-note-tags [data-selected='true']")).map((el) => el.textContent);
+    const now = new Date().toISOString().slice(0, 10);
+    try {
+      const res = await apiFetch("/api/notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, company_id: companyId, entity_id: companyId, entity_type: companyId ? "companies" : null, tags, note_date: now, author: "AI" })
+      });
+      if (!res.ok) throw new Error("Save failed");
+      const taskCheck = overlay.querySelector("#ai-smart-note-task-check");
+      if (taskCheck && taskCheck.checked && aiResult && aiResult.follow_up_task) {
+        const t = aiResult.follow_up_task;
+        await apiFetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: t.title, due_date: t.due_date, status: "Open", priority: "Medium" })
+        });
+      }
+      showToast("Note saved");
+      overlay.remove();
+      if (currentSection === "notes") renderSection("notes");
+    } catch (err) { showToast("Save failed: " + err.message); }
+  });
+}
+
+// Feature 4: Suggest Follow-ups
+async function openAiSuggestTasksModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h3>&#9889; Suggest Follow-ups</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="ai-suggest-loading" style="text-align:center;padding:32px">
+          <div class="spinner" aria-hidden="true"></div>
+          <p style="margin-top:12px;color:var(--text-muted)">Analyzing your data...</p>
+        </div>
+        <div id="ai-suggest-results" style="display:none">
+          <p class="stat-label" style="margin-bottom:12px">Select tasks to create:</p>
+          <div id="ai-suggest-list"></div>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-suggest-create" style="display:none">Create Selected</button>
+        <button class="btn" data-close>Close</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  let suggestions = [];
+  try {
+    const data = await aiPost("/api/ai/suggest-tasks", {});
+    suggestions = data.suggestions || [];
+    const list = overlay.querySelector("#ai-suggest-list");
+    if (!suggestions.length) {
+      list.innerHTML = `<p class="stat-label">No follow-ups suggested right now.</p>`;
+    } else {
+      list.innerHTML = suggestions.map((s, i) => `
+        <label style="display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);cursor:pointer">
+          <input type="checkbox" data-task-idx="${i}" checked style="margin-top:3px;flex-shrink:0">
+          <div>
+            <div style="font-weight:600">${sanitizeText(s.title)}</div>
+            <div class="stat-label">${sanitizeText(s.reason)} &middot; Due: ${s.due_date || "&#8212;"} &middot; <span class="badge">${sanitizeText(s.priority || "Medium")}</span></div>
+          </div>
+        </label>
+      `).join("");
+      overlay.querySelector("#ai-suggest-create").style.display = "inline-flex";
+    }
+    overlay.querySelector("#ai-suggest-loading").style.display = "none";
+    overlay.querySelector("#ai-suggest-results").style.display = "block";
+  } catch (err) {
+    overlay.querySelector("#ai-suggest-loading").innerHTML = `<p style="color:var(--danger)">Error: ${sanitizeText(err.message)}</p>`;
+  }
+
+  overlay.querySelector("#ai-suggest-create") && overlay.querySelector("#ai-suggest-create").addEventListener("click", async () => {
+    const checked = Array.from(overlay.querySelectorAll("[data-task-idx]:checked")).map((el) => suggestions[Number(el.dataset.taskIdx)]);
+    if (!checked.length) { showToast("No tasks selected"); return; }
+    const btn = overlay.querySelector("#ai-suggest-create");
+    btn.disabled = true; btn.textContent = "Creating...";
+    try {
+      for (const s of checked) {
+        await apiFetch("/api/tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ title: s.title, due_date: s.due_date, status: "Open", priority: s.priority || "Medium" })
+        });
+      }
+      showToast(`Created ${checked.length} task(s)`);
+      overlay.remove();
+      if (currentSection === "tasks") renderSection("tasks");
+    } catch (err) { showToast("Create failed: " + err.message); btn.disabled = false; btn.textContent = "Create Selected"; }
+  });
+}
+
+// Feature 1: AI Draft Quote
+function openAiDraftQuoteModal() {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>&#9889; AI Draft Quote</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="stat-label" style="margin-bottom:12px">Describe the quote in plain text and AI will extract the details.</p>
+        <textarea id="ai-draft-quote-input" class="form-input" rows="5" placeholder="e.g. Quote for Acme Corp: 500 units of Widget Pro at $12.50 each, USD, net 30..." style="width:100%;resize:vertical"></textarea>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-draft-quote-generate">Generate Draft</button>
+        <button class="btn" data-close>Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  overlay.querySelector("#ai-draft-quote-generate").addEventListener("click", async () => {
+    const text = overlay.querySelector("#ai-draft-quote-input").value.trim();
+    if (!text) { showToast("Please enter some text first"); return; }
+    const btn = overlay.querySelector("#ai-draft-quote-generate");
+    btn.disabled = true; btn.textContent = "Generating...";
+    try {
+      const data = await aiPost("/api/ai/draft-quote", { text });
+      const draft = data.draft || {};
+      overlay.remove();
+      openForm("quotations", { initialValues: {
+        company_id: draft.company_id || null,
+        company_name: draft.company_name || "",
+        notes: draft.notes || "",
+        currency: draft.currency || "USD",
+        payment_terms: draft.payment_terms || "",
+      }});
+      showToast("Draft loaded &#8212; review and save");
+    } catch (err) {
+      showToast("AI error: " + err.message);
+      btn.disabled = false; btn.textContent = "Generate Draft";
+    }
+  });
+}
+
+// Feature 2: Extract PDF
+async function openAiExtractPdfModal() {
+  let docs = [];
+  try {
+    const res = await apiFetch("/api/documents?limit=50");
+    const data = await res.json();
+    docs = (data.rows || []).filter((d) => d.storage_key && (d.storage_key.endsWith(".pdf") || (d.content_type || "").includes("pdf")));
+  } catch (_) {}
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h3>&#9889; Extract PDF</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="stat-label" style="margin-bottom:12px">Select a PDF document to extract structured fields.</p>
+        <select id="ai-extract-pdf-select" class="form-input" style="width:100%">
+          <option value="">&#8212; Select a document &#8212;</option>
+          ${docs.map((d) => `<option value="${sanitizeText(d.storage_key)}">${sanitizeText(d.title || d.storage_key)}</option>`).join("")}
+        </select>
+        <div id="ai-extract-result" style="display:none;margin-top:16px"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-extract-run">Extract</button>
+        <button class="btn primary" id="ai-extract-create-quote" style="display:none">Create Quotation</button>
+        <button class="btn" data-close>Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  let extracted = null;
+
+  overlay.querySelector("#ai-extract-run").addEventListener("click", async () => {
+    const fileKey = overlay.querySelector("#ai-extract-pdf-select").value;
+    if (!fileKey) { showToast("Please select a document"); return; }
+    const btn = overlay.querySelector("#ai-extract-run");
+    btn.disabled = true; btn.textContent = "Extracting...";
+    try {
+      const data = await aiPost("/api/ai/extract-doc", { file_key: fileKey });
+      extracted = data.extracted || {};
+      const result = overlay.querySelector("#ai-extract-result");
+      result.style.display = "block";
+      result.innerHTML = `<pre style="background:var(--surface-alt,#f5f5f5);padding:12px;border-radius:6px;overflow:auto;font-size:12px;max-height:300px">${sanitizeText(JSON.stringify(extracted, null, 2))}</pre>`;
+      overlay.querySelector("#ai-extract-create-quote").style.display = "inline-flex";
+    } catch (err) {
+      showToast("Extract error: " + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Extract";
+    }
+  });
+
+  overlay.querySelector("#ai-extract-create-quote").addEventListener("click", () => {
+    if (!extracted) return;
+    overlay.remove();
+    openForm("quotations", { initialValues: {
+      company_name: extracted.company_name || "",
+      notes: extracted.notes || "",
+      currency: extracted.currency || "USD",
+    }});
+    showToast("Draft loaded from PDF &#8212; review and save");
+  });
+}
+
+// Feature 6: Track & Summarize
+function openAiTrackSummarizeModal(record, parentOverlay) {
+  const waybill = (record && (record.waybill_number || record.tracking_number)) || "";
+  const courier = (record && (record.courier || record.carrier)) || "";
+  const orderId = record && record.id;
+
+  if (!orderId) { showToast("Order ID missing"); return; }
+  if (!waybill) { showToast("No waybill number on this order"); return; }
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <div class="modal-header">
+        <h3>&#9889; Track &amp; Summarize</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <label class="form-label">Waybill</label>
+          <input id="ai-track-waybill" class="form-input" value="${sanitizeText(waybill)}" />
+        </div>
+        <div class="form-row" style="margin-top:10px">
+          <label class="form-label">Courier</label>
+          <input id="ai-track-courier" class="form-input" value="${sanitizeText(courier)}" placeholder="e.g. DHL, FedEx" />
+        </div>
+        <div id="ai-track-result" style="display:none;margin-top:16px"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-track-run">Track &amp; Summarize</button>
+        <button class="btn" data-close>Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  overlay.querySelector("#ai-track-run").addEventListener("click", async () => {
+    const wb = overlay.querySelector("#ai-track-waybill").value.trim();
+    const cr = overlay.querySelector("#ai-track-courier").value.trim();
+    if (!wb) { showToast("Waybill is required"); return; }
+    const btn = overlay.querySelector("#ai-track-run");
+    btn.disabled = true; btn.textContent = "Tracking...";
+    try {
+      const data = await aiPost("/api/ai/track-summary", { order_id: orderId, waybill: wb, courier: cr });
+      const result = overlay.querySelector("#ai-track-result");
+      result.style.display = "block";
+      result.innerHTML = `
+        <div class="stat-label" style="margin-bottom:6px">Status: <strong>${sanitizeText(data.status || "&#8212;")}</strong></div>
+        <p>${sanitizeText(data.summary || "")}</p>
+        <p class="stat-label" style="margin-top:8px">Note saved to order.</p>
+      `;
+      btn.textContent = "Done";
+    } catch (err) {
+      showToast("Track error: " + err.message);
+      btn.disabled = false; btn.textContent = "Track &amp; Summarize";
+    }
+  });
+}
+
+// Feature 5: Data Q&A Floating Panel
+function initAiQaPanel() {
+  const fab = document.createElement("button");
+  fab.className = "ai-fab";
+  fab.title = "Ask AI about your data";
+  fab.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`;
+  document.body.appendChild(fab);
+
+  const panel = document.createElement("div");
+  panel.className = "ai-panel-body";
+  panel.style.display = "none";
+  panel.innerHTML = `
+    <div class="ai-panel-header">
+      <span>&#9889; Data Q&amp;A</span>
+      <button class="btn-close ai-panel-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="ai-conversation" id="ai-qa-conversation"></div>
+    <div class="ai-panel-input-row">
+      <input id="ai-qa-input" class="form-input" placeholder="Ask about your data..." autocomplete="off" style="flex:1;min-width:0" />
+      <button class="btn primary small" id="ai-qa-send" style="flex-shrink:0">Ask</button>
+    </div>
+  `;
+  document.body.appendChild(panel);
+
+  fab.addEventListener("click", () => {
+    const open = panel.style.display !== "none";
+    panel.style.display = open ? "none" : "flex";
+    if (!open) panel.querySelector("#ai-qa-input").focus();
+  });
+  panel.querySelector(".ai-panel-close").addEventListener("click", () => { panel.style.display = "none"; });
+
+  const conversation = panel.querySelector("#ai-qa-conversation");
+
+  const appendBubble = (text, type) => {
+    const el = document.createElement("div");
+    el.className = type === "user" ? "ai-bubble-user" : "ai-bubble-ai";
+    el.textContent = text;
+    conversation.appendChild(el);
+    conversation.scrollTop = conversation.scrollHeight;
+  };
+
+  const sendQuestion = async () => {
+    const input = panel.querySelector("#ai-qa-input");
+    const question = input.value.trim();
+    if (!question) return;
+    input.value = "";
+    appendBubble(question, "user");
+    const thinking = document.createElement("div");
+    thinking.className = "ai-bubble-ai";
+    thinking.textContent = "Thinking...";
+    conversation.appendChild(thinking);
+    conversation.scrollTop = conversation.scrollHeight;
+    try {
+      const data = await aiPost("/api/ai/query", { question });
+      thinking.textContent = data.answer || "No answer.";
+    } catch (err) {
+      thinking.textContent = "Error: " + err.message;
+    }
+  };
+
+  panel.querySelector("#ai-qa-send").addEventListener("click", sendQuestion);
+  panel.querySelector("#ai-qa-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendQuestion(); });
+}
+
+const _origShowAppShell = showAppShell;
+let _aiPanelInitialized = false;
+window.showAppShell = function() {
+  _origShowAppShell();
+  if (!_aiPanelInitialized) {
+    _aiPanelInitialized = true;
+    initAiQaPanel();
+  }
+};
 
 lucide?.createIcons();

@@ -1152,6 +1152,354 @@ app.post('/api/upload', _upload.array('file', 20), async (req: Request, res: Res
   }
 });
 
+// ── AI Integration ────────────────────────────────────────────────────────────
+
+import Anthropic from '@anthropic-ai/sdk';
+
+const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
+
+// Lazy Anthropic client — prefers env var, falls back to DB-stored key
+let _anthropic: Anthropic | null = null;
+let _anthropicKeySource: 'env' | 'db' | null = null;
+
+async function getAnthropicClient(db: Db): Promise<Anthropic | null> {
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  if (envKey) {
+    if (!_anthropic || _anthropicKeySource !== 'env') {
+      _anthropic = new Anthropic({ apiKey: envKey });
+      _anthropicKeySource = 'env';
+    }
+    return _anthropic;
+  }
+  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  const dbKey = stored?.key_value as string | null;
+  if (!dbKey) return null;
+  if (!_anthropic || _anthropicKeySource !== 'db') {
+    _anthropic = new Anthropic({ apiKey: dbKey });
+    _anthropicKeySource = 'db';
+  }
+  return _anthropic;
+}
+
+async function aiConfigured(db: Db): Promise<boolean> {
+  if (process.env.ANTHROPIC_API_KEY) return true;
+  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  return Boolean(stored?.key_value);
+}
+
+async function callClaude(db: Db, system: string, userText: string, maxTokens = 1024): Promise<string> {
+  const client = await getAnthropicClient(db);
+  if (!client) throw new Error('AI not configured');
+  const msg = await client.messages.create({
+    model: AI_MODEL,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: userText }]
+  });
+  const block = msg.content[0];
+  return block.type === 'text' ? block.text : '';
+}
+
+// ── AI Config endpoints (Admin only) ──────────────────────────────────────────
+
+app.get('/api/settings/ai-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const envKey = process.env.ANTHROPIC_API_KEY;
+  if (envKey) {
+    const preview = `sk-ant-...${envKey.slice(-4)}`;
+    return res.json({ configured: true, source: 'env', preview });
+  }
+  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  const dbKey = stored?.key_value as string | null;
+  if (dbKey) {
+    const preview = `sk-ant-...${dbKey.slice(-4)}`;
+    return res.json({ configured: true, source: 'db', preview });
+  }
+  res.json({ configured: false, source: null, preview: null });
+});
+
+app.post('/api/settings/ai-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const { anthropic_api_key } = req.body || {};
+  const key = String(anthropic_api_key || '').trim();
+  if (!key || !key.startsWith('sk-ant-') || key.length < 20) {
+    return res.status(400).json({ error: 'Invalid API key format (must start with sk-ant-)' });
+  }
+  await db.collection('api_keys').updateOne(
+    { key_name: 'anthropic' },
+    { $set: { key_name: 'anthropic', key_value: key, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  // Reset cached client so next request picks up new key
+  _anthropic = null;
+  _anthropicKeySource = null;
+  const preview = `sk-ant-...${key.slice(-4)}`;
+  res.json({ ok: true, preview });
+});
+
+function safeParseJson(text: string): any {
+  const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+  return JSON.parse(cleaned);
+}
+
+async function extractPdfText(filePath: string): Promise<string> {
+  const { getDocument } = await import('pdfjs-dist/legacy/build/pdf.mjs' as any);
+  const data = fs.readFileSync(filePath);
+  const pdf = await getDocument({ data: new Uint8Array(data), disableWorker: true }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((item: any) => item.str).join(' ') + '\n';
+  }
+  return text.slice(0, 6000);
+}
+
+const shippoCarrierMap: Record<string, string> = {
+  dhl: 'dhl_express',
+  'dhl express': 'dhl_express',
+  'dhl ecommerce': 'dhl_ecommerce',
+  fedex: 'fedex',
+  'fedex express': 'fedex',
+  ups: 'ups',
+  'sf express': 'sf_express',
+  aramex: 'aramex',
+  'royal mail': 'royal_mail'
+};
+const resolveShippoCarrier = (value?: string | null) => {
+  const n = (value || '').trim().toLowerCase();
+  return n ? (shippoCarrierMap[n] || n) : null;
+};
+
+// Feature 3: Smart Note
+app.post('/api/ai/smart-note', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text is required' });
+
+  const [companies, tags] = await Promise.all([
+    db.collection('companies').find({ owner_email: ownerEmail }, { projection: { name: 1 } }).toArray(),
+    db.collection('tags').find({ owner_email: ownerEmail }, { projection: { name: 1 } }).toArray()
+  ]);
+  const companyNames = companies.map((c: any) => c.name).join(', ');
+  const tagNames = tags.map((t: any) => t.name).join(', ');
+
+  const system = `You are a CRM assistant. Given raw note text, return structured JSON only.
+Companies in CRM: ${companyNames || 'none'}
+Tags in CRM: ${tagNames || 'none'}
+Return exactly: {"structured_body":"...","suggested_company_name":"...or null","suggested_tags":["..."],"follow_up_task":{"title":"...","due_date":"YYYY-MM-DD"}|null}`;
+
+  try {
+    const raw = await callClaude(db, system, text, 512);
+    const parsed = safeParseJson(raw);
+    res.json({ note: parsed });
+  } catch (err: any) {
+    console.error('AI smart-note error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// Feature 4: Suggest Tasks
+app.post('/api/ai/suggest-tasks', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  const [overdueQuotes, unpaidInvoices, staleContacts] = await Promise.all([
+    db.collection('quotations').find({
+      owner_email: ownerEmail,
+      status: { $in: ['Draft', 'Sent'] },
+      valid_until: { $lt: todayStr }
+    }, { projection: { ref: 1, company_name: 1, valid_until: 1 } }).limit(20).toArray(),
+    db.collection('invoices').find({
+      owner_email: ownerEmail,
+      status: { $nin: ['Paid', 'Cancelled'] },
+      due_date: { $lt: todayStr }
+    }, { projection: { ref: 1, company_name: 1, due_date: 1, total_amount: 1, currency: 1 } }).limit(20).toArray(),
+    db.collection('contacts').find({
+      owner_email: ownerEmail,
+      updated_at: { $lt: thirtyDaysAgo }
+    }, { projection: { name: 1, company_name: 1, updated_at: 1 } }).limit(20).toArray()
+  ]);
+
+  const context = JSON.stringify({ overdueQuotes, unpaidInvoices, staleContacts });
+  const system = `You are a CRM assistant. Analyze the data and suggest follow-up tasks. Return a JSON array only:
+[{"title":"...","reason":"...","due_date":"YYYY-MM-DD","priority":"High|Medium|Low"}]
+Today is ${todayStr}. Limit to 10 tasks.`;
+
+  try {
+    const raw = await callClaude(db, system, context, 1024);
+    const suggestions = safeParseJson(raw);
+    res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
+  } catch (err: any) {
+    console.error('AI suggest-tasks error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// Feature 5: Data Q&A
+const aiAllowedCollections = new Set(['companies', 'contacts', 'products', 'quotations', 'invoices', 'orders', 'tasks', 'notes', 'documents', 'tags']);
+
+app.post('/api/ai/query', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  const { question } = req.body || {};
+  if (!question) return res.status(400).json({ error: 'question is required' });
+
+  const planSystem = `You are a CRM database query planner. Available collections: companies, contacts, products, quotations, invoices, orders, tasks, notes, documents, tags.
+Given a question, return JSON only: {"collection":"...","match":{},"group_by":null,"count_only":false,"sort_field":null,"sort_dir":-1,"limit":10}
+match can contain filter fields (not owner_email, it's added server-side). Use ISO date strings.`;
+
+  try {
+    const planRaw = await callClaude(db, planSystem, question, 256);
+    const plan = safeParseJson(planRaw);
+
+    if (!aiAllowedCollections.has(plan.collection)) {
+      return res.status(400).json({ error: 'Collection not allowed' });
+    }
+
+    const matchStage: any = { ...plan.match, owner_email: ownerEmail };
+    const pipeline: any[] = [{ $match: matchStage }];
+
+    if (plan.group_by) {
+      pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
+      pipeline.push({ $sort: { count: -1 } });
+    } else if (plan.count_only) {
+      pipeline.push({ $count: 'total' });
+    } else {
+      const sf = plan.sort_field || 'created_at';
+      pipeline.push({ $sort: { [sf]: plan.sort_dir === 1 ? 1 : -1 } });
+    }
+    pipeline.push({ $limit: Math.min(plan.limit || 10, 50) });
+
+    const rawResult = await db.collection(plan.collection).aggregate(pipeline).toArray();
+
+    const answerSystem = 'You are a CRM assistant. Given a question and query results, write a clear, concise plain-English answer in 1-3 sentences.';
+    const answerInput = `Question: ${question}\nResults: ${JSON.stringify(rawResult.map(serializeDoc))}`;
+    const answer = await callClaude(db, answerSystem, answerInput, 256);
+
+    res.json({ answer, raw: rawResult.map(serializeDoc) });
+  } catch (err: any) {
+    console.error('AI query error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// Feature 1: AI Draft Quote
+app.post('/api/ai/draft-quote', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  const { text } = req.body || {};
+  if (!text) return res.status(400).json({ error: 'text is required' });
+
+  const [companies, products] = await Promise.all([
+    db.collection('companies').find({ owner_email: ownerEmail }, { projection: { _id: 1, name: 1 } }).toArray(),
+    db.collection('products').find({ owner_email: ownerEmail }, { projection: { _id: 1, name: 1 } }).toArray()
+  ]);
+  const companyList = companies.map((c: any) => `${c._id}:${c.name}`).join(', ');
+  const productList = products.map((p: any) => `${p._id}:${p.name}`).join(', ');
+
+  const system = `You are a CRM assistant. Extract quotation details from text.
+Companies (id:name): ${companyList || 'none'}
+Products (id:name): ${productList || 'none'}
+Return JSON only: {"company_name":"...or null","company_id":"...or null","product_name":"...or null","product_id":"...or null","quantity":null,"currency":"USD","payment_terms":"...or null","notes":"...or null"}`;
+
+  try {
+    const raw = await callClaude(db, system, text, 512);
+    const draft = safeParseJson(raw);
+    res.json({ draft });
+  } catch (err: any) {
+    console.error('AI draft-quote error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// Feature 2: Extract PDF
+app.post('/api/ai/extract-doc', async (req: Request, res: Response) => {
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  const { file_key } = req.body || {};
+  if (!file_key || !String(file_key).startsWith('uploads/') || String(file_key).includes('..')) {
+    return res.status(400).json({ error: 'Invalid file_key' });
+  }
+  const filePath = path.resolve(process.cwd(), String(file_key));
+
+  try {
+    const pdfText = await extractPdfText(filePath);
+    const system = `You are a document extraction assistant. Extract structured data from document text.
+Return JSON only: {"company_name":null,"contact_name":null,"items":[],"total_amount":null,"currency":null,"issue_date":null,"due_date":null,"reference":null,"notes":null}
+Dates should be YYYY-MM-DD. items is array of {description, quantity, unit_price}.`;
+    const extracted = safeParseJson(await callClaude(db, system, pdfText, 1024));
+    res.json({ extracted });
+  } catch (err: any) {
+    console.error('AI extract-doc error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// Feature 6: Shipment Track & Summarize
+app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  const { order_id, waybill, courier } = req.body || {};
+  if (!order_id || !waybill) return res.status(400).json({ error: 'order_id and waybill are required' });
+
+  const oid = toMongoId(order_id);
+  if (!oid) return res.status(400).json({ error: 'Invalid order_id' });
+  const order = await db.collection('orders').findOne({ _id: oid, owner_email: ownerEmail });
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+
+  const carrier = resolveShippoCarrier(courier);
+  const apiKey = process.env.SHIPPO_API_KEY;
+  if (!apiKey) return res.status(501).json({ error: 'Shippo not configured' });
+
+  try {
+    const trackRes = await fetch('https://api.goshippo.com/tracks/', {
+      method: 'POST',
+      headers: { 'Authorization': `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ carrier: carrier || courier, tracking_number: waybill })
+    });
+    const trackData: any = await trackRes.json();
+    const status = trackData?.tracking_status?.status || 'UNKNOWN';
+    const history = JSON.stringify(trackData?.tracking_history?.slice(0, 10) || []);
+
+    const system = 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences.';
+    const summary = await callClaude(db, system, `Waybill: ${waybill}\nStatus: ${status}\nHistory: ${history}`, 256);
+
+    const now = new Date().toISOString();
+    const noteDoc = {
+      entity_type: 'orders',
+      entity_id: order_id,
+      body: `Tracking update (${waybill}): ${summary}`,
+      author: 'AI',
+      note_date: now.slice(0, 10),
+      tags: [],
+      owner_email: ownerEmail,
+      created_at: now,
+      updated_at: now
+    };
+    const noteResult = await db.collection('notes').insertOne(noteDoc);
+
+    res.json({ summary, status, note_id: noteResult.insertedId.toString() });
+  } catch (err: any) {
+    console.error('AI track-summary error', err);
+    res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
 // ── Generic CRUD ──────────────────────────────────────────────────────────────
 
 // Routes registered later (analytics) need to be skipped here
