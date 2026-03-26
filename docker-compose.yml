@@ -18,6 +18,7 @@ services:
       AI_MODEL: ${AI_MODEL:-claude-haiku-4-5-20251001}
     volumes:
       - uploads:/app/uploads
+      - backups:/app/backups
     depends_on:
       mongo:
         condition: service_healthy
@@ -38,3 +39,4 @@ services:
 volumes:
   mongo_data:
   uploads:
+  backups:

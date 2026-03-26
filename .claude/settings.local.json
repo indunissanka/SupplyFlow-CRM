@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose:*)",
+      "Bash(docker ps:*)",
+      "Bash(npm install:*)",
+      "Bash(docker exec:*)",
+      "Bash(./node_modules/.bin/tsc)"
+    ]
+  }
+}

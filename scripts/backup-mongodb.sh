@@ -1,27 +1,26 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 # MongoDB backup script for SL CRM
 # Runs daily via cron; keeps 7 days of backups.
-set -euo pipefail
+set -e
 
 # Load .env from project root (if present)
 ENV_FILE="$(cd "$(dirname "$0")/.." && pwd)/.env"
 if [ -f "$ENV_FILE" ]; then
   set -o allexport
-  # shellcheck source=/dev/null
-  source "$ENV_FILE"
+  . "$ENV_FILE"
   set +o allexport
 fi
 
 MONGO_URI="${MONGODB_URI:-mongodb://localhost:27017}"
 DB_NAME="${MONGODB_DB_NAME:-crmmango}"
-BACKUP_ROOT="/home/ubuntu/backups/mongodb"
+BACKUP_ROOT="${BACKUP_DIR:-/app/backups}"
 RETENTION_DAYS=7
 STAMP=$(date +%Y%m%d_%H%M%S)
 DEST="$BACKUP_ROOT/$STAMP"
 
 mkdir -p "$DEST"
 
-echo "[$(date)] Starting backup of '$DB_NAME' → $DEST"
+echo "[$(date)] Starting backup of '$DB_NAME' -> $DEST"
 
 mongodump \
   --uri="$MONGO_URI" \

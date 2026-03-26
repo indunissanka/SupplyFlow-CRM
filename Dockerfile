@@ -8,12 +8,17 @@ COPY package*.json ./
 RUN npm install --omit=dev && \
     ls node_modules/express || (echo "ERROR: express not installed" && exit 1)
 
-# Copy pre-built compiled output and frontend
+# Install mongodump for backups
+RUN apk add --no-cache mongodb-tools
+
+# Copy pre-built compiled output, frontend, and scripts
 COPY dist/ ./dist/
 COPY public/ ./public/
+COPY scripts/ ./scripts/
+RUN sed -i 's/\r//' ./scripts/*.sh
 
-# Create uploads directory for file attachments
-RUN mkdir -p uploads
+# Create uploads and backups directories
+RUN mkdir -p uploads backups
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \

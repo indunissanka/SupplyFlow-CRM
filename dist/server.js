@@ -1,14 +1,17 @@
 import express from 'express';
 import cors from 'cors';
-import { getMongoDB, closeMongoDB, createMongoDBQueryable } from './mongodb.js';
+import { getMongoDB, closeMongoDB, createMongoDBQueryable, setMongoDBEnv } from './mongodb.js';
 import dotenv from 'dotenv';
 import { ObjectId } from 'mongodb';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import fs from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 const execAsync = promisify(exec);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config();
+setMongoDBEnv({ MONGODB_URI: process.env.MONGODB_URI, MONGODB_DB_NAME: process.env.MONGODB_DB_NAME });
 // ── Password helpers ──────────────────────────────────────────────────────────
 const PASSWORD_HASH_PREFIX = 'pbkdf2';
 const PASSWORD_HASH_ITERATIONS = 100_000;
@@ -239,7 +242,7 @@ app.post('/api/auth/password', async (req, res) => {
         return res.status(404).json({ error: 'User not found' });
     const valid = await verifyPassword(currentPassword || '', user.password_salt || '', user.password_hash || '');
     if (!valid)
-        return res.status(401).json({ error: 'Current password is incorrect' });
+        return res.status(400).json({ error: 'Current password is incorrect' });
     const updates = {};
     if (newPassword) {
         if (newPassword.length < 8)
@@ -509,7 +512,7 @@ app.get('/api/db/status', async (req, res) => {
     }
 });
 // ── Backup (MongoDB / mongodump) ──────────────────────────────────────────────
-const BACKUP_DIR = '/home/ubuntu/backups/mongodb';
+const BACKUP_DIR = process.env.BACKUP_DIR || '/app/backups';
 const BACKUP_SCRIPT = path.resolve(process.cwd(), 'scripts/backup-mongodb.sh');
 const MONGO_URI_ENV = process.env.MONGODB_URI || 'mongodb://localhost:27017';
 const MONGO_DB_ENV = process.env.MONGODB_DB_NAME || 'crmmango';
@@ -534,7 +537,7 @@ app.get('/api/backup/list', async (req, res) => {
 // POST /api/backup/create
 app.post('/api/backup/create', async (req, res) => {
     try {
-        const { stdout, stderr } = await execAsync(`bash "${BACKUP_SCRIPT}"`, { timeout: 120000 });
+        const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}"`, { timeout: 120000 });
         res.json({ ok: true, log: stdout || stderr });
     }
     catch (err) {
@@ -576,14 +579,14 @@ app.post('/api/backup/restore/:filename', async (req, res) => {
     const filePath = path.join(BACKUP_DIR, filename);
     if (!fs.existsSync(filePath))
         return res.status(404).json({ error: 'Not found' });
-    const stamp = filename.replace('.tar.gz', '');
     const uploadsTarget = path.join(__dirname, '..', 'uploads');
     try {
         const cmd = [
             `TMPDIR=$(mktemp -d)`,
             `tar xzf "${filePath}" -C "$TMPDIR"`,
-            `mongorestore --uri="${MONGO_URI_ENV}" --db="${MONGO_DB_ENV}" --gzip --drop "$TMPDIR/${stamp}/${MONGO_DB_ENV}"`,
-            `if [ -d "$TMPDIR/${stamp}/uploads" ]; then rm -rf "${uploadsTarget}" && cp -r "$TMPDIR/${stamp}/uploads" "${uploadsTarget}"; fi`,
+            `STAMP=$(ls "$TMPDIR" | head -1)`,
+            `mongorestore --uri="${MONGO_URI_ENV}" --nsInclude="${MONGO_DB_ENV}.*" --gzip --drop "$TMPDIR/$STAMP"`,
+            `if [ -d "$TMPDIR/$STAMP/uploads" ]; then rm -rf "${uploadsTarget}"/* && cp -r "$TMPDIR/$STAMP/uploads/." "${uploadsTarget}/"; fi`,
             `rm -rf "$TMPDIR"`
         ].join(' && ');
         const { stdout, stderr } = await execAsync(cmd, { timeout: 300000 });
@@ -614,14 +617,14 @@ app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (re
         return res.status(400).json({ error: 'Invalid filename' });
     }
     const filePath = path.join(BACKUP_DIR, filename);
-    const stamp = filename.replace('.tar.gz', '');
     const uploadsTarget = path.join(__dirname, '..', 'uploads');
     try {
         const cmd = [
             `TMPDIR=$(mktemp -d)`,
             `tar xzf "${filePath}" -C "$TMPDIR"`,
-            `mongorestore --uri="${MONGO_URI_ENV}" --db="${MONGO_DB_ENV}" --gzip --drop "$TMPDIR/${stamp}/${MONGO_DB_ENV}"`,
-            `if [ -d "$TMPDIR/${stamp}/uploads" ]; then rm -rf "${uploadsTarget}" && cp -r "$TMPDIR/${stamp}/uploads" "${uploadsTarget}"; fi`,
+            `STAMP=$(ls "$TMPDIR" | head -1)`,
+            `mongorestore --uri="${MONGO_URI_ENV}" --nsInclude="${MONGO_DB_ENV}.*" --gzip --drop "$TMPDIR/$STAMP"`,
+            `if [ -d "$TMPDIR/$STAMP/uploads" ]; then rm -rf "${uploadsTarget}"/* && cp -r "$TMPDIR/$STAMP/uploads/." "${uploadsTarget}/"; fi`,
             `rm -rf "$TMPDIR"`
         ].join(' && ');
         const { stdout, stderr } = await execAsync(cmd, { timeout: 300000 });
