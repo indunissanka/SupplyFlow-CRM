@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # Production dependencies only
-RUN npm ci --omit=dev
+RUN npm install --omit=dev --ignore-scripts
 
 # Copy pre-built compiled output and frontend
 COPY dist/ ./dist/
