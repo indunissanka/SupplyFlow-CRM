@@ -1,14 +1,55 @@
-FROM python:3.11-slim
+# ── Stage 1: build ────────────────────────────────────────────────────────────
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY package*.json ./
 
-COPY python_app/ ./python_app/
+# Install all deps (including devDependencies for TypeScript compiler)
+RUN npm ci
+
+COPY src/ ./src/
 COPY public/ ./public/
-COPY schema.sql ./
+COPY tsconfig.json ./
+COPY tsconfig.analytics.json ./
 
-ENV PORT=8080
+# Compile TypeScript → dist/
+RUN npm run build
 
-CMD ["sh", "-c", "uvicorn python_app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]
+# Build analytics UI if source exists
+RUN [ -f public/analytics/app.ts ] && npm run build:analytics || true
+
+# ── Stage 2: production image ─────────────────────────────────────────────────
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+
+# Production dependencies only
+RUN npm ci --omit=dev
+
+# Copy compiled output and frontend from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/public ./public
+
+# Create uploads directory for file attachments
+RUN mkdir -p uploads
+
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001 && \
+    chown -R nodejs:nodejs /app
+
+USER nodejs
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:' + process.env.PORT + '/api/health', (r) => { process.exit(r.statusCode === 200 ? 0 : 1) })"
+
+CMD ["node", "dist/server.js"]
