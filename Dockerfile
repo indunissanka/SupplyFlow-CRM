@@ -14,10 +14,10 @@ COPY tsconfig.json ./
 COPY tsconfig.analytics.json ./
 
 # Compile TypeScript → dist/
-RUN npm run build
+RUN npx tsc
 
 # Build analytics UI if source exists
-RUN [ -f public/analytics/app.ts ] && npm run build:analytics || true
+RUN [ -f public/analytics/app.ts ] && npx tsc -p tsconfig.analytics.json || true
 
 # ── Stage 2: production image ─────────────────────────────────────────────────
 FROM node:20-alpine
