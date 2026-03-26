@@ -4,20 +4,24 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
+COPY tsconfig.json ./
+COPY tsconfig.analytics.json ./
 
 # Install all deps (including devDependencies for TypeScript compiler)
 RUN npm ci
 
 COPY src/ ./src/
 COPY public/ ./public/
-COPY tsconfig.json ./
-COPY tsconfig.analytics.json ./
 
 # Compile TypeScript → dist/
-RUN npx tsc
+RUN ./node_modules/.bin/tsc --project tsconfig.json
+
+# Verify dist/ was created
+RUN ls -la dist/
 
 # Build analytics UI if source exists
-RUN [ -f public/analytics/app.ts ] && npx tsc -p tsconfig.analytics.json || true
+RUN [ -f public/analytics/app.ts ] && \
+    ./node_modules/.bin/tsc -p tsconfig.analytics.json || true
 
 # ── Stage 2: production image ─────────────────────────────────────────────────
 FROM node:20-alpine
