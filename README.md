@@ -1,4 +1,4 @@
-# Mango CRM
+# SupplyFlow-CRM
 
 A full-stack CRM application built with **Node.js / TypeScript** and **MongoDB**.
 
@@ -28,7 +28,7 @@ A full-stack CRM application built with **Node.js / TypeScript** and **MongoDB**
 ## Project Structure
 
 ```
-mango-crm/
+SupplyFlow-CRM/
 ├── src/
 │   ├── server.ts          # Main Express server and API routes
 │   ├── mongodb.ts         # MongoDB connection and schema helpers
@@ -147,7 +147,7 @@ node scripts/generate-password-hash.js "your-password" "your-email@example.com"
 ## Running with PM2
 
 ```bash
-pm2 start dist/server.js --name mango-crm
+pm2 start dist/server.js --name SupplyFlow-CRM
 pm2 save
 ```
 
@@ -187,7 +187,7 @@ Runs the app and MongoDB together with a single command.
    docker compose up -d app
    ```
 
-> **Data persistence**: MongoDB data is stored in the `mango-crm-mongo` named volume.
+> **Data persistence**: MongoDB data is stored in the `SupplyFlow-CRM-mongo` named volume.
 > Uploaded files are stored in the `uploads` named volume.
 > Both survive container restarts and `docker compose down`.
 
@@ -199,11 +199,11 @@ If you already have MongoDB running elsewhere:
 
 ```bash
 # Build the image
-docker build -t mango-crm .
+docker build -t SupplyFlow-CRM .
 
 # Run the container
 docker run -d \
-  --name mango-crm \
+  --name SupplyFlow-CRM \
   -p 3000:3000 \
   -e MONGODB_URI=mongodb://your-mongo-host:27017 \
   -e MONGODB_DB_NAME=crmmango \
@@ -211,13 +211,13 @@ docker run -d \
   -e ADMIN_EMAIL=admin@example.com \
   -e ADMIN_PASSWORD=yourpassword \
   -v $(pwd)/uploads:/app/uploads \
-  mango-crm
+  SupplyFlow-CRM
 ```
 
 Or use an env file:
 ```bash
-docker run -d --name mango-crm -p 3000:3000 --env-file .env \
-  -v $(pwd)/uploads:/app/uploads mango-crm
+docker run -d --name SupplyFlow-CRM -p 3000:3000 --env-file .env \
+  -v $(pwd)/uploads:/app/uploads SupplyFlow-CRM
 ```
 
 ## Troubleshooting
