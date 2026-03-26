@@ -153,9 +153,71 @@ pm2 save
 
 ## Docker
 
+### Option 1 — Docker Compose (recommended)
+
+Runs the app and MongoDB together with a single command.
+
+1. **Copy and configure your environment file**:
+   ```bash
+   cp .env.example .env
+   ```
+   At minimum set `AUTH_SECRET`:
+   ```bash
+   echo "AUTH_SECRET=$(openssl rand -base64 32)" >> .env
+   ```
+
+2. **Start everything**:
+   ```bash
+   docker compose up -d
+   ```
+   The app will be available at `http://localhost:3000`.
+
+3. **Common commands**:
+   ```bash
+   docker compose logs -f app        # stream app logs
+   docker compose logs -f mongo      # stream MongoDB logs
+   docker compose restart app        # restart app only
+   docker compose down               # stop and remove containers
+   docker compose down -v            # stop and delete all data volumes
+   ```
+
+4. **Updating after code changes**:
+   ```bash
+   docker compose build app
+   docker compose up -d app
+   ```
+
+> **Data persistence**: MongoDB data is stored in the `mango-crm-mongo` named volume.
+> Uploaded files are stored in the `uploads` named volume.
+> Both survive container restarts and `docker compose down`.
+
+---
+
+### Option 2 — Docker only (bring your own MongoDB)
+
+If you already have MongoDB running elsewhere:
+
 ```bash
+# Build the image
 docker build -t mango-crm .
-docker run -p 3000:3000 --env-file .env mango-crm
+
+# Run the container
+docker run -d \
+  --name mango-crm \
+  -p 3000:3000 \
+  -e MONGODB_URI=mongodb://your-mongo-host:27017 \
+  -e MONGODB_DB_NAME=crmmango \
+  -e AUTH_SECRET=your_secret \
+  -e ADMIN_EMAIL=admin@example.com \
+  -e ADMIN_PASSWORD=yourpassword \
+  -v $(pwd)/uploads:/app/uploads \
+  mango-crm
+```
+
+Or use an env file:
+```bash
+docker run -d --name mango-crm -p 3000:3000 --env-file .env \
+  -v $(pwd)/uploads:/app/uploads mango-crm
 ```
 
 ## Troubleshooting
