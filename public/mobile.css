@@ -1,0 +1,63 @@
+/* ============================================================
+   Mobile Bottom Navigation
+   Hidden on desktop (>1024px), shown only on mobile/compact
+   ============================================================ */
+
+.mobile-bottom-nav {
+  display: none;
+}
+
+@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+  /* Show bottom nav on mobile */
+  .mobile-bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: #ffffff;
+    border-top: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.08);
+    padding: 6px 0 env(safe-area-inset-bottom, 6px);
+    justify-content: space-around;
+    align-items: center;
+  }
+
+  .mobile-bnav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    padding: 6px 12px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: #6b7280;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 8px;
+    transition: color 0.15s ease;
+    min-width: 52px;
+  }
+
+  .mobile-bnav-item svg,
+  .mobile-bnav-item i {
+    width: 22px;
+    height: 22px;
+    stroke-width: 1.8;
+  }
+
+  .mobile-bnav-item.active {
+    color: #0b214b;
+  }
+
+  .mobile-bnav-item:hover {
+    color: #0b214b;
+  }
+
+  /* Add bottom padding to main content so it doesn't hide behind bottom nav */
+  .main {
+    padding-bottom: 70px;
+  }
+}
