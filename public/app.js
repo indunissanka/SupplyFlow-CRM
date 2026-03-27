@@ -5430,9 +5430,9 @@ async function uploadAndRestoreBackup(file) {
     const res = await apiFetch("/api/backup/upload-restore", { method: "POST", body: form });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || "Restore failed");
-    showToast("Restore complete — please refresh the page.");
     if (log) log.textContent = "";
-    await loadBackupList();
+    handleLogout();
+    showToast("Restore complete. Please log in again.");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "Restore failed");
     if (log) log.textContent = "";
@@ -5476,8 +5476,8 @@ async function restoreBackup(filename) {
   try {
     const res = await apiFetch(`/api/backup/restore/${encodeURIComponent(filename)}`, { method: "POST" });
     if (!res.ok) throw new Error(await readApiError(res, "Restore failed"));
-    showToast("Restore complete — please refresh the page.");
-    await loadBackupList();
+    handleLogout();
+    showToast("Restore complete. Please log in again.");
   } catch (err) {
     showToast(err instanceof Error ? err.message : "Restore failed");
     await loadBackupList();
