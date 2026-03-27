@@ -1636,6 +1636,46 @@ app.post('/api/ai/track-summary', async (req, res) => {
     }
 });
 // ── Generic CRUD ──────────────────────────────────────────────────────────────
+// ── File serving ──────────────────────────────────────────────────────────────
+// Must be registered BEFORE the generic /api/:table/:id route to take priority
+const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
+// Files root is the parent of uploads/ so storage_key "uploads/foo.pdf" resolves correctly
+const FILES_ROOT = path.resolve(process.cwd());
+app.get('/api/files/*', (req, res) => {
+    // req.params[0] gives everything after /api/files/
+    const rawKey = req.params[0] || '';
+    // Decode URL encoding and strip leading slashes
+    let filePath;
+    try {
+        filePath = decodeURIComponent(rawKey).replace(/^\/+/, '');
+    }
+    catch {
+        filePath = rawKey.replace(/^\/+/, '');
+    }
+    // Security: prevent path traversal
+    const resolved = path.resolve(FILES_ROOT, filePath);
+    if (!resolved.startsWith(FILES_ROOT + path.sep) && resolved !== FILES_ROOT) {
+        return res.status(403).json({ error: 'Forbidden' });
+    }
+    // Fall back to uploads/ subfolder for legacy file_url paths stored without the prefix
+    const resolvedFinal = fs.existsSync(resolved)
+        ? resolved
+        : path.resolve(FILES_ROOT, 'uploads', path.basename(filePath));
+    if (!fs.existsSync(resolvedFinal)) {
+        return res.status(404).json({ error: 'File not found' });
+    }
+    const ext = path.extname(resolvedFinal).toLowerCase();
+    const mimeMap = {
+        '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    };
+    const mime = mimeMap[ext] || 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', `inline; filename="${path.basename(resolvedFinal)}"`);
+    res.sendFile(resolvedFinal);
+});
 // Routes registered later (analytics) need to be skipped here
 const analyticsRouteNames = new Set(['kpis', 'timeseries', 'breakdown', 'forecast', 'data-quality']);
 // GET list
@@ -1761,41 +1801,6 @@ app.delete('/api/:table/:id', async (req, res) => {
         console.error(`Error deleting ${table}`, err);
         res.status(500).json({ error: 'Internal server error' });
     }
-});
-// ── File serving ──────────────────────────────────────────────────────────────
-const UPLOADS_DIR = path.resolve(process.cwd(), 'uploads');
-// Files root is the parent of uploads/ so storage_key "uploads/foo.pdf" resolves correctly
-const FILES_ROOT = path.resolve(process.cwd());
-app.get('/api/files/*', (req, res) => {
-    // req.params[0] gives everything after /api/files/
-    const rawKey = req.params[0] || '';
-    // Decode URL encoding and strip leading slashes
-    let filePath;
-    try {
-        filePath = decodeURIComponent(rawKey).replace(/^\/+/, '');
-    }
-    catch {
-        filePath = rawKey.replace(/^\/+/, '');
-    }
-    // Security: prevent path traversal
-    const resolved = path.resolve(FILES_ROOT, filePath);
-    if (!resolved.startsWith(FILES_ROOT + path.sep) && resolved !== FILES_ROOT) {
-        return res.status(403).json({ error: 'Forbidden' });
-    }
-    if (!fs.existsSync(resolved)) {
-        return res.status(404).json({ error: 'File not found' });
-    }
-    const ext = path.extname(resolved).toLowerCase();
-    const mimeMap = {
-        '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
-        '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
-        '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    };
-    const mime = mimeMap[ext] || 'application/octet-stream';
-    res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Disposition', `inline; filename="${path.basename(resolved)}"`);
-    res.sendFile(resolved);
 });
 // ── Analytics helpers ─────────────────────────────────────────────────────────
 function parseAnalyticsDateRange(query) {
