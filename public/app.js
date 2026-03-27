@@ -4948,8 +4948,12 @@ async function renderSampleShipments() {
         r.phone || "-",
         r.product_name || "Unknown Product",
         r.quantity ?? "-",
-        r.waybill_number || "-",
-        r.courier || "-",
+        (() => {
+          const wb = sanitizeText(r.waybill_number || "-");
+          const url = r.waybill_number ? getCourierTrackUrl(r.courier, r.waybill_number) : null;
+          return url ? `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--primary,#2563eb);text-decoration:underline">${wb}</a>` : wb;
+        })(),
+        sanitizeText(r.courier || "-"),
         badge(statusToneShipping(statusLabel), statusLabel)
       ];
     },
@@ -5683,6 +5687,8 @@ async function renderSettings() {
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
+          ${canManageUsers ? `<button class="tab" data-tab="shippo-config">Shippo Configuration</button>` : ""}
+          ${canManageUsers ? `<button class="tab" data-tab="17track-config">17track Configuration</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
@@ -5910,8 +5916,11 @@ async function renderSettings() {
             <div style="padding:20px 0 8px">
               <div style="margin-bottom:16px">
                 <div class="stat-label" style="margin-bottom:4px">Status</div>
-                <div id="ai-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
-                  <span style="color:var(--text-muted)">Loading...</span>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <div id="ai-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                    <span style="color:var(--text-muted)">Loading...</span>
+                  </div>
+                  <button id="ai-config-toggle-btn" class="btn ghost small" type="button" style="display:none"></button>
                 </div>
               </div>
               <div style="margin-bottom:16px">
@@ -5925,6 +5934,66 @@ async function renderSettings() {
                 </div>
               </div>
               <p class="stat-label">Get your key at <strong>console.anthropic.com</strong> &mdash; AI features work without restarting the server once saved.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tab-content" id="shippo-config">
+          <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="truck"></i>
+                Shippo Configuration
+              </h3>
+              <div class="stat-label">Enter your Shippo API token to enable live shipment tracking.</div>
+            </div>
+            <div style="padding:20px 0 8px">
+              <div style="margin-bottom:16px">
+                <div class="stat-label" style="margin-bottom:4px">Status</div>
+                <div id="shippo-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                  <span style="color:var(--text-muted)">Loading...</span>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label class="form-label" for="shippo-config-key-input">Shippo API Token</label>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                  <input id="shippo-config-key-input" type="password" class="form-input" placeholder="shippo_live_..." autocomplete="off" style="flex:1;min-width:0" />
+                  <button class="btn ghost small" id="shippo-config-toggle-vis" type="button" title="Show/hide key">
+                    <i data-lucide="eye"></i>
+                  </button>
+                  <button class="btn primary" id="shippo-config-save-btn" type="button">Save</button>
+                </div>
+              </div>
+              <p class="stat-label">Get your token at <strong>goshippo.com/api</strong> &mdash; takes effect immediately without restarting.</p>
+            </div>
+          </div>
+        </div>
+        <div class="tab-content" id="17track-config">
+          <div class="panel">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="package-search"></i>
+                17track Configuration
+              </h3>
+              <div class="stat-label">17track provides live tracking for DHL, FedEx, UPS, TNT, SF Express, Aramex, and 1000+ carriers from a single API key.</div>
+            </div>
+            <div style="padding:20px 0 8px">
+              <div style="margin-bottom:16px">
+                <div class="stat-label" style="margin-bottom:4px">Status</div>
+                <div id="17track-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                  <span style="color:var(--text-muted)">Loading...</span>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label class="form-label" for="17track-config-key-input">17track API Key</label>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                  <input id="17track-config-key-input" type="password" class="form-input" placeholder="Paste your 17track API key..." autocomplete="off" style="flex:1;min-width:0" />
+                  <button class="btn ghost small" id="17track-config-toggle-vis" type="button" title="Show/hide key">
+                    <i data-lucide="eye"></i>
+                  </button>
+                  <button class="btn primary" id="17track-config-save-btn" type="button">Save</button>
+                </div>
+              </div>
+              <p class="stat-label">Get a free API key at <strong>17track.net/en/service/api</strong> (free tier: 100 tracks/month). When configured, 17track takes priority over Shippo for live tracking.</p>
             </div>
           </div>
         </div>
@@ -5956,6 +6025,7 @@ async function renderSettings() {
     const aiKeyInput = document.getElementById("ai-config-key-input");
     const aiSaveBtn = document.getElementById("ai-config-save-btn");
     const aiToggleVis = document.getElementById("ai-config-toggle-vis");
+    const aiToggleBtn = document.getElementById("ai-config-toggle-btn");
 
     const loadAiStatus = async () => {
       if (!aiStatusEl) return;
@@ -5964,15 +6034,41 @@ async function renderSettings() {
         const data = await res.json();
         if (data.configured) {
           const sourceLabel = data.source === "env" ? "environment variable" : "saved in database";
-          aiStatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${sourceLabel})</span>`;
+          const enabledDot = data.enabled
+            ? `<span style="color:var(--success,#16a34a)">&#9679;</span>`
+            : `<span style="color:var(--warning,#f59e0b)">&#9679;</span>`;
+          const enabledLabel = data.enabled ? "<strong>Enabled</strong>" : "<strong>Disabled</strong>";
+          aiStatusEl.innerHTML = `${enabledDot} ${enabledLabel} <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${sourceLabel})</span>`;
+          if (aiToggleBtn) {
+            aiToggleBtn.style.display = "";
+            aiToggleBtn.textContent = data.enabled ? "Disable" : "Enable";
+            aiToggleBtn.className = data.enabled ? "btn ghost small" : "btn primary small";
+          }
         } else {
           aiStatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured</span>`;
+          if (aiToggleBtn) aiToggleBtn.style.display = "none";
         }
       } catch (_) {
         aiStatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
+        if (aiToggleBtn) aiToggleBtn.style.display = "none";
       }
     };
     loadAiStatus();
+
+    aiToggleBtn?.addEventListener("click", async () => {
+      aiToggleBtn.disabled = true;
+      try {
+        const res = await apiFetch("/api/settings/ai-config/toggle", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Toggle failed");
+        showToast(`AI features ${data.enabled ? "enabled" : "disabled"}`);
+        await loadAiStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        aiToggleBtn.disabled = false;
+      }
+    });
 
     aiToggleVis?.addEventListener("click", () => {
       if (!aiKeyInput) return;
@@ -6003,6 +6099,110 @@ async function renderSettings() {
 
     // Also trigger status load when tab is clicked
     document.querySelector("[data-tab='ai-config']")?.addEventListener("click", loadAiStatus);
+
+    // Shippo Config tab handlers
+    const shippoStatusEl = document.getElementById("shippo-config-status");
+    const shippoKeyInput = document.getElementById("shippo-config-key-input");
+    const shippoSaveBtn  = document.getElementById("shippo-config-save-btn");
+    const shippoToggleVis = document.getElementById("shippo-config-toggle-vis");
+
+    const loadShippoStatus = async () => {
+      if (!shippoStatusEl) return;
+      try {
+        const res = await apiFetch("/api/settings/shippo-config");
+        const data = await res.json();
+        if (data.configured) {
+          const src = data.source === "env" ? "environment variable" : "saved in database";
+          shippoStatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src})</span>`;
+        } else {
+          shippoStatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured &mdash; live tracking unavailable</span>`;
+        }
+      } catch (_) {
+        shippoStatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
+      }
+    };
+    loadShippoStatus();
+
+    shippoToggleVis?.addEventListener("click", () => {
+      if (!shippoKeyInput) return;
+      shippoKeyInput.type = shippoKeyInput.type === "password" ? "text" : "password";
+    });
+
+    shippoSaveBtn?.addEventListener("click", async () => {
+      const key = shippoKeyInput?.value.trim() || "";
+      if (!key) { showToast("Please enter an API token"); return; }
+      shippoSaveBtn.disabled = true; shippoSaveBtn.textContent = "Saving...";
+      try {
+        const res = await apiFetch("/api/settings/shippo-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shippo_api_key: key })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        showToast("Shippo token saved");
+        if (shippoKeyInput) shippoKeyInput.value = "";
+        await loadShippoStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        shippoSaveBtn.disabled = false; shippoSaveBtn.textContent = "Save";
+      }
+    });
+
+    document.querySelector("[data-tab='shippo-config']")?.addEventListener("click", loadShippoStatus);
+
+    // 17track Config tab handlers
+    const t17StatusEl  = document.getElementById("17track-config-status");
+    const t17KeyInput  = document.getElementById("17track-config-key-input");
+    const t17SaveBtn   = document.getElementById("17track-config-save-btn");
+    const t17ToggleVis = document.getElementById("17track-config-toggle-vis");
+
+    const load17trackStatus = async () => {
+      if (!t17StatusEl) return;
+      try {
+        const res = await apiFetch("/api/settings/17track-config");
+        const data = await res.json();
+        if (data.configured) {
+          const src = data.source === "env" ? "environment variable" : "saved in database";
+          t17StatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src})</span>`;
+        } else {
+          t17StatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured</span>`;
+        }
+      } catch (_) {
+        t17StatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
+      }
+    };
+    load17trackStatus();
+
+    t17ToggleVis?.addEventListener("click", () => {
+      if (!t17KeyInput) return;
+      t17KeyInput.type = t17KeyInput.type === "password" ? "text" : "password";
+    });
+
+    t17SaveBtn?.addEventListener("click", async () => {
+      const key = t17KeyInput?.value.trim() || "";
+      if (!key) { showToast("Please enter an API key"); return; }
+      t17SaveBtn.disabled = true; t17SaveBtn.textContent = "Saving...";
+      try {
+        const res = await apiFetch("/api/settings/17track-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: key })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        showToast("17track API key saved");
+        if (t17KeyInput) t17KeyInput.value = "";
+        await load17trackStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        t17SaveBtn.disabled = false; t17SaveBtn.textContent = "Save";
+      }
+    });
+
+    document.querySelector("[data-tab='17track-config']")?.addEventListener("click", load17trackStatus);
   }
 
   const passwordForm = document.getElementById("password-form");
@@ -7251,7 +7451,7 @@ async function openPreviewModal(tableKey, record) {
       <div class="modal-body preview-body">${content}</div>
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
-        ${tableKey === "orders" ? `<button class="btn ai-trigger-btn" data-ai-track>⚡ Track &amp; Summarize</button>` : ""}
+        ${(tableKey === "orders" || tableKey === "sample_shipments") ? `<button class="btn ai-trigger-btn" data-ai-track>⚡ Track &amp; Summarize</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -7270,9 +7470,9 @@ async function openPreviewModal(tableKey, record) {
       openDeleteConfirm(tableKey, record);
     });
   }
-  if (tableKey === "orders") {
+  if (tableKey === "orders" || tableKey === "sample_shipments") {
     overlay.querySelector("[data-ai-track]")?.addEventListener("click", () => {
-      openAiTrackSummarizeModal(record, overlay);
+      openAiTrackSummarizeModal(record, overlay, tableKey);
     });
     overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
       const quoteKeyCandidates = [record.quotation_id, record.quote_id, record.quotationId, record.quotation, record.quote]
@@ -8269,6 +8469,16 @@ function renderRecordPreview(tableKey, record) {
         relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "",
       ].filter(Boolean).join("");
       break;
+    case "sample_shipments": {
+      const trackUrl = getCourierTrackUrl(record.courier, record.waybill_number);
+      chips = [
+        record.courier ? `<span class="odv-chip">${sanitizeText(record.courier)}</span>` : "",
+        record.product_name ? `<span class="odv-chip">${sanitizeText(record.product_name)}</span>` : "",
+        record.quantity != null ? `<span class="odv-chip">Qty: ${sanitizeText(String(record.quantity))}</span>` : "",
+        trackUrl ? `<a class="odv-chip" href="${trackUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--primary,#2563eb);text-decoration:none">&#128279; Track on ${sanitizeText(record.courier)} website</a>` : "",
+      ].filter(Boolean).join("");
+      break;
+    }
     default:
       chips = relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "";
   }
@@ -8306,7 +8516,12 @@ function renderRecordPreview(tableKey, record) {
           ${relatedInfo && tableKey !== "tasks" && tableKey !== "notes" ? `<div class="preview-hero-related">${sanitizeText(relatedInfo)}</div>` : ""}
           <div class="preview-hero-meta">${statusBadge} ${updatedMeta}</div>
         </div>
-        <div class="preview-hero-right"></div>
+        <div class="preview-hero-right">${(() => {
+          if (tableKey !== "sample_shipments" || !record.waybill_number) return "";
+          const url = getCourierTrackUrl(record.courier, record.waybill_number);
+          if (!url) return "";
+          return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="btn ghost small" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">&#128279; Track ${sanitizeText(record.courier || "")}</a>`;
+        })()}</div>
       </div>
       ${chips ? `<div class="odv-chips">${chips}</div>` : ""}
       <div class="odv-section">
@@ -12630,13 +12845,25 @@ async function openAiExtractPdfModal() {
 }
 
 // Feature 6: Track & Summarize
-function openAiTrackSummarizeModal(record, parentOverlay) {
+function getCourierTrackUrl(courier, waybill) {
+  const c = (courier || "").toLowerCase().trim();
+  const wb = encodeURIComponent((waybill || "").trim());
+  if (!wb) return null;
+  if (c.includes("dhl"))   return `https://www.dhl.com/my-en/home/tracking/tracking-express.html?submit=1&tracking-id=${wb}`;
+  if (c.includes("fedex")) return `https://www.fedex.com/fedextrack/?trknbr=${wb}`;
+  if (c.includes("ups"))   return `https://www.ups.com/track?tracknum=${wb}`;
+  if (c.includes("tnt"))   return `https://www.tnt.com/express/en_us/site/tracking.html?searchType=con&cons=${wb}`;
+  return null;
+}
+
+function openAiTrackSummarizeModal(record, parentOverlay, tableKey) {
   const waybill = (record && (record.waybill_number || record.tracking_number)) || "";
   const courier = (record && (record.courier || record.carrier)) || "";
-  const orderId = record && record.id;
+  const isSample = tableKey === "sample_shipments";
+  const recordId = record && record.id;
 
-  if (!orderId) { showToast("Order ID missing"); return; }
-  if (!waybill) { showToast("No waybill number on this order"); return; }
+  if (!recordId) { showToast("Record ID missing"); return; }
+  if (!waybill) { showToast("No waybill number on this record"); return; }
 
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -12655,6 +12882,7 @@ function openAiTrackSummarizeModal(record, parentOverlay) {
           <label class="form-label">Courier</label>
           <input id="ai-track-courier" class="form-input" value="${sanitizeText(courier)}" placeholder="e.g. DHL, FedEx" />
         </div>
+        <div id="ai-track-courier-link" style="margin-top:8px;font-size:13px"></div>
         <div id="ai-track-result" style="display:none;margin-top:16px"></div>
       </div>
       <div class="form-actions">
@@ -12667,25 +12895,45 @@ function openAiTrackSummarizeModal(record, parentOverlay) {
   overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
   overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
 
+  const wbInput = overlay.querySelector("#ai-track-waybill");
+  const crInput = overlay.querySelector("#ai-track-courier");
+  const linkEl  = overlay.querySelector("#ai-track-courier-link");
+
+  const updateCourierLink = () => {
+    const url = getCourierTrackUrl(crInput.value, wbInput.value);
+    if (url) {
+      const name = crInput.value.trim() || "courier";
+      linkEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--primary,#2563eb)">&#128279; Track on ${sanitizeText(name)} website &rarr;</a>`;
+    } else {
+      linkEl.innerHTML = "";
+    }
+  };
+  updateCourierLink();
+  wbInput.addEventListener("input", updateCourierLink);
+  crInput.addEventListener("input", updateCourierLink);
+
   overlay.querySelector("#ai-track-run").addEventListener("click", async () => {
-    const wb = overlay.querySelector("#ai-track-waybill").value.trim();
-    const cr = overlay.querySelector("#ai-track-courier").value.trim();
+    const wb = wbInput.value.trim();
+    const cr = crInput.value.trim();
     if (!wb) { showToast("Waybill is required"); return; }
     const btn = overlay.querySelector("#ai-track-run");
     btn.disabled = true; btn.textContent = "Tracking...";
     try {
-      const data = await aiPost("/api/ai/track-summary", { order_id: orderId, waybill: wb, courier: cr });
+      const payload = isSample
+        ? { sample_id: recordId, waybill: wb, courier: cr }
+        : { order_id: recordId, waybill: wb, courier: cr };
+      const data = await aiPost("/api/ai/track-summary", payload);
       const result = overlay.querySelector("#ai-track-result");
       result.style.display = "block";
       result.innerHTML = `
         <div class="stat-label" style="margin-bottom:6px">Status: <strong>${sanitizeText(data.status || "&#8212;")}</strong></div>
         <p>${sanitizeText(data.summary || "")}</p>
-        <p class="stat-label" style="margin-top:8px">Note saved to order.</p>
+        <p class="stat-label" style="margin-top:8px">Note saved to record.</p>
       `;
       btn.textContent = "Done";
     } catch (err) {
       showToast("Track error: " + err.message);
-      btn.disabled = false; btn.textContent = "Track &amp; Summarize";
+      btn.disabled = false; btn.textContent = "Track & Summarize";
     }
   });
 }
@@ -12697,12 +12945,15 @@ const AI_QUICK_CHIPS = [
   { label: "Draft quotes", q: "Show draft quotations" },
   { label: "Open tasks", q: "Show open tasks" },
   { label: "Recent notes", q: "Show my latest notes" },
+  { label: "Pending shipments", q: "Show pending shipping schedules" },
+  { label: "Sample shipments", q: "Show my recent sample shipments" },
 ];
 
 const AI_COLLECTION_LABELS = {
   companies: "Company", contacts: "Contact", products: "Product",
   quotations: "Quote", invoices: "Invoice", orders: "Order",
-  tasks: "Task", notes: "Note", documents: "Document", tags: "Tag"
+  tasks: "Task", notes: "Note", documents: "Document", tags: "Tag",
+  doc_types: "Doc Type", shipping_schedules: "Shipment", sample_shipments: "Sample"
 };
 
 function aiGetRecordTitle(collection, row) {
@@ -12716,6 +12967,9 @@ function aiGetRecordTitle(collection, row) {
     case "tasks": return row.title || "Task";
     case "notes": return (row.body || "Note").slice(0, 60);
     case "documents": return row.title || row.original_name || "Document";
+    case "shipping_schedules": return row.reference || row.tracking_number || `Shipment #${row.id || ""}`;
+    case "sample_shipments": return row.waybill_number || row.reference || `Sample #${row.id || ""}`;
+    case "doc_types": return row.name || `Doc Type #${row.id || ""}`;
     default: return row.name || row.title || row.reference || String(row.id || "");
   }
 }
@@ -12737,6 +12991,14 @@ function aiGetRecordMeta(collection, row) {
     if (row.email) parts.push(row.email);
   } else if (collection === "notes") {
     if (row.note_date) parts.push(row.note_date);
+  } else if (collection === "shipping_schedules") {
+    if (row.carrier) parts.push(row.carrier);
+    if (row.status) parts.push(row.status);
+    if (row.eta) parts.push(`ETA: ${row.eta}`);
+  } else if (collection === "sample_shipments") {
+    if (row.courier) parts.push(row.courier);
+    if (row.status) parts.push(row.status);
+    if (row.product_name) parts.push(row.product_name);
   }
   return parts.join(" · ");
 }
@@ -12745,7 +13007,8 @@ async function aiNavigateToRecord(collection, row) {
   const sectionMap = {
     companies: "companies", contacts: "contacts", products: "products",
     quotations: "quotations", invoices: "invoices", orders: "orders",
-    tasks: "tasks", notes: "notes", documents: "documents", tags: "tags"
+    tasks: "tasks", notes: "notes", documents: "documents", tags: "tags",
+    doc_types: "tags", shipping_schedules: "shipping", sample_shipments: "sample_shipments"
   };
   const section = sectionMap[collection];
   if (!section || !row.id) return;

@@ -1170,6 +1170,54 @@ const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 let _anthropic: Anthropic | null = null;
 let _anthropicKeySource: 'env' | 'db' | null = null;
 
+// Lazy Shippo key — env first, then DB
+async function getShippoApiKey(db: Db): Promise<string | null> {
+  const envKey = process.env.SHIPPO_API_KEY;
+  if (envKey) return envKey;
+  const stored = await db.collection('api_keys').findOne({ key_name: 'shippo' });
+  return (stored?.key_value as string) || null;
+}
+
+// Lazy 17track key — env first, then DB
+async function get17trackApiKey(db: Db): Promise<string | null> {
+  const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
+  if (envKey) return envKey;
+  const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
+  return (stored?.key_value as string) || null;
+}
+
+// Fetch live tracking data from 17track API
+async function fetch17trackData(apiKey: string, waybill: string): Promise<{ status: string; history: string }> {
+  // Register the waybill (idempotent — safe to call every time)
+  await fetch('https://api.17track.net/track/v2.2/register', {
+    method: 'POST',
+    headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify([{ number: waybill }])
+  });
+
+  // Fetch tracking info
+  const res = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
+    method: 'POST',
+    headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify([{ number: waybill }])
+  });
+  const data: any = await res.json();
+  const track = data?.data?.accepted?.[0]?.track;
+
+  const events = Array.isArray(track?.z1) ? track.z1.slice(0, 10) : [];
+  const history = JSON.stringify(events.map((e: any) => ({
+    date: e.a, location: e.b, description: e.c || e.d
+  })));
+
+  const statusCode: number = track?.z0?.z;
+  const statusMap: Record<number, string> = {
+    0: 'Not Found', 10: 'In Transit', 20: 'Expired',
+    30: 'Ready for Pick Up', 35: 'Undelivered', 40: 'Delivered', 50: 'Alert'
+  };
+  const status = statusMap[statusCode] || track?.z0?.d || track?.z0?.c || 'Unknown';
+  return { status, history };
+}
+
 async function getAnthropicClient(db: Db): Promise<Anthropic | null> {
   const envKey = process.env.ANTHROPIC_API_KEY;
   if (envKey) {
@@ -1190,8 +1238,9 @@ async function getAnthropicClient(db: Db): Promise<Anthropic | null> {
 }
 
 async function aiConfigured(db: Db): Promise<boolean> {
-  if (process.env.ANTHROPIC_API_KEY) return true;
   const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  if (stored?.enabled === false) return false; // explicitly disabled by admin
+  if (process.env.ANTHROPIC_API_KEY) return true;
   return Boolean(stored?.key_value);
 }
 
@@ -1214,18 +1263,19 @@ app.get('/api/settings/ai-config', async (req: Request, res: Response) => {
   const user = (req as any).currentUser as UserRow;
   if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
   const db: Db = (req as any).db;
+  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  const enabled = stored?.enabled !== false; // default true if not set
   const envKey = process.env.ANTHROPIC_API_KEY;
   if (envKey) {
     const preview = `sk-ant-...${envKey.slice(-4)}`;
-    return res.json({ configured: true, source: 'env', preview });
+    return res.json({ configured: true, source: 'env', preview, enabled });
   }
-  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
   const dbKey = stored?.key_value as string | null;
   if (dbKey) {
     const preview = `sk-ant-...${dbKey.slice(-4)}`;
-    return res.json({ configured: true, source: 'db', preview });
+    return res.json({ configured: true, source: 'db', preview, enabled });
   }
-  res.json({ configured: false, source: null, preview: null });
+  res.json({ configured: false, source: null, preview: null, enabled });
 });
 
 app.post('/api/settings/ai-config', async (req: Request, res: Response) => {
@@ -1239,7 +1289,7 @@ app.post('/api/settings/ai-config', async (req: Request, res: Response) => {
   }
   await db.collection('api_keys').updateOne(
     { key_name: 'anthropic' },
-    { $set: { key_name: 'anthropic', key_value: key, updated_at: new Date().toISOString() } },
+    { $set: { key_name: 'anthropic', key_value: key, enabled: true, updated_at: new Date().toISOString() } },
     { upsert: true }
   );
   // Reset cached client so next request picks up new key
@@ -1247,6 +1297,77 @@ app.post('/api/settings/ai-config', async (req: Request, res: Response) => {
   _anthropicKeySource = null;
   const preview = `sk-ant-...${key.slice(-4)}`;
   res.json({ ok: true, preview });
+});
+
+app.post('/api/settings/ai-config/toggle', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const stored = await db.collection('api_keys').findOne({ key_name: 'anthropic' });
+  const currentlyEnabled = stored?.enabled !== false;
+  const newEnabled = !currentlyEnabled;
+  await db.collection('api_keys').updateOne(
+    { key_name: 'anthropic' },
+    { $set: { enabled: newEnabled, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  _anthropic = null;
+  _anthropicKeySource = null;
+  res.json({ ok: true, enabled: newEnabled });
+});
+
+app.get('/api/settings/shippo-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const envKey = process.env.SHIPPO_API_KEY;
+  if (envKey) {
+    return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
+  }
+  const stored = await db.collection('api_keys').findOne({ key_name: 'shippo' });
+  const dbKey = stored?.key_value as string | null;
+  if (dbKey) return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
+  res.json({ configured: false, source: null, preview: null });
+});
+
+app.post('/api/settings/shippo-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const key = String((req.body || {}).shippo_api_key || '').trim();
+  if (!key || key.length < 10) return res.status(400).json({ error: 'Invalid API key' });
+  await db.collection('api_keys').updateOne(
+    { key_name: 'shippo' },
+    { $set: { key_name: 'shippo', key_value: key, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  res.json({ ok: true, preview: `...${key.slice(-4)}` });
+});
+
+app.get('/api/settings/17track-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
+  if (envKey) return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
+  const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
+  const dbKey = stored?.key_value as string | null;
+  if (dbKey) return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
+  res.json({ configured: false, source: null, preview: null });
+});
+
+app.post('/api/settings/17track-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const key = String((req.body || {}).api_key || '').trim();
+  if (!key || key.length < 10) return res.status(400).json({ error: 'Invalid API key' });
+  await db.collection('api_keys').updateOne(
+    { key_name: '17track' },
+    { $set: { key_name: '17track', key_value: key, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  res.json({ ok: true, preview: `...${key.slice(-4)}` });
 });
 
 function safeParseJson(text: string): any {
@@ -1356,7 +1477,12 @@ Today is ${todayStr}. Limit to 10 tasks.`;
 });
 
 // Feature 5: Data Q&A (multi-turn + multi-collection)
-const aiAllowedCollections = new Set(['companies', 'contacts', 'products', 'quotations', 'invoices', 'orders', 'tasks', 'notes', 'documents', 'tags']);
+const aiAllowedCollections = new Set([
+  'companies', 'contacts', 'products',
+  'quotations', 'invoices', 'orders',
+  'tasks', 'notes', 'documents', 'tags', 'doc_types',
+  'shipping_schedules', 'sample_shipments'
+]);
 
 interface QueryPlan {
   collection: string;
@@ -1380,7 +1506,7 @@ async function runQueryPlan(db: Db, plan: QueryPlan, ownerEmail: string): Promis
     const sf = plan.sort_field || 'created_at';
     pipeline.push({ $sort: { [sf]: plan.sort_dir === 1 ? 1 : -1 } });
   }
-  pipeline.push({ $limit: Math.min(plan.limit || 10, 15) });
+  pipeline.push({ $limit: Math.min(plan.limit || 10, 20) });
   return db.collection(plan.collection).aggregate(pipeline).toArray();
 }
 
@@ -1394,18 +1520,36 @@ app.post('/api/ai/query', async (req: Request, res: Response) => {
 
   // Validate history shape
   const safeHistory: Array<{ role: string; content: string }> = Array.isArray(history)
-    ? history.slice(-6).filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    ? history.slice(-8).filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
     : [];
 
-  const planSystem = `You are a CRM database query planner. Available collections: companies, contacts, products, quotations, invoices, orders, tasks, notes, documents, tags.
-Given a question (with optional conversation history for context), return a JSON array of 1-3 query plans. Each plan:
-{"collection":"...","match":{},"group_by":null,"count_only":false,"sort_field":null,"sort_dir":-1,"limit":10}
+  const planSystem = `You are a CRM database query planner. Return a JSON array of 1-3 query plans to answer the user's question.
+
+Available collections and key searchable fields:
+- companies: name, country, city, industry, status, email, phone
+- contacts: first_name, last_name, email, company, role, phone
+- products: name, sku, category, price, status
+- quotations: quotation_number, company_name, status, amount, currency, due_date, created_at
+- invoices: invoice_number, company_name, status, total_amount, currency, due_date, created_at
+- orders: order_number, company_name, status, total_amount, currency, created_at, notes
+- tasks: title, status, assigned_to, due_date, description
+- notes: title, body, author, note_date, entity_type, tags
+- documents: name, doc_type, content_type, notes
+- shipping_schedules: reference, carrier, status, eta, etd, destination, origin
+- sample_shipments: reference, company_name, courier, waybill_number, status, product_name, receiving_address
+- tags: name
+- doc_types: name
+
+Each plan object: {"collection":"...","match":{},"group_by":null,"count_only":false,"sort_field":null,"sort_dir":-1,"limit":10}
+
 Rules:
-- Only use allowed collections
+- Only use the listed collections
 - Do NOT include owner_email in match (added server-side)
-- Use ISO date strings for dates
+- For status filters use exact values where known (e.g. "Unpaid", "Draft", "Open", "Pending")
+- Use ISO date strings for date comparisons; use $gte/$lte for ranges
+- sort_dir: -1 = newest first, 1 = oldest/lowest first
 - Return JSON array ONLY, no extra text
-- If question is conversational (no data needed), return []`;
+- If question needs no data (greetings, general advice), return []`;
 
   try {
     const historyMessages = safeHistory.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -1436,13 +1580,13 @@ Rules:
     })).filter((r) => r.rows.length > 0);
 
     // Generate answer with full context
-    const answerSystem = `You are a CRM assistant. Answer the user's question based on the query results. Be clear and concise (2-4 sentences). If no results were found, say so.`;
+    const answerSystem = `You are a CRM assistant with access to all site data. Answer the user's question based on the query results. Be clear and helpful (2-5 sentences). Mention specific record names, counts, amounts, or dates where relevant. If no results were found, say so and suggest what they might search for instead.`;
     const allRows = results.flatMap((r) => r.rows.map((row) => ({ ...row, _collection: r.collection })));
-    const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 30))}`;
+    const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 50))}`;
 
     const answerMsg = await client.messages.create({
       model: AI_MODEL,
-      max_tokens: 384,
+      max_tokens: 512,
       system: answerSystem,
       messages: [...historyMessages, { role: 'user', content: answerInput }]
     });
@@ -1513,35 +1657,49 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
   const db: Db = (req as any).db;
   if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
-  const { order_id, waybill, courier } = req.body || {};
-  if (!order_id || !waybill) return res.status(400).json({ error: 'order_id and waybill are required' });
+  const { order_id, sample_id, waybill, courier } = req.body || {};
+  const recordId = order_id || sample_id;
+  const collection = sample_id ? 'sample_shipments' : 'orders';
+  if (!recordId || !waybill) return res.status(400).json({ error: 'record id and waybill are required' });
 
-  const oid = toMongoId(order_id);
-  if (!oid) return res.status(400).json({ error: 'Invalid order_id' });
-  const order = await db.collection('orders').findOne({ _id: oid, owner_email: ownerEmail });
-  if (!order) return res.status(404).json({ error: 'Order not found' });
+  const oid = toMongoId(recordId);
+  if (!oid) return res.status(400).json({ error: 'Invalid record id' });
+  const record = await db.collection(collection).findOne({ _id: oid, owner_email: ownerEmail });
+  if (!record) return res.status(404).json({ error: 'Record not found' });
 
   const carrier = resolveShippoCarrier(courier);
-  const apiKey = process.env.SHIPPO_API_KEY;
-  if (!apiKey) return res.status(501).json({ error: 'Shippo not configured' });
+  const trackApiKey17 = await get17trackApiKey(db);
+  const shippoKey = await getShippoApiKey(db);
 
   try {
-    const trackRes = await fetch('https://api.goshippo.com/tracks/', {
-      method: 'POST',
-      headers: { 'Authorization': `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ carrier: carrier || courier, tracking_number: waybill })
-    });
-    const trackData: any = await trackRes.json();
-    const status = trackData?.tracking_status?.status || 'UNKNOWN';
-    const history = JSON.stringify(trackData?.tracking_history?.slice(0, 10) || []);
+    let status = 'UNKNOWN';
+    let history = '[]';
 
-    const system = 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences.';
-    const summary = await callClaude(db, system, `Waybill: ${waybill}\nStatus: ${status}\nHistory: ${history}`, 256);
+    if (trackApiKey17) {
+      const result = await fetch17trackData(trackApiKey17, waybill);
+      status = result.status;
+      history = result.history;
+    } else if (shippoKey) {
+      const trackRes = await fetch('https://api.goshippo.com/tracks/', {
+        method: 'POST',
+        headers: { 'Authorization': `ShippoToken ${shippoKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ carrier: carrier || courier, tracking_number: waybill })
+      });
+      const trackData: any = await trackRes.json();
+      status = trackData?.tracking_status?.status || 'UNKNOWN';
+      history = JSON.stringify(trackData?.tracking_history?.slice(0, 10) || []);
+    }
+
+    const hasLiveData = Boolean(trackApiKey17 || shippoKey);
+    const system = hasLiveData
+      ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences. Mention the current status and latest location if available.'
+      : 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
+    const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}\nStatus: ${status}\nHistory: ${history}`, 256);
 
     const now = new Date().toISOString();
     const noteDoc = {
-      entity_type: 'orders',
-      entity_id: order_id,
+      entity_type: collection,
+      entity_id: recordId,
       body: `Tracking update (${waybill}): ${summary}`,
       author: 'AI',
       note_date: now.slice(0, 10),

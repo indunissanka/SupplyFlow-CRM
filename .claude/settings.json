@@ -3,7 +3,10 @@
     "allow": [
       "Bash(docker cp:*)",
       "Bash(docker exec:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(find /c/Users/mark/OneDrive/Apps/TCM/SupplyFlow-CRM/public -name *.js -type f)",
+      "Bash(grep -A 5 \"CREATE.*tracking\\\\|CREATE.*shipment\\\\|CREATE.*sample_shipments\\\\|CREATE.*orders\" /c/Users/mark/OneDrive/Apps/TCM/SupplyFlow-CRM/src/*.ts)",
+      "Bash(npx tsc:*)"
     ]
   }
 }
