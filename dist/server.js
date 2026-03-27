@@ -589,13 +589,14 @@ app.post('/api/backup/restore/:filename', async (req, res) => {
     const filePath = path.join(BACKUP_DIR, filename);
     if (!fs.existsSync(filePath))
         return res.status(404).json({ error: 'Not found' });
-    const uploadsTarget = path.join(__dirname, '..', 'uploads');
+    const uploadsTarget = path.resolve(process.cwd(), 'uploads');
     try {
         const cmd = [
             `TMPDIR=$(mktemp -d)`,
             `tar xzf "${filePath}" -C "$TMPDIR"`,
             `STAMP=$(ls "$TMPDIR" | head -1)`,
-            `mongorestore --uri="${MONGO_URI_ENV}" --nsInclude="${MONGO_DB_ENV}.*" --gzip --drop "$TMPDIR/$STAMP"`,
+            `mongorestore --uri="${MONGO_URI_ENV}" --gzip --drop --db="${MONGO_DB_ENV}" "$TMPDIR/$STAMP/${MONGO_DB_ENV}"`,
+            `mkdir -p "${uploadsTarget}"`,
             `if [ -d "$TMPDIR/$STAMP/uploads" ]; then rm -rf "${uploadsTarget}"/* && cp -r "$TMPDIR/$STAMP/uploads/." "${uploadsTarget}/"; fi`,
             `rm -rf "$TMPDIR"`
         ].join(' && ');
@@ -627,13 +628,14 @@ app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (re
         return res.status(400).json({ error: 'Invalid filename' });
     }
     const filePath = path.join(BACKUP_DIR, filename);
-    const uploadsTarget = path.join(__dirname, '..', 'uploads');
+    const uploadsTarget = path.resolve(process.cwd(), 'uploads');
     try {
         const cmd = [
             `TMPDIR=$(mktemp -d)`,
             `tar xzf "${filePath}" -C "$TMPDIR"`,
             `STAMP=$(ls "$TMPDIR" | head -1)`,
-            `mongorestore --uri="${MONGO_URI_ENV}" --nsInclude="${MONGO_DB_ENV}.*" --gzip --drop "$TMPDIR/$STAMP"`,
+            `mongorestore --uri="${MONGO_URI_ENV}" --gzip --drop --db="${MONGO_DB_ENV}" "$TMPDIR/$STAMP/${MONGO_DB_ENV}"`,
+            `mkdir -p "${uploadsTarget}"`,
             `if [ -d "$TMPDIR/$STAMP/uploads" ]; then rm -rf "${uploadsTarget}"/* && cp -r "$TMPDIR/$STAMP/uploads/." "${uploadsTarget}/"; fi`,
             `rm -rf "$TMPDIR"`
         ].join(' && ');
