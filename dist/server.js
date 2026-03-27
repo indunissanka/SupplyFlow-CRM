@@ -138,8 +138,10 @@ app.use((req, res, next) => {
             "script-src 'self' https://unpkg.com https://cdn.tailwindcss.com",
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
             "font-src https://fonts.gstatic.com",
-            "img-src 'self' data:",
+            "img-src 'self' data: blob:",
             "connect-src 'self'",
+            "worker-src 'self' blob:",
+            "frame-src 'self'",
             "frame-ancestors 'none'"
         ].join('; '));
     }
@@ -1131,6 +1133,42 @@ async function getShippoApiKey(db) {
     const stored = await db.collection('api_keys').findOne({ key_name: 'shippo' });
     return stored?.key_value || null;
 }
+// Lazy 17track key — env first, then DB
+async function get17trackApiKey(db) {
+    const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
+    if (envKey)
+        return envKey;
+    const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
+    return stored?.key_value || null;
+}
+// Fetch live tracking data from 17track API
+async function fetch17trackData(apiKey, waybill) {
+    // Register the waybill (idempotent — safe to call every time)
+    await fetch('https://api.17track.net/track/v2.2/register', {
+        method: 'POST',
+        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ number: waybill }])
+    });
+    // Fetch tracking info
+    const res = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
+        method: 'POST',
+        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ number: waybill }])
+    });
+    const data = await res.json();
+    const track = data?.data?.accepted?.[0]?.track;
+    const events = Array.isArray(track?.z1) ? track.z1.slice(0, 10) : [];
+    const history = JSON.stringify(events.map((e) => ({
+        date: e.a, location: e.b, description: e.c || e.d
+    })));
+    const statusCode = track?.z0?.z;
+    const statusMap = {
+        0: 'Not Found', 10: 'In Transit', 20: 'Expired',
+        30: 'Ready for Pick Up', 35: 'Undelivered', 40: 'Delivered', 50: 'Alert'
+    };
+    const status = statusMap[statusCode] || track?.z0?.d || track?.z0?.c || 'Unknown';
+    return { status, history };
+}
 async function getAnthropicClient(db) {
     const envKey = process.env.ANTHROPIC_API_KEY;
     if (envKey) {
@@ -1245,6 +1283,31 @@ app.post('/api/settings/shippo-config', async (req, res) => {
     if (!key || key.length < 10)
         return res.status(400).json({ error: 'Invalid API key' });
     await db.collection('api_keys').updateOne({ key_name: 'shippo' }, { $set: { key_name: 'shippo', key_value: key, updated_at: new Date().toISOString() } }, { upsert: true });
+    res.json({ ok: true, preview: `...${key.slice(-4)}` });
+});
+app.get('/api/settings/17track-config', async (req, res) => {
+    const user = req.currentUser;
+    if (user?.role !== adminRole)
+        return res.status(403).json({ error: 'Admin only' });
+    const db = req.db;
+    const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
+    if (envKey)
+        return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
+    const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
+    const dbKey = stored?.key_value;
+    if (dbKey)
+        return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
+    res.json({ configured: false, source: null, preview: null });
+});
+app.post('/api/settings/17track-config', async (req, res) => {
+    const user = req.currentUser;
+    if (user?.role !== adminRole)
+        return res.status(403).json({ error: 'Admin only' });
+    const db = req.db;
+    const key = String((req.body || {}).api_key || '').trim();
+    if (!key || key.length < 10)
+        return res.status(400).json({ error: 'Invalid API key' });
+    await db.collection('api_keys').updateOne({ key_name: '17track' }, { $set: { key_name: '17track', key_value: key, updated_at: new Date().toISOString() } }, { upsert: true });
     res.json({ ok: true, preview: `...${key.slice(-4)}` });
 });
 function safeParseJson(text) {
@@ -1525,23 +1588,30 @@ app.post('/api/ai/track-summary', async (req, res) => {
     if (!record)
         return res.status(404).json({ error: 'Record not found' });
     const carrier = resolveShippoCarrier(courier);
-    const apiKey = await getShippoApiKey(db);
+    const trackApiKey17 = await get17trackApiKey(db);
+    const shippoKey = await getShippoApiKey(db);
     try {
         let status = 'UNKNOWN';
         let history = '[]';
-        if (apiKey) {
+        if (trackApiKey17) {
+            const result = await fetch17trackData(trackApiKey17, waybill);
+            status = result.status;
+            history = result.history;
+        }
+        else if (shippoKey) {
             const trackRes = await fetch('https://api.goshippo.com/tracks/', {
                 method: 'POST',
-                headers: { 'Authorization': `ShippoToken ${apiKey}`, 'Content-Type': 'application/json' },
+                headers: { 'Authorization': `ShippoToken ${shippoKey}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ carrier: carrier || courier, tracking_number: waybill })
             });
             const trackData = await trackRes.json();
             status = trackData?.tracking_status?.status || 'UNKNOWN';
             history = JSON.stringify(trackData?.tracking_history?.slice(0, 10) || []);
         }
-        const system = apiKey
-            ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences.'
-            : 'You are a logistics assistant. The live tracking API is not configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
+        const hasLiveData = Boolean(trackApiKey17 || shippoKey);
+        const system = hasLiveData
+            ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences. Mention the current status and latest location if available.'
+            : 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
         const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}\nStatus: ${status}\nHistory: ${history}`, 256);
         const now = new Date().toISOString();
         const noteDoc = {

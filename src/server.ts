@@ -172,8 +172,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
       "script-src 'self' https://unpkg.com https://cdn.tailwindcss.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src https://fonts.gstatic.com",
-      "img-src 'self' data:",
+      "img-src 'self' data: blob:",
       "connect-src 'self'",
+      "worker-src 'self' blob:",
+      "frame-src 'self'",
       "frame-ancestors 'none'"
     ].join('; '));
   }
