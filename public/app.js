@@ -9412,13 +9412,6 @@ async function ensurePdfJs() {
         if (mod?.GlobalWorkerOptions) {
           const workerUrl = new URL("/vendor/pdfjs/pdf.worker.min.mjs", window.location.href).toString();
           mod.GlobalWorkerOptions.workerSrc = workerUrl;
-          try {
-            mod.GlobalWorkerOptions.workerPort = new Worker(workerUrl, { type: "module" });
-          } catch (err) {
-            console.warn("PDF worker setup failed, falling back to workerSrc only", err);
-            mod.GlobalWorkerOptions.workerSrc = workerUrl;
-            mod.GlobalWorkerOptions.disableWorker = true;
-          }
         }
         return mod;
       })
