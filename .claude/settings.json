@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(docker cp:*)",
-      "Bash(docker exec:*)"
+      "Bash(docker exec:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

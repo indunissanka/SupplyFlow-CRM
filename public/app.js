@@ -697,6 +697,7 @@ let currentAccessList = [];
 let currentAuthToken = "";
 let salesContentItems = [];
 let navItems = [];
+let _aiPanelInitialized = false;
 let navToggleButton = null;
 let navDrawer = null;
 let navBackdrop = null;
@@ -876,6 +877,13 @@ function showAppShell() {
   appShell?.classList.remove("hidden");
   updateUserDisplay();
   applyRoleRestrictions();
+  if (!_aiPanelInitialized) {
+    _aiPanelInitialized = true;
+    setTimeout(() => {
+      initAiQaPanel();
+      initGlobalSearch();
+    }, 0);
+  }
 }
 
 function showLoginScreen() {
@@ -12682,8 +12690,74 @@ function openAiTrackSummarizeModal(record, parentOverlay) {
   });
 }
 
-// Feature 5: Data Q&A Floating Panel
+// Feature 5: Data Q&A Floating Panel (multi-turn + rich results)
+const AI_QUICK_CHIPS = [
+  { label: "Overdue invoices", q: "Show me overdue invoices" },
+  { label: "Recent orders", q: "Show my most recent orders" },
+  { label: "Draft quotes", q: "Show draft quotations" },
+  { label: "Open tasks", q: "Show open tasks" },
+  { label: "Recent notes", q: "Show my latest notes" },
+];
+
+const AI_COLLECTION_LABELS = {
+  companies: "Company", contacts: "Contact", products: "Product",
+  quotations: "Quote", invoices: "Invoice", orders: "Order",
+  tasks: "Task", notes: "Note", documents: "Document", tags: "Tag"
+};
+
+function aiGetRecordTitle(collection, row) {
+  switch (collection) {
+    case "companies": return row.name || row.company_code || "Company";
+    case "contacts": return `${row.first_name || ""} ${row.last_name || ""}`.trim() || row.email || "Contact";
+    case "products": return row.name || row.sku || "Product";
+    case "orders": return row.reference || `Order #${row.id || ""}`;
+    case "quotations": return row.reference || row.title || `Quote #${row.id || ""}`;
+    case "invoices": return row.reference || `Invoice #${row.id || ""}`;
+    case "tasks": return row.title || "Task";
+    case "notes": return (row.body || "Note").slice(0, 60);
+    case "documents": return row.title || row.original_name || "Document";
+    default: return row.name || row.title || row.reference || String(row.id || "");
+  }
+}
+
+function aiGetRecordMeta(collection, row) {
+  const parts = [];
+  if (row.company_name) parts.push(row.company_name);
+  if (collection === "invoices" || collection === "quotations") {
+    if (row.total_amount != null) parts.push(`${row.currency || ""} ${row.total_amount}`.trim());
+    if (row.status) parts.push(row.status);
+    if (row.due_date || row.valid_until) parts.push(row.due_date || row.valid_until);
+  } else if (collection === "orders") {
+    if (row.status) parts.push(row.status);
+    if (row.created_at) parts.push(new Date(row.created_at).toLocaleDateString());
+  } else if (collection === "tasks") {
+    if (row.status) parts.push(row.status);
+    if (row.due_date) parts.push(`Due: ${row.due_date}`);
+  } else if (collection === "contacts") {
+    if (row.email) parts.push(row.email);
+  } else if (collection === "notes") {
+    if (row.note_date) parts.push(row.note_date);
+  }
+  return parts.join(" · ");
+}
+
+async function aiNavigateToRecord(collection, row) {
+  const sectionMap = {
+    companies: "companies", contacts: "contacts", products: "products",
+    quotations: "quotations", invoices: "invoices", orders: "orders",
+    tasks: "tasks", notes: "notes", documents: "documents", tags: "tags"
+  };
+  const section = sectionMap[collection];
+  if (!section || !row.id) return;
+  setActiveNav(section);
+  await renderSection(section);
+  setTimeout(() => openPreviewModal(collection, row), 400);
+}
+
 function initAiQaPanel() {
+  let _chatHistory = [];
+  let _expanded = false;
+
   const fab = document.createElement("button");
   fab.className = "ai-fab";
   fab.title = "Ask AI about your data";
@@ -12695,25 +12769,49 @@ function initAiQaPanel() {
   panel.style.display = "none";
   panel.innerHTML = `
     <div class="ai-panel-header">
-      <span>&#9889; Data Q&amp;A</span>
-      <button class="btn-close ai-panel-close" aria-label="Close">&times;</button>
+      <span>&#9889; CRM Assistant</span>
+      <div style="display:flex;gap:4px;align-items:center">
+        <button class="btn-icon ai-panel-expand" title="Expand" aria-label="Expand">&#x2922;</button>
+        <button class="btn-icon ai-panel-clear" title="Clear chat" aria-label="Clear">&#x1F5D1;</button>
+        <button class="btn-close ai-panel-close" aria-label="Close">&times;</button>
+      </div>
     </div>
-    <div class="ai-conversation" id="ai-qa-conversation"></div>
+    <div class="ai-conversation" id="ai-qa-conversation">
+      <div class="ai-chips" id="ai-qa-chips">
+        ${AI_QUICK_CHIPS.map((c) => `<button class="ai-chip" data-q="${sanitizeText(c.q)}">${sanitizeText(c.label)}</button>`).join("")}
+      </div>
+    </div>
     <div class="ai-panel-input-row">
-      <input id="ai-qa-input" class="form-input" placeholder="Ask about your data..." autocomplete="off" style="flex:1;min-width:0" />
+      <input id="ai-qa-input" class="form-input" placeholder="Ask about your CRM data..." autocomplete="off" style="flex:1;min-width:0" />
       <button class="btn primary small" id="ai-qa-send" style="flex-shrink:0">Ask</button>
     </div>
   `;
   document.body.appendChild(panel);
 
+  const conversation = panel.querySelector("#ai-qa-conversation");
+  const input = panel.querySelector("#ai-qa-input");
+
+  // FAB toggle
   fab.addEventListener("click", () => {
     const open = panel.style.display !== "none";
     panel.style.display = open ? "none" : "flex";
-    if (!open) panel.querySelector("#ai-qa-input").focus();
+    if (!open) input.focus();
   });
   panel.querySelector(".ai-panel-close").addEventListener("click", () => { panel.style.display = "none"; });
 
-  const conversation = panel.querySelector("#ai-qa-conversation");
+  // Expand toggle
+  panel.querySelector(".ai-panel-expand").addEventListener("click", () => {
+    _expanded = !_expanded;
+    panel.classList.toggle("ai-panel-expanded", _expanded);
+    panel.querySelector(".ai-panel-expand").innerHTML = _expanded ? "&#x2923;" : "&#x2922;";
+  });
+
+  // Clear chat
+  panel.querySelector(".ai-panel-clear").addEventListener("click", () => {
+    _chatHistory = [];
+    conversation.innerHTML = `<div class="ai-chips" id="ai-qa-chips">${AI_QUICK_CHIPS.map((c) => `<button class="ai-chip" data-q="${sanitizeText(c.q)}">${sanitizeText(c.label)}</button>`).join("")}</div>`;
+    attachChipListeners();
+  });
 
   const appendBubble = (text, type) => {
     const el = document.createElement("div");
@@ -12721,39 +12819,229 @@ function initAiQaPanel() {
     el.textContent = text;
     conversation.appendChild(el);
     conversation.scrollTop = conversation.scrollHeight;
+    return el;
   };
 
-  const sendQuestion = async () => {
-    const input = panel.querySelector("#ai-qa-input");
-    const question = input.value.trim();
-    if (!question) return;
-    input.value = "";
-    appendBubble(question, "user");
-    const thinking = document.createElement("div");
-    thinking.className = "ai-bubble-ai";
-    thinking.textContent = "Thinking...";
-    conversation.appendChild(thinking);
+  const appendResultCards = (results) => {
+    if (!results || !results.length) return;
+    const wrap = document.createElement("div");
+    wrap.className = "ai-results-wrap";
+    results.forEach(({ collection, rows }) => {
+      if (!rows || !rows.length) return;
+      const label = AI_COLLECTION_LABELS[collection] || collection;
+      const header = document.createElement("div");
+      header.className = "ai-results-label";
+      header.textContent = `${label}s (${rows.length})`;
+      wrap.appendChild(header);
+      rows.forEach((row) => {
+        const card = document.createElement("button");
+        card.className = "ai-result-card";
+        card.type = "button";
+        const title = sanitizeText(aiGetRecordTitle(collection, row));
+        const meta = sanitizeText(aiGetRecordMeta(collection, row));
+        card.innerHTML = `<span class="ai-card-title">${title}</span>${meta ? `<span class="ai-card-meta">${meta}</span>` : ""}`;
+        card.addEventListener("click", () => {
+          panel.style.display = "none";
+          aiNavigateToRecord(collection, row);
+        });
+        wrap.appendChild(card);
+      });
+    });
+    conversation.appendChild(wrap);
     conversation.scrollTop = conversation.scrollHeight;
+  };
+
+  const sendQuestion = async (question) => {
+    if (!question) {
+      question = input.value.trim();
+      if (!question) return;
+    }
+    input.value = "";
+
+    // Hide chips after first message
+    const chips = conversation.querySelector(".ai-chips");
+    if (chips) chips.remove();
+
+    appendBubble(question, "user");
+    const thinking = appendBubble("Thinking...", "ai");
+
     try {
-      const data = await aiPost("/api/ai/query", { question });
-      thinking.textContent = data.answer || "No answer.";
+      const data = await aiPost("/api/ai/query", { question, history: _chatHistory });
+      const answer = data.answer || "No answer.";
+      thinking.textContent = answer;
+
+      // Update history
+      _chatHistory.push({ role: "user", content: question });
+      _chatHistory.push({ role: "assistant", content: answer });
+      if (_chatHistory.length > 12) _chatHistory = _chatHistory.slice(-12);
+
+      appendResultCards(data.results);
     } catch (err) {
       thinking.textContent = "Error: " + err.message;
     }
   };
 
-  panel.querySelector("#ai-qa-send").addEventListener("click", sendQuestion);
-  panel.querySelector("#ai-qa-input").addEventListener("keydown", (e) => { if (e.key === "Enter") sendQuestion(); });
+  const attachChipListeners = () => {
+    conversation.querySelectorAll(".ai-chip").forEach((chip) => {
+      chip.addEventListener("click", () => sendQuestion(chip.dataset.q));
+    });
+  };
+
+  attachChipListeners();
+  panel.querySelector("#ai-qa-send").addEventListener("click", () => sendQuestion());
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") sendQuestion(); });
 }
 
-const _origShowAppShell = showAppShell;
-let _aiPanelInitialized = false;
-window.showAppShell = function() {
-  _origShowAppShell();
-  if (!_aiPanelInitialized) {
-    _aiPanelInitialized = true;
-    initAiQaPanel();
+// ── Global Spotlight Search ────────────────────────────────────────────────────
+
+function initGlobalSearch() {
+  const overlay = document.getElementById("global-search-overlay");
+  const input   = document.getElementById("global-search-input");
+  const resultsEl = document.getElementById("global-search-results");
+  const btn     = document.getElementById("global-search-btn");
+
+  if (!overlay || !input || !resultsEl) return;
+
+  let _focusedIndex = -1;
+  let _searchTimer = null;
+  let _searchAbort = null;
+  let _currentRows = []; // flat list of { table, record } for keyboard nav
+
+  function openGlobalSearch() {
+    overlay.classList.remove("hidden");
+    input.value = "";
+    resultsEl.innerHTML = "";
+    _focusedIndex = -1;
+    _currentRows = [];
+    input.focus();
+    lucide?.createIcons({ context: overlay });
   }
-};
+
+  function closeGlobalSearch() {
+    overlay.classList.add("hidden");
+    _currentRows = [];
+  }
+
+  function moveFocus(dir) {
+    const rows = resultsEl.querySelectorAll(".global-search-row");
+    if (!rows.length) return;
+    rows[_focusedIndex]?.classList.remove("focused");
+    _focusedIndex = Math.max(0, Math.min(rows.length - 1, _focusedIndex + dir));
+    const target = rows[_focusedIndex];
+    if (target) { target.classList.add("focused"); target.scrollIntoView({ block: "nearest" }); }
+  }
+
+  function activateFocused() {
+    const rows = resultsEl.querySelectorAll(".global-search-row");
+    const focused = rows[_focusedIndex];
+    if (focused) { focused.click(); return; }
+    if (rows.length) rows[0].click();
+  }
+
+  function highlightMatch(text, q) {
+    const safe = sanitizeText(String(text || ""));
+    if (!q) return safe;
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return safe.replace(new RegExp(`(${escaped})`, "gi"), "<mark>$1</mark>");
+  }
+
+  function renderGlobalResults(results, q) {
+    _currentRows = results;
+    _focusedIndex = -1;
+
+    if (!results.length) {
+      resultsEl.innerHTML = q
+        ? `<div class="global-search-empty">No results for "<strong>${sanitizeText(q)}</strong>"</div>`
+        : "";
+      return;
+    }
+
+    // Group by table
+    const groups = {};
+    const groupOrder = [];
+    results.forEach(({ table, record }) => {
+      if (!groups[table]) { groups[table] = []; groupOrder.push(table); }
+      groups[table].push(record);
+    });
+
+    let rowIndex = 0;
+    const html = groupOrder.map((table) => {
+      const recs = groups[table];
+      const labelObj = dashboardSearchTypeLabels[table] || { fallback: table };
+      const groupLabel = sanitizeText(labelObj.fallback);
+      const rowsHtml = recs.map((rec) => {
+        const title = highlightMatch(getSearchResultTitle(table, rec), q);
+        const meta  = sanitizeText(String(getSearchResultMeta(table, rec) || ""));
+        const id    = sanitizeText(String(rec.id || rec._id || ""));
+        rowIndex++;
+        return `<button class="global-search-row" data-gs-table="${sanitizeText(table)}" data-gs-id="${id}">
+          <div class="global-search-row-title">${title}</div>
+          ${meta ? `<div class="global-search-row-meta">${meta}</div>` : ""}
+        </button>`;
+      }).join("");
+      return `<div class="global-search-group-label">${groupLabel} (${recs.length})</div>${rowsHtml}`;
+    }).join("");
+
+    resultsEl.innerHTML = html;
+  }
+
+  async function runGlobalSearch() {
+    const q = input.value.trim();
+    if (q.length < 2) { renderGlobalResults([], q); return; }
+    if (_searchAbort) _searchAbort.abort();
+    _searchAbort = new AbortController();
+    resultsEl.innerHTML = `<div class="global-search-empty">Searching…</div>`;
+    try {
+      const res = await apiFetch(`/api/search?q=${encodeURIComponent(q)}`, { signal: _searchAbort.signal });
+      const data = await res.json().catch(() => ({}));
+      renderGlobalResults(Array.isArray(data.results) ? data.results : [], q);
+    } catch (err) {
+      if (err?.name === "AbortError") return;
+      resultsEl.innerHTML = `<div class="global-search-empty">Search failed. Try again.</div>`;
+    }
+  }
+
+  function globalSearchOpen(table, id) {
+    const rowData = _currentRows.find(r => r.table === table && (r.record?.id === id || String(r.record?._id) === id));
+    const rec = rowData?.record || null;
+    closeGlobalSearch();
+    const section = dashboardSearchSectionMap[table] || table;
+    setActiveNav(section);
+    renderSection(section);
+    if (rec) {
+      setTimeout(() => {
+        openPreviewModal(table, rec).catch(console.error);
+      }, 400);
+    }
+  }
+
+  // Event listeners
+  btn?.addEventListener("click", openGlobalSearch);
+
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeGlobalSearch(); });
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "k") { e.preventDefault(); openGlobalSearch(); return; }
+    if (!overlay.classList.contains("hidden")) {
+      if (e.key === "Escape") { e.preventDefault(); closeGlobalSearch(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); moveFocus(1); }
+      else if (e.key === "ArrowUp")   { e.preventDefault(); moveFocus(-1); }
+      else if (e.key === "Enter")     { e.preventDefault(); activateFocused(); }
+    }
+  });
+
+  input.addEventListener("input", () => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(runGlobalSearch, 250);
+  });
+
+  resultsEl.addEventListener("click", (e) => {
+    const row = e.target.closest(".global-search-row");
+    if (!row) return;
+    const table = row.dataset.gsTable;
+    const id    = row.dataset.gsId;
+    globalSearchOpen(table, id);
+  });
+}
 
 lucide?.createIcons();

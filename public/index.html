@@ -159,6 +159,9 @@
         <h1 id="section-title">Dashboard</h1>
         <div class="topbar-meta">
           <div class="chip">MongoDB · Node.js</div>
+          <button id="global-search-btn" class="btn ghost small topbar-search-btn" title="Search (Ctrl+K)" aria-label="Search">
+            <i data-lucide="search"></i>
+          </button>
           <div class="language-switcher">
             <select id="topbar-language-switcher" class="language-select" data-language-switcher aria-label="Language">
               <option value="en">English</option>
@@ -195,6 +198,21 @@
         </button>
       </nav>
     </main>
+  </div>
+  <div id="global-search-overlay" class="global-search-overlay hidden" role="dialog" aria-modal="true" aria-label="Global search">
+    <div class="global-search-box">
+      <div class="global-search-input-wrap">
+        <i data-lucide="search" class="global-search-icon"></i>
+        <input id="global-search-input" type="search" placeholder="Search companies, orders, invoices…" autocomplete="off" />
+        <kbd class="global-search-esc">Esc</kbd>
+      </div>
+      <div id="global-search-results" class="global-search-results"></div>
+      <div class="global-search-footer">
+        <span><kbd>↑↓</kbd> navigate</span>
+        <span><kbd>↵</kbd> open</span>
+        <span><kbd>Esc</kbd> close</span>
+      </div>
+    </div>
   </div>
   <script src="https://unpkg.com/lucide@0.561.0/dist/umd/lucide.js"></script>
   <script src="/vendor/jszip.min.js"></script>

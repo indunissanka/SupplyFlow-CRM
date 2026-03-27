@@ -504,11 +504,19 @@ app.get('/api/search', async (req: Request, res: Response) => {
 
   const regex = { $regex: q, $options: 'i' };
   const searchTables: Record<string, any[]> = {
-    companies: [{ name: regex }, { country: regex }],
-    contacts: [{ first_name: regex }, { last_name: regex }, { email: regex }],
-    products: [{ name: regex }, { sku: regex }],
-    orders: [{ order_number: regex }, { status: regex }],
-    tasks: [{ title: regex }]
+    companies:          [{ name: regex }, { country: regex }, { city: regex }, { email: regex }, { phone: regex }],
+    contacts:           [{ first_name: regex }, { last_name: regex }, { email: regex }, { phone: regex }, { company: regex }],
+    products:           [{ name: regex }, { sku: regex }, { description: regex }, { category: regex }],
+    orders:             [{ order_number: regex }, { status: regex }, { company_name: regex }, { notes: regex }],
+    quotations:         [{ quotation_number: regex }, { status: regex }, { company_name: regex }, { notes: regex }],
+    invoices:           [{ invoice_number: regex }, { status: regex }, { company_name: regex }],
+    documents:          [{ name: regex }, { doc_type: regex }, { notes: regex }],
+    shipping_schedules: [{ reference: regex }, { status: regex }, { carrier: regex }, { destination: regex }],
+    sample_shipments:   [{ reference: regex }, { status: regex }, { company_name: regex }],
+    tasks:              [{ title: regex }, { description: regex }, { assigned_to: regex }],
+    notes:              [{ title: regex }, { body: regex }],
+    tags:               [{ name: regex }],
+    doc_types:          [{ name: regex }],
   };
 
   try {
@@ -516,8 +524,8 @@ app.get('/api/search', async (req: Request, res: Response) => {
     await Promise.all(Object.entries(searchTables).map(async ([table, orClauses]) => {
       const docs = await db.collection(table)
         .find({ owner_email: ownerEmail, $or: orClauses })
-        .limit(5).toArray();
-      docs.forEach((d) => results.push({ table, ...serializeDoc(d) }));
+        .limit(8).toArray();
+      docs.forEach((d) => results.push({ table, record: serializeDoc(d) }));
     }));
     res.json({ results });
   } catch (err) {
@@ -1347,49 +1355,100 @@ Today is ${todayStr}. Limit to 10 tasks.`;
   }
 });
 
-// Feature 5: Data Q&A
+// Feature 5: Data Q&A (multi-turn + multi-collection)
 const aiAllowedCollections = new Set(['companies', 'contacts', 'products', 'quotations', 'invoices', 'orders', 'tasks', 'notes', 'documents', 'tags']);
+
+interface QueryPlan {
+  collection: string;
+  match: Record<string, any>;
+  group_by?: string | null;
+  count_only?: boolean;
+  sort_field?: string | null;
+  sort_dir?: number;
+  limit?: number;
+}
+
+async function runQueryPlan(db: Db, plan: QueryPlan, ownerEmail: string): Promise<any[]> {
+  const matchStage: any = { ...(plan.match || {}), owner_email: ownerEmail };
+  const pipeline: any[] = [{ $match: matchStage }];
+  if (plan.group_by) {
+    pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
+    pipeline.push({ $sort: { count: -1 } });
+  } else if (plan.count_only) {
+    pipeline.push({ $count: 'total' });
+  } else {
+    const sf = plan.sort_field || 'created_at';
+    pipeline.push({ $sort: { [sf]: plan.sort_dir === 1 ? 1 : -1 } });
+  }
+  pipeline.push({ $limit: Math.min(plan.limit || 10, 15) });
+  return db.collection(plan.collection).aggregate(pipeline).toArray();
+}
 
 app.post('/api/ai/query', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
   const db: Db = (req as any).db;
   if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
-  const { question } = req.body || {};
+
+  const { question, history } = req.body || {};
   if (!question) return res.status(400).json({ error: 'question is required' });
 
+  // Validate history shape
+  const safeHistory: Array<{ role: string; content: string }> = Array.isArray(history)
+    ? history.slice(-6).filter((m: any) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    : [];
+
   const planSystem = `You are a CRM database query planner. Available collections: companies, contacts, products, quotations, invoices, orders, tasks, notes, documents, tags.
-Given a question, return JSON only: {"collection":"...","match":{},"group_by":null,"count_only":false,"sort_field":null,"sort_dir":-1,"limit":10}
-match can contain filter fields (not owner_email, it's added server-side). Use ISO date strings.`;
+Given a question (with optional conversation history for context), return a JSON array of 1-3 query plans. Each plan:
+{"collection":"...","match":{},"group_by":null,"count_only":false,"sort_field":null,"sort_dir":-1,"limit":10}
+Rules:
+- Only use allowed collections
+- Do NOT include owner_email in match (added server-side)
+- Use ISO date strings for dates
+- Return JSON array ONLY, no extra text
+- If question is conversational (no data needed), return []`;
 
   try {
-    const planRaw = await callClaude(db, planSystem, question, 256);
-    const plan = safeParseJson(planRaw);
+    const historyMessages = safeHistory.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const client = await getAnthropicClient(db);
+    if (!client) return res.status(501).json({ error: 'AI features not configured' });
 
-    if (!aiAllowedCollections.has(plan.collection)) {
-      return res.status(400).json({ error: 'Collection not allowed' });
-    }
+    const planMsg = await client.messages.create({
+      model: AI_MODEL,
+      max_tokens: 512,
+      system: planSystem,
+      messages: [...historyMessages, { role: 'user', content: question }]
+    });
+    const planRaw = planMsg.content[0]?.type === 'text' ? planMsg.content[0].text : '[]';
+    let plans: QueryPlan[] = [];
+    try {
+      const parsed = safeParseJson(planRaw);
+      plans = Array.isArray(parsed) ? parsed : [parsed];
+    } catch { plans = []; }
 
-    const matchStage: any = { ...plan.match, owner_email: ownerEmail };
-    const pipeline: any[] = [{ $match: matchStage }];
+    // Filter to allowed collections only
+    plans = plans.filter((p) => p && aiAllowedCollections.has(p.collection));
 
-    if (plan.group_by) {
-      pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
-      pipeline.push({ $sort: { count: -1 } });
-    } else if (plan.count_only) {
-      pipeline.push({ $count: 'total' });
-    } else {
-      const sf = plan.sort_field || 'created_at';
-      pipeline.push({ $sort: { [sf]: plan.sort_dir === 1 ? 1 : -1 } });
-    }
-    pipeline.push({ $limit: Math.min(plan.limit || 10, 50) });
+    // Run all queries in parallel, cap total at 30
+    const queryResults = await Promise.all(plans.map((p) => runQueryPlan(db, p, ownerEmail).catch(() => [])));
+    const results: Array<{ collection: string; rows: any[] }> = plans.map((p, i) => ({
+      collection: p.collection,
+      rows: (queryResults[i] || []).map(serializeDoc)
+    })).filter((r) => r.rows.length > 0);
 
-    const rawResult = await db.collection(plan.collection).aggregate(pipeline).toArray();
+    // Generate answer with full context
+    const answerSystem = `You are a CRM assistant. Answer the user's question based on the query results. Be clear and concise (2-4 sentences). If no results were found, say so.`;
+    const allRows = results.flatMap((r) => r.rows.map((row) => ({ ...row, _collection: r.collection })));
+    const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 30))}`;
 
-    const answerSystem = 'You are a CRM assistant. Given a question and query results, write a clear, concise plain-English answer in 1-3 sentences.';
-    const answerInput = `Question: ${question}\nResults: ${JSON.stringify(rawResult.map(serializeDoc))}`;
-    const answer = await callClaude(db, answerSystem, answerInput, 256);
+    const answerMsg = await client.messages.create({
+      model: AI_MODEL,
+      max_tokens: 384,
+      system: answerSystem,
+      messages: [...historyMessages, { role: 'user', content: answerInput }]
+    });
+    const answer = answerMsg.content[0]?.type === 'text' ? answerMsg.content[0].text : 'No answer.';
 
-    res.json({ answer, raw: rawResult.map(serializeDoc) });
+    res.json({ answer, results });
   } catch (err: any) {
     console.error('AI query error', err);
     res.status(500).json({ error: err.message || 'AI error' });
