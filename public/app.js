@@ -2288,12 +2288,7 @@ function isCompactViewport() {
 
 function syncNavDrawerState(isOpen) {
   navDrawerOpen = isOpen;
-  const isCompact = isCompactViewport();
-  if (isCompact) {
-    document.body.classList.toggle("nav-open", isOpen);
-  } else {
-    document.body.classList.remove("nav-open");
-  }
+  document.body.classList.toggle("nav-open", isOpen);
   if (navToggleButton) {
     navToggleButton.setAttribute("aria-expanded", isOpen ? "true" : "false");
     navToggleButton.setAttribute(
@@ -2304,16 +2299,14 @@ function syncNavDrawerState(isOpen) {
     );
   }
   if (navDrawer) {
-    navDrawer.setAttribute("aria-hidden", isCompact ? (isOpen ? "false" : "true") : "false");
+    navDrawer.setAttribute("aria-hidden", isOpen ? "false" : "true");
   }
   if (navBackdrop) {
-    navBackdrop.hidden = !(isOpen && isCompact);
+    navBackdrop.hidden = !isOpen;
   }
 }
 
 function openNavDrawer() {
-  const isCompact = isCompactViewport();
-  if (!isCompact) return;
   if (navDrawerOpen) return;
   navLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   syncNavDrawerState(true);
@@ -2333,8 +2326,6 @@ function closeNavDrawer() {
 }
 
 function toggleNavDrawer() {
-  const isCompact = isCompactViewport();
-  if (!isCompact) return;
   if (navDrawerOpen) {
     closeNavDrawer();
   } else {

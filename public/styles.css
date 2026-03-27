@@ -221,10 +221,7 @@ button {
   z-index: 15;
 }
 
-body.nav-open .drawer-backdrop {
-  opacity: 1;
-  pointer-events: auto;
-}
+/* moved inside mobile media query below */
 
 .topbar h1 {
   margin: 0;
@@ -3658,3 +3655,42 @@ body.salesperson-mode .sales-empty {
   text-align: center;
 }
 .topbar-search-btn { margin-right: 4px; }
+
+@media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+  /* Collapse grid — sidebar no longer a column */
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  /* Sidebar becomes a fixed off-screen drawer */
+  .sidebar {
+    position: fixed;
+    inset-block: 0;
+    left: 0;
+    width: 260px;
+    height: 100vh;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    z-index: 20;
+  }
+
+  /* Slide in when nav-open */
+  body.nav-open .sidebar {
+    transform: translateX(0);
+  }
+
+  /* Show hamburger menu toggle */
+  .nav-toggle {
+    display: flex;
+  }
+
+  .nav-toggle-label {
+    display: inline;
+  }
+
+  /* Backdrop only activates on mobile */
+  body.nav-open .drawer-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
