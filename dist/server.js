@@ -1103,7 +1103,7 @@ app.post('/api/upload', _upload.array('file', 20), async (req, res) => {
                 doc_type_id: toId(rawDocTypeId),
                 content_type: contentType || file.mimetype,
                 storage_key: storageKey,
-                file_url: `/api/files/${file.filename}`,
+                file_url: `/api/files/${storageKey}`,
                 file_size: file.size,
                 original_name: file.originalname,
                 tags: tags.length ? tags : undefined,
@@ -1112,7 +1112,7 @@ app.post('/api/upload', _upload.array('file', 20), async (req, res) => {
                 updated_at: now
             });
             await db.collection('documents').insertOne(doc);
-            results.push({ key: storageKey, url: `/api/files/${file.filename}`, size: file.size, mime: file.mimetype });
+            results.push({ key: storageKey, url: `/api/files/${storageKey}`, size: file.size, mime: file.mimetype });
         }
         res.json({ uploaded: results.length, files: results });
     }
