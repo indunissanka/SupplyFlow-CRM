@@ -1851,15 +1851,10 @@ const formConfigs = {
     fields: [
       { name: "order_title", label: "Order Title", placeholder: "e.g. Q1 Supply" },
       { name: "currency", label: "Currency", placeholder: "USD" },
-      {
-        name: "status",
-        label: "Status",
-        type: "select",
-        options: ["Pending", "In Progress", "Factory exit", "Dispatched", "Cut Off", "Shipped", "Delivered", "Completed"]
-      },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact --"] },
       { name: "quotation_id", label: "Quotation (optional)", type: "select", options: ["-- Select quotation --"] },
+      { name: "shipping_schedule_id", label: "Shipping Schedule (optional)", type: "select", options: ["-- Link a shipping schedule --"] },
       { name: "invoice_links", label: "Link existing invoices (optional)", type: "select", multiple: true, options: [] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] }
     ],
@@ -1875,7 +1870,7 @@ const formConfigs = {
         company_id: safeId(values.company_id),
         contact_id: safeId(values.contact_id),
         quotation_id: safeId(values.quotation_id),
-        status: values.status || "Pending",
+        shipping_schedule_id: safeId(values.shipping_schedule_id),
         currency: values.currency || "USD",
         reference: orderTitle || undefined,
         tags: values.tags,
@@ -1894,9 +1889,9 @@ const formConfigs = {
         company_id: safeId(values.company_id),
         contact_id: safeId(values.contact_id),
         quotation_id: safeId(values.quotation_id),
+        shipping_schedule_id: safeId(values.shipping_schedule_id),
         total_amount: 0,
         currency: values.currency || "USD",
-        status: values.status || "Pending",
         reference: orderTitle || values.reference || undefined,
         tags: values.tags,
         invoice_ids: invoiceLinks
@@ -4177,8 +4172,9 @@ async function renderOrders() {
   };
 
   const rows = orders.map((r) => {
-    const status = r?.status || "";
-    const tone = status.includes("Progress") ? "success" : status.includes("Completed") ? "info" : "warning";
+    const status = r?.status || "Pending";
+    const orderToneMap = { "Delivered":"success","Arrived":"success","Shipped":"teal","Cargo Closing":"orange","Booking Confirmed":"purple","In Production":"info","Pending":"warning","In Progress":"success","Completed":"info" };
+    const tone = orderToneMap[status] || "warning";
     const { total, currency } = resolveOrderTotal(r);
     return [
       r?.reference || "-",
@@ -5682,7 +5678,6 @@ async function renderSettings() {
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
-          ${canManageUsers ? `<button class="tab" data-tab="shippo-config">Shippo Configuration</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="17track-config">17track Configuration</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
@@ -5932,37 +5927,6 @@ async function renderSettings() {
             </div>
           </div>
         </div>
-        <div class="tab-content" id="shippo-config">
-          <div class="panel">
-            <div class="panel-header">
-              <h3 class="panel-title panel-title-icon">
-                <i data-lucide="truck"></i>
-                Shippo Configuration
-              </h3>
-              <div class="stat-label">Enter your Shippo API token to enable live shipment tracking.</div>
-            </div>
-            <div style="padding:20px 0 8px">
-              <div style="margin-bottom:16px">
-                <div class="stat-label" style="margin-bottom:4px">Status</div>
-                <div id="shippo-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
-                  <span style="color:var(--text-muted)">Loading...</span>
-                </div>
-              </div>
-              <div style="margin-bottom:16px">
-                <label class="form-label" for="shippo-config-key-input">Shippo API Token</label>
-                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-                  <input id="shippo-config-key-input" type="password" class="form-input" placeholder="shippo_live_..." autocomplete="off" style="flex:1;min-width:0" />
-                  <button class="btn ghost small" id="shippo-config-toggle-vis" type="button" title="Show/hide key">
-                    <i data-lucide="eye"></i>
-                  </button>
-                  <button class="btn primary" id="shippo-config-save-btn" type="button">Save</button>
-                  <button class="btn ghost" id="shippo-config-toggle-btn" type="button" style="min-width:90px">Loading...</button>
-                </div>
-              </div>
-              <p class="stat-label">Get your token at <strong>goshippo.com/api</strong> &mdash; takes effect immediately without restarting.</p>
-            </div>
-          </div>
-        </div>
         <div class="tab-content" id="17track-config">
           <div class="panel">
             <div class="panel-header">
@@ -5994,7 +5958,7 @@ async function renderSettings() {
                 </div>
               </div>
               <div id="17track-diagnose-result" style="display:none;margin-bottom:16px;border-radius:10px;border:1px solid var(--border);overflow:hidden;font-size:13px;"></div>
-              <p class="stat-label">Get a free API key at <strong>17track.net/en/service/api</strong> (free tier: 100 tracks/month). When configured, 17track takes priority over Shippo for live tracking.</p>
+              <p class="stat-label">Get a free API key at <strong>17track.net/en/service/api</strong> (free tier: 100 tracks/month). When configured, 17track provides live tracking for all supported carriers.</p>
             </div>
           </div>
         </div>
@@ -6100,88 +6064,6 @@ async function renderSettings() {
 
     // Also trigger status load when tab is clicked
     document.querySelector("[data-tab='ai-config']")?.addEventListener("click", loadAiStatus);
-
-    // Shippo Config tab handlers
-    const shippoStatusEl = document.getElementById("shippo-config-status");
-    const shippoKeyInput = document.getElementById("shippo-config-key-input");
-    const shippoSaveBtn  = document.getElementById("shippo-config-save-btn");
-    const shippoToggleVis = document.getElementById("shippo-config-toggle-vis");
-    const shippoToggleBtn = document.getElementById("shippo-config-toggle-btn");
-
-    const loadShippoStatus = async () => {
-      if (!shippoStatusEl) return;
-      try {
-        const res = await apiFetch("/api/settings/shippo-config");
-        const data = await res.json();
-        const isEnabled = data.enabled !== false;
-        if (shippoToggleBtn) {
-          shippoToggleBtn.textContent = isEnabled ? "Disable" : "Enable";
-          shippoToggleBtn.className = isEnabled ? "btn danger small" : "btn ghost small";
-          shippoToggleBtn.style.minWidth = "90px";
-          shippoToggleBtn.dataset.shippoEnabled = isEnabled ? "true" : "false";
-        }
-        if (data.configured) {
-          const src = data.source === "env" ? "environment variable" : "saved in database";
-          const enabledTag = isEnabled ? "" : ` &mdash; <span style="color:var(--danger,#dc2626)">Disabled</span>`;
-          shippoStatusEl.innerHTML = `<span style="color:${isEnabled ? "var(--success,#16a34a)" : "var(--danger,#dc2626)"}">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src}${enabledTag})</span>`;
-        } else {
-          shippoStatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured &mdash; live tracking unavailable</span>`;
-        }
-      } catch (_) {
-        shippoStatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
-      }
-    };
-    loadShippoStatus();
-
-    shippoToggleBtn?.addEventListener("click", async () => {
-      const currentlyEnabled = shippoToggleBtn.dataset.shippoEnabled === "true";
-      shippoToggleBtn.disabled = true;
-      shippoToggleBtn.textContent = "Saving...";
-      try {
-        const res = await apiFetch("/api/settings/shippo-toggle", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: !currentlyEnabled })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Toggle failed");
-        showToast(`Shippo ${data.enabled ? "enabled" : "disabled"}`);
-        await loadShippoStatus();
-      } catch (err) {
-        showToast("Error: " + err.message);
-      } finally {
-        shippoToggleBtn.disabled = false;
-      }
-    });
-
-    shippoToggleVis?.addEventListener("click", () => {
-      if (!shippoKeyInput) return;
-      shippoKeyInput.type = shippoKeyInput.type === "password" ? "text" : "password";
-    });
-
-    shippoSaveBtn?.addEventListener("click", async () => {
-      const key = shippoKeyInput?.value.trim() || "";
-      if (!key) { showToast("Please enter an API token"); return; }
-      shippoSaveBtn.disabled = true; shippoSaveBtn.textContent = "Saving...";
-      try {
-        const res = await apiFetch("/api/settings/shippo-config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ shippo_api_key: key })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Save failed");
-        showToast("Shippo token saved");
-        if (shippoKeyInput) shippoKeyInput.value = "";
-        await loadShippoStatus();
-      } catch (err) {
-        showToast("Error: " + err.message);
-      } finally {
-        shippoSaveBtn.disabled = false; shippoSaveBtn.textContent = "Save";
-      }
-    });
-
-    document.querySelector("[data-tab='shippo-config']")?.addEventListener("click", loadShippoStatus);
 
     // 17track Config tab handlers
     const t17StatusEl    = document.getElementById("17track-config-status");
@@ -6776,6 +6658,26 @@ async function fetchOrdersList() {
   return [];
 }
 
+async function fetchShippingSchedulesList() {
+  try {
+    const res = await apiFetch("/api/shipping_schedules");
+    if (res.ok) {
+      const data = await res.json();
+      if (Array.isArray(data.rows)) {
+        return data.rows.map(r => ({
+          id: r.id || r._id,
+          label: [
+            r.company_name,
+            r.order_reference,
+            r.etd_date ? `ETD ${r.etd_date}` : (r.eta ? `ETA ${r.eta}` : null)
+          ].filter(Boolean).join(" · ") || `Shipment #${r.id || r._id}`
+        }));
+      }
+    }
+  } catch(e) { console.debug("Fallback shipping schedules", e); }
+  return [];
+}
+
 async function fetchInvoicesList() {
   try {
     const res = await apiFetch("/api/invoices");
@@ -6796,27 +6698,6 @@ async function fetchInvoicesList() {
     }
   } catch (err) {
     console.debug("Fallback invoices", err);
-  }
-  return [];
-}
-
-async function fetchShippingSchedulesList() {
-  try {
-    const res = await apiFetch("/api/shipping_schedules");
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({
-          id: row.id,
-          order_id: row.order_id,
-          invoice_id: row.invoice_id,
-          order_reference: row.order_reference,
-          invoice_reference: row.invoice_reference
-        }));
-      }
-    }
-  } catch (err) {
-    console.debug("Fallback shipping schedules", err);
   }
   return [];
 }
@@ -6928,7 +6809,7 @@ async function syncInvoiceDocuments(invoiceId, attachmentKeys) {
   }
 }
 
-async function fetchShippoTracking(waybill, courier) {
+async function fetchLiveTracking(waybill, courier) {
   const code = (waybill || "").toString().trim();
   if (!code) {
     throw new Error("Missing waybill number");
@@ -6938,7 +6819,7 @@ async function fetchShippoTracking(waybill, courier) {
   if (carrier) {
     params.set("courier", carrier);
   }
-  const res = await apiFetch(`/api/tracking/shippo?${params.toString()}`);
+  const res = await apiFetch(`/api/tracking/live?${params.toString()}`);
   if (!res.ok) {
     const text = await res.text();
     throw new Error(text || "Tracking lookup failed");
@@ -7808,7 +7689,7 @@ async function hydrateSampleTracking(overlay, record) {
   }
 
   try {
-    const data = await fetchShippoTracking(waybill, record?.courier);
+    const data = await fetchLiveTracking(waybill, record?.courier);
     const rawStatusDetail = typeof data?.status_detail === "string" ? data.status_detail.trim() : "";
     const statusLabel = formatTrackingStatus(data?.status);
     const tone = statusToneShipping(statusLabel);
@@ -7825,13 +7706,9 @@ async function hydrateSampleTracking(overlay, record) {
     }
     const sourceEl = overlay.querySelector("[data-tracking-source]");
     if (sourceEl) {
-      if (data?.source === "17track") {
-        sourceEl.innerHTML = `<span class="badge info" style="font-size:10px;padding:2px 8px">via 17track</span>`;
-      } else if (data?.source === "shippo") {
-        sourceEl.innerHTML = `<span class="badge" style="font-size:10px;padding:2px 8px;background:#f1f5f9;color:#64748b">via Shippo</span>`;
-      } else {
-        sourceEl.innerHTML = "";
-      }
+      sourceEl.innerHTML = data?.source === "17track"
+        ? `<span class="badge info" style="font-size:10px;padding:2px 8px">via 17track</span>`
+        : "";
     }
 
     const summaryRows = [
@@ -8857,7 +8734,7 @@ function renderSampleShipmentPreview(record) {
           </div>
         </div>
         <div class="preview-grid" data-tracking-events>
-          <div class="stat-label">Fetching tracking updates from Shippo...</div>
+          <div class="stat-label">Fetching tracking updates...</div>
         </div>
       </div>
     `
@@ -10984,8 +10861,8 @@ function openForm(key, options = {}) {
     form.innerHTML = "";
 
     const metaRow = document.createElement("div");
-    metaRow.className = "order-row order-row--three";
-    ["order_title", "currency", "status"].forEach((name) => {
+    metaRow.className = "order-row order-row--two";
+    ["order_title", "currency"].forEach((name) => {
       if (labels[name]) metaRow.appendChild(labels[name]);
     });
 
@@ -10994,6 +10871,14 @@ function openForm(key, options = {}) {
     ["company_id", "contact_id"].forEach((name) => {
       if (labels[name]) partyRow.appendChild(labels[name]);
     });
+
+    const schedSection = document.createElement("div");
+    schedSection.className = "order-section";
+    if (labels.shipping_schedule_id) schedSection.appendChild(labels.shipping_schedule_id);
+    const schedHint = document.createElement("small");
+    schedHint.className = "field-hint";
+    schedHint.textContent = "Order status is automatically derived from the linked shipping schedule.";
+    schedSection.appendChild(schedHint);
 
     const quoteSection = document.createElement("div");
     quoteSection.className = "order-section";
@@ -11031,7 +10916,7 @@ function openForm(key, options = {}) {
     tagHint.textContent = "Use Ctrl/Cmd + click to assign multiple tags.";
     tagSection.appendChild(tagHint);
 
-    form.append(metaRow, partyRow, quoteSection, quoteLinesSection, invoiceSection, tagSection, actions);
+    form.append(metaRow, partyRow, schedSection, quoteSection, quoteLinesSection, invoiceSection, tagSection, actions);
 
     const orderTitleInput = overlay.querySelector('input[name="order_title"]');
     if (orderTitleInput && !orderTitleInput.value) {
@@ -11040,11 +10925,6 @@ function openForm(key, options = {}) {
 
     const currencyInput = overlay.querySelector('input[name="currency"]');
     if (currencyInput && !currencyInput.value) currencyInput.value = initialValues?.currency || "USD";
-
-    const statusSelect = overlay.querySelector('select[name="status"]');
-    if (statusSelect && initialValues?.status) {
-      statusSelect.value = initialValues.status;
-    }
 
     const companySelect = overlay.querySelector('select[name="company_id"]');
     const contactSelect = overlay.querySelector('select[name="contact_id"]');
@@ -11208,6 +11088,16 @@ function openForm(key, options = {}) {
           const opt = invoiceSelect.querySelector(`option[value="${id}"]`);
           if (opt) opt.selected = true;
         });
+      }
+    });
+    const schedSelect = form.querySelector('select[name="shipping_schedule_id"]');
+    fetchShippingSchedulesList().then(schedules => {
+      if (!schedSelect) return;
+      schedSelect.innerHTML =
+        `<option value="">-- Link a shipping schedule --</option>` +
+        schedules.map(s => `<option value="${s.id}">${sanitizeText(s.label)}</option>`).join("");
+      if (initialValues?.shipping_schedule_id) {
+        schedSelect.value = String(initialValues.shipping_schedule_id);
       }
     });
   }

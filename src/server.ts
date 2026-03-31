@@ -243,6 +243,7 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   if (!path.startsWith('/api/')) return next();
   if (path === '/api/health' || path === '/api/auth/login') return next();
   if (path.startsWith('/api/files/')) return next();
+  if (path.startsWith('/api/webhooks/')) return next();
 
   const authHeader = req.headers.authorization || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
@@ -263,6 +264,18 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   (req as any).ownerEmail = ownerEmail;
   (req as any).currentUser = user;
   next();
+});
+
+// ── Public Webhooks ───────────────────────────────────────────────────────────
+
+app.post('/api/webhooks/17track', (req: Request, res: Response) => {
+  // 17track sends a test POST to verify the URL — just return 200
+  // In production, payload contains tracking status updates
+  const payload = req.body;
+  if (payload) {
+    console.log('[webhook/17track] Received push:', JSON.stringify(payload).slice(0, 200));
+  }
+  res.json({ ok: true });
 });
 
 // ── Logout ────────────────────────────────────────────────────────────────────
@@ -785,6 +798,23 @@ const computeShippingMilestoneStatus = (doc: any): string | null => {
   return null;
 };
 
+// ── Orders: derive status from linked shipping schedule ───────────────────────
+
+async function enrichOrderWithShipping(db: Db, ownerEmail: string, order: any): Promise<any> {
+  if (!order.shipping_schedule_id) return order;
+  const oid = toMongoId(String(order.shipping_schedule_id));
+  if (!oid) return order;
+  const sched = await db.collection('shipping_schedules').findOne(
+    { _id: oid, owner_email: ownerEmail },
+    { projection: { status: 1, production_date: 1, processing_start_date: 1,
+                    booking_date: 1, cargo_closing_date: 1, etc_date: 1,
+                    etd_date: 1, eta: 1, delivery_date: 1 } }
+  );
+  if (!sched) return order;
+  const computed = computeShippingMilestoneStatus(sched) ?? (sched.status as string) ?? 'Pending';
+  return { ...order, status: computed };
+}
+
 // ── Shipping schedules: enrich with company/order/invoice names ───────────────
 
 const enrichShippingSchedule = async (db: Db, ownerEmail: string, doc: any): Promise<any> => {
@@ -1220,14 +1250,6 @@ const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 let _anthropic: Anthropic | null = null;
 let _anthropicKeySource: 'env' | 'db' | null = null;
 
-// Lazy Shippo key — env first, then DB
-async function getShippoApiKey(db: Db): Promise<string | null> {
-  const envKey = process.env.SHIPPO_API_KEY;
-  if (envKey) return envKey;
-  const stored = await db.collection('api_keys').findOne({ key_name: 'shippo' });
-  return (stored?.key_value as string) || null;
-}
-
 // Lazy 17track key — env first, then DB
 async function get17trackApiKey(db: Db): Promise<string | null> {
   const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
@@ -1237,21 +1259,27 @@ async function get17trackApiKey(db: Db): Promise<string | null> {
 }
 
 // Fetch live tracking data from 17track API
-async function fetch17trackData(apiKey: string, waybill: string): Promise<{ status: string; history: string }> {
+async function fetch17trackData(apiKey: string, waybill: string, carrierCode?: string): Promise<{ status: string; history: string }> {
+  const TIMEOUT_MS = 10000;
+  const registerPayload: any = { number: waybill };
+  if (carrierCode) registerPayload.carrier_code = carrierCode;
   // Register the waybill (idempotent — safe to call every time)
   await fetch('https://api.17track.net/track/v2.2/register', {
     method: 'POST',
     headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify([{ number: waybill }])
+    body: JSON.stringify([registerPayload]),
+    signal: AbortSignal.timeout(TIMEOUT_MS)
   });
 
   // Fetch tracking info
   const res = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
     method: 'POST',
     headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify([{ number: waybill }])
+    body: JSON.stringify([{ number: waybill }]),
+    signal: AbortSignal.timeout(TIMEOUT_MS)
   });
   const data: any = await res.json();
+  // Waybill may be in accepted or rejected depending on 17track auto-detection
   const track = data?.data?.accepted?.[0]?.track;
 
   const events = Array.isArray(track?.z1) ? track.z1.slice(0, 10) : [];
@@ -1366,34 +1394,6 @@ app.post('/api/settings/ai-config/toggle', async (req: Request, res: Response) =
   res.json({ ok: true, enabled: newEnabled });
 });
 
-app.get('/api/settings/shippo-config', async (req: Request, res: Response) => {
-  const user = (req as any).currentUser as UserRow;
-  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
-  const db: Db = (req as any).db;
-  const envKey = process.env.SHIPPO_API_KEY;
-  if (envKey) {
-    return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
-  }
-  const stored = await db.collection('api_keys').findOne({ key_name: 'shippo' });
-  const dbKey = stored?.key_value as string | null;
-  if (dbKey) return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
-  res.json({ configured: false, source: null, preview: null });
-});
-
-app.post('/api/settings/shippo-config', async (req: Request, res: Response) => {
-  const user = (req as any).currentUser as UserRow;
-  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
-  const db: Db = (req as any).db;
-  const key = String((req.body || {}).shippo_api_key || '').trim();
-  if (!key || key.length < 10) return res.status(400).json({ error: 'Invalid API key' });
-  await db.collection('api_keys').updateOne(
-    { key_name: 'shippo' },
-    { $set: { key_name: 'shippo', key_value: key, updated_at: new Date().toISOString() } },
-    { upsert: true }
-  );
-  res.json({ ok: true, preview: `...${key.slice(-4)}` });
-});
-
 app.get('/api/settings/17track-config', async (req: Request, res: Response) => {
   const user = (req as any).currentUser as UserRow;
   if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
@@ -1420,6 +1420,82 @@ app.post('/api/settings/17track-config', async (req: Request, res: Response) => 
   res.json({ ok: true, preview: `...${key.slice(-4)}` });
 });
 
+app.get('/api/settings/17track-diagnose', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
+  const db: Db = (req as any).db;
+  const apiKey = await get17trackApiKey(db);
+
+  if (!apiKey) {
+    return res.json({
+      configured: false, reachable: false, auth_valid: false,
+      key_preview: null, message: 'No API key configured',
+      register_code: null, register_accepted: null, register_rejected: null,
+      getinfo_code: null, track_status: null, track_events: null
+    });
+  }
+
+  const TEST_WAYBILL = '1234567890';
+  let reachable = false;
+  let auth_valid = false;
+  let register_code: number | null = null;
+  let register_accepted: number | null = null;
+  let register_rejected: number | null = null;
+  let getinfo_code: number | null = null;
+  let track_status: string | null = null;
+  let track_events: number | null = null;
+
+  try {
+    const regRes = await fetch('https://api.17track.net/track/v2.2/register', {
+      method: 'POST',
+      headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify([{ number: TEST_WAYBILL }])
+    });
+    reachable = true;
+    register_code = regRes.status;
+    if (regRes.status === 200) {
+      auth_valid = true;
+      const regData: any = await regRes.json();
+      register_accepted = regData?.data?.accepted?.length ?? 0;
+      register_rejected = regData?.data?.rejected?.length ?? 0;
+    }
+  } catch {
+    reachable = false;
+  }
+
+  if (auth_valid) {
+    try {
+      const infoRes = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
+        method: 'POST',
+        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify([{ number: TEST_WAYBILL }])
+      });
+      getinfo_code = infoRes.status;
+      if (infoRes.status === 200) {
+        const infoData: any = await infoRes.json();
+        const track = infoData?.data?.accepted?.[0]?.track;
+        track_status = track?.z0?.d || track?.z0?.c || 'Unknown';
+        track_events = Array.isArray(track?.z1) ? track.z1.length : 0;
+      }
+    } catch { /* ignore */ }
+  }
+
+  const ok = reachable && auth_valid;
+  res.json({
+    configured: true,
+    key_preview: `...${apiKey.slice(-4)}`,
+    reachable,
+    auth_valid,
+    message: ok ? 'All checks passed' : (!reachable ? 'Cannot reach 17track API' : 'Auth failed — check API key'),
+    register_code,
+    register_accepted,
+    register_rejected,
+    getinfo_code,
+    track_status,
+    track_events
+  });
+});
+
 function safeParseJson(text: string): any {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
   return JSON.parse(cleaned);
@@ -1438,20 +1514,19 @@ async function extractPdfText(filePath: string): Promise<string> {
   return text.slice(0, 6000);
 }
 
-const shippoCarrierMap: Record<string, string> = {
-  dhl: 'dhl_express',
-  'dhl express': 'dhl_express',
-  'dhl ecommerce': 'dhl_ecommerce',
-  fedex: 'fedex',
-  'fedex express': 'fedex',
+// Map courier name → 17track carrier_code (used to speed up auto-detection)
+const track17CarrierMap: Record<string, string> = {
+  dhl: 'dhl', 'dhl express': 'dhl', 'dhl ecommerce': 'dhlecommerce',
+  fedex: 'fedex', 'fedex express': 'fedex',
   ups: 'ups',
-  'sf express': 'sf_express',
+  'sf express': 'sfexpress', 'sf-express': 'sfexpress',
   aramex: 'aramex',
-  'royal mail': 'royal_mail'
+  'royal mail': 'royalmail',
+  tnt: 'tnt',
 };
-const resolveShippoCarrier = (value?: string | null) => {
+const resolve17trackCarrier = (value?: string | null): string | undefined => {
   const n = (value || '').trim().toLowerCase();
-  return n ? (shippoCarrierMap[n] || n) : null;
+  return n ? track17CarrierMap[n] : undefined;
 };
 
 // Feature 3: Smart Note
@@ -1528,7 +1603,7 @@ Today is ${todayStr}. Limit to 10 tasks.`;
 
 // Feature 5: Data Q&A (multi-turn + multi-collection)
 const aiAllowedCollections = new Set([
-  'companies', 'contacts', 'products',
+  'companies', 'contacts', 'products', 'pricing',
   'quotations', 'invoices', 'orders',
   'tasks', 'notes', 'documents', 'tags', 'doc_types',
   'shipping_schedules', 'sample_shipments'
@@ -1579,6 +1654,7 @@ Available collections and key searchable fields:
 - companies: name, country, city, industry, status, email, phone
 - contacts: first_name, last_name, email, company, role, phone
 - products: name, sku, category, price, status
+- pricing: product_name, company_name, unit_price, currency, min_quantity, notes
 - quotations: quotation_number, company_name, status, amount, currency, due_date, created_at
 - invoices: invoice_number, company_name, status, total_amount, currency, due_date, created_at
 - orders: order_number, company_name, status, total_amount, currency, created_at, notes
@@ -1717,9 +1793,7 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
   const record = await db.collection(collection).findOne({ _id: oid, owner_email: ownerEmail });
   if (!record) return res.status(404).json({ error: 'Record not found' });
 
-  const carrier = resolveShippoCarrier(courier);
   const trackApiKey17 = await get17trackApiKey(db);
-  const shippoKey = await getShippoApiKey(db);
 
   try {
     let status = 'UNKNOWN';
@@ -1729,18 +1803,9 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
       const result = await fetch17trackData(trackApiKey17, waybill);
       status = result.status;
       history = result.history;
-    } else if (shippoKey) {
-      const trackRes = await fetch('https://api.goshippo.com/tracks/', {
-        method: 'POST',
-        headers: { 'Authorization': `ShippoToken ${shippoKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ carrier: carrier || courier, tracking_number: waybill })
-      });
-      const trackData: any = await trackRes.json();
-      status = trackData?.tracking_status?.status || 'UNKNOWN';
-      history = JSON.stringify(trackData?.tracking_history?.slice(0, 10) || []);
     }
 
-    const hasLiveData = Boolean(trackApiKey17 || shippoKey);
+    const hasLiveData = Boolean(trackApiKey17);
     const system = hasLiveData
       ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences. Mention the current status and latest location if available.'
       : 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
@@ -1764,6 +1829,58 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
   } catch (err: any) {
     console.error('AI track-summary error', err);
     res.status(500).json({ error: err.message || 'AI error' });
+  }
+});
+
+// ── Live Tracking ─────────────────────────────────────────────────────────────
+
+app.get('/api/tracking/live', async (req: Request, res: Response) => {
+  const db: Db = (req as any).db;
+  const waybill = p(req.query.waybill as string);
+  const courier = p(req.query.courier as string);
+  if (!waybill) return res.status(400).json({ error: 'waybill is required' });
+
+  const trackApiKey17 = await get17trackApiKey(db);
+
+  if (!trackApiKey17) {
+    return res.status(501).json({ error: 'No tracking API configured' });
+  }
+
+  try {
+    const carrierCode = resolve17trackCarrier(courier);
+    let result: { status: string; history: string };
+    try {
+      result = await fetch17trackData(trackApiKey17, waybill, carrierCode);
+    } catch (fetchErr: any) {
+      const isTimeout = fetchErr?.name === 'TimeoutError' || fetchErr?.name === 'AbortError';
+      console.warn('[17track] fetch error for', waybill, fetchErr?.message);
+      return res.json({
+        carrier: courier || null,
+        tracking_code: waybill,
+        status: isTimeout ? 'Pending' : 'Unknown',
+        status_detail: isTimeout ? 'Tracking data is being fetched. Please check back in a moment.' : (fetchErr?.message || 'Lookup failed'),
+        updated_at: null, est_delivery_date: null, source: '17track', tracking_details: []
+      });
+    }
+    const events: any[] = JSON.parse(result.history || '[]');
+    return res.json({
+      carrier: courier || null,
+      tracking_code: waybill,
+      status: result.status,
+      status_detail: result.status,
+      updated_at: events[0]?.date || null,
+      est_delivery_date: null,
+      source: '17track',
+      tracking_details: events.map((e: any) => ({
+        status: e.description,
+        message: e.description,
+        datetime: e.date,
+        tracking_location: { city: e.location || '', state: '', zip: '', country: '' }
+      }))
+    });
+  } catch (err: any) {
+    console.error('Tracking error', err);
+    return res.status(500).json({ error: err.message || 'Internal error' });
   }
 });
 
@@ -1813,6 +1930,42 @@ app.get('/api/files/*', (req: Request, res: Response) => {
 
 // Routes registered later (analytics) need to be skipped here
 const analyticsRouteNames = new Set(['kpis', 'timeseries', 'breakdown', 'forecast', 'data-quality']);
+
+// GET orders — custom route to enrich status from linked shipping schedule
+app.get('/api/orders', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  const limit = Math.min(parseInt(p(req.query.limit as string)) || 50, 200);
+  const offset = parseInt(p(req.query.offset as string)) || 0;
+  try {
+    const rows = await db.collection('orders')
+      .find({ owner_email: ownerEmail }).sort({ created_at: -1 }).skip(offset).limit(limit).toArray();
+    const enriched = await Promise.all(
+      rows.map(r => enrichOrderWithShipping(db, ownerEmail, serializeDoc(r)))
+    );
+    res.json({ rows: enriched });
+  } catch (err) {
+    console.error('Error fetching orders', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// PUT orders — custom route to enrich status after update
+app.put('/api/orders/:id', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  const id = p(req.params.id);
+  const oid = toMongoId(id);
+  if (!oid) return res.status(400).json({ error: 'Invalid id' });
+  const { _id, id: _bid, owner_email, ...fields } = req.body || {};
+  if (!Object.keys(fields).length) return res.status(400).json({ error: 'No fields to update' });
+  fields.updated_at = new Date().toISOString();
+  await db.collection('orders').updateOne({ _id: oid, owner_email: ownerEmail }, { $set: fields });
+  const updated = await db.collection('orders').findOne({ _id: oid, owner_email: ownerEmail });
+  if (!updated) return res.status(404).json({ error: 'Not found' });
+  const enriched = await enrichOrderWithShipping(db, ownerEmail, serializeDoc(updated));
+  res.json({ row: enriched });
+});
 
 // GET list
 app.get('/api/:table', async (req: Request, res: Response, next: NextFunction) => {
@@ -2457,6 +2610,25 @@ async function syncAllShippingMilestones(): Promise<void> {
     if (bulkOps.length) {
       await col.bulkWrite(bulkOps, { ordered: false });
       console.log(`[milestones] Updated ${bulkOps.length} shipping schedule(s).`);
+    }
+    // Cascade status to orders that reference a shipping schedule
+    const ordersWithSched = await db.collection('orders').find(
+      { shipping_schedule_id: { $exists: true, $ne: null } },
+      { projection: { _id: 1, owner_email: 1, shipping_schedule_id: 1, status: 1 } }
+    ).toArray();
+    const orderOps: any[] = [];
+    for (const order of ordersWithSched) {
+      const enriched = await enrichOrderWithShipping(db, order.owner_email as string, order);
+      if (enriched.status !== order.status) {
+        orderOps.push({ updateOne: {
+          filter: { _id: order._id },
+          update: { $set: { status: enriched.status, updated_at: nowIso } },
+        }});
+      }
+    }
+    if (orderOps.length) {
+      await db.collection('orders').bulkWrite(orderOps, { ordered: false });
+      console.log(`[milestones] Updated ${orderOps.length} order(s) from shipping schedules.`);
     }
   } catch (err) {
     console.error('[milestones] syncAllShippingMilestones error:', err);
