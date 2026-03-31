@@ -7,6 +7,164 @@
   display: none;
 }
 
+/* ============================================================
+   Mobile Preview Popup — Bottom Sheet
+   ============================================================ */
+
+@keyframes sheetUp {
+  from { transform: translateY(100%); opacity: 0.6; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  /* Overlay becomes a bottom-anchored flex container */
+  .modal-overlay:has(.modal-large) {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: stretch;
+    padding: 0;
+  }
+
+  /* Sheet rises from the bottom */
+  .modal-overlay .modal-large {
+    width: 100%;
+    max-width: 100%;
+    max-height: 92dvh;
+    border-radius: 24px 24px 0 0;
+    border-top: none;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    animation: sheetUp 0.32s cubic-bezier(0.32, 0.72, 0, 1) both;
+    overflow: hidden;
+  }
+
+  /* Drag handle indicator */
+  .modal-overlay .modal-large::before {
+    content: "";
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: #d1d5db;
+    border-radius: 2px;
+    margin: 12px auto 0;
+    flex-shrink: 0;
+  }
+
+  /* Sticky header */
+  .modal-overlay .modal-large .modal-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: #fff;
+    padding: 12px 20px 12px;
+    margin-bottom: 0;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  /* Scrollable body */
+  .modal-overlay .modal-large .preview-body {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+
+  /* Sticky action buttons at bottom */
+  .modal-overlay .modal-large .form-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    background: #fff;
+    border-top: 1px solid var(--border);
+    padding: 12px 16px env(safe-area-inset-bottom, 12px);
+    margin: 0;
+    flex-direction: column-reverse;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .modal-overlay .modal-large .form-actions .btn {
+    width: 100%;
+    justify-content: center;
+    padding: 13px 16px;
+    font-size: 15px;
+  }
+
+  /* XLarge modal (orders, quotations) also becomes full-width sheet */
+  .modal-overlay .modal-xlarge {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* ODV chips tighter on mobile */
+  .odv-chips {
+    padding: 12px 16px;
+    gap: 6px;
+  }
+
+  /* ODV sections less padding */
+  .odv-section {
+    padding: 16px !important;
+  }
+
+  /* Force single-column field cards */
+  .odv-extra-grid {
+    grid-template-columns: 1fr !important;
+    gap: 8px;
+  }
+
+  /* Styled field cards */
+  .odv-extra-row {
+    border-radius: 12px;
+    padding: 12px 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 3px solid var(--primary, #2563eb);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    gap: 3px;
+  }
+
+  .odv-extra-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: #64748b;
+  }
+
+  .odv-extra-val {
+    font-size: 14px;
+    font-weight: 500;
+    color: #0f172a;
+  }
+
+  /* Prevent ODV table from causing viewport overflow */
+  .odv-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  /* Hero section mobile tweaks */
+  .preview-hero {
+    padding: 20px 18px 16px;
+    border-radius: 0;
+  }
+
+  .preview-hero-title {
+    font-size: 1.2rem;
+  }
+
+  /* ODV hero mobile */
+  .odv-hero {
+    padding: 20px 18px 16px;
+  }
+}
+
 @media (max-width: 1024px), (hover: none) and (pointer: coarse) {
   /* Show bottom nav on mobile */
   .mobile-bottom-nav {
@@ -61,3 +219,198 @@
     padding-bottom: 70px;
   }
 }
+
+/* ============================================================
+   Mobile Card View — Orders, Quotations, Invoices
+   ============================================================ */
+@media (max-width: 768px) {
+
+  /* Strip table-wrapper chrome */
+  .table-wrapper:has(table[data-table="orders"]),
+  .table-wrapper:has(table[data-table="quotations"]),
+  .table-wrapper:has(table[data-table="invoices"]) {
+    overflow-x: visible;
+    border: none;
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
+  /* Flatten <table> to a block */
+  table[data-table="orders"],
+  table[data-table="quotations"],
+  table[data-table="invoices"] {
+    display: block;
+    width: 100%;
+    margin-top: 0;
+  }
+
+  /* Hide column headers */
+  table[data-table="orders"] thead,
+  table[data-table="quotations"] thead,
+  table[data-table="invoices"] thead {
+    display: none;
+  }
+
+  /* tbody = vertical card stack */
+  table[data-table="orders"] tbody,
+  table[data-table="quotations"] tbody,
+  table[data-table="invoices"] tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* Each <tr> = a card */
+  table[data-table="orders"] tbody tr,
+  table[data-table="quotations"] tbody tr,
+  table[data-table="invoices"] tbody tr {
+    display: flex;
+    flex-direction: column;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    transition: box-shadow 0.15s ease, transform 0.12s ease;
+  }
+
+  table[data-table="orders"] tbody tr:hover,
+  table[data-table="quotations"] tbody tr:hover,
+  table[data-table="invoices"] tbody tr:hover {
+    box-shadow: 0 6px 20px rgba(33, 73, 166, 0.12);
+    transform: translateY(-1px);
+  }
+
+  /* Cancel global tr:hover td background */
+  table[data-table="orders"] tbody tr:hover td,
+  table[data-table="quotations"] tbody tr:hover td,
+  table[data-table="invoices"] tbody tr:hover td {
+    background: transparent;
+  }
+
+  /* Every <td>: label left, value right */
+  table[data-table="orders"] tbody td,
+  table[data-table="quotations"] tbody td,
+  table[data-table="invoices"] tbody td {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    font-size: 13px;
+    font-weight: 500;
+    color: #0f172a;
+    line-height: 1.4;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  table[data-table="orders"] tbody td:last-of-type,
+  table[data-table="quotations"] tbody td:last-of-type,
+  table[data-table="invoices"] tbody td:last-of-type {
+    border-bottom: none;
+  }
+
+  /* ::before renders the column label */
+  table[data-table="orders"] tbody td[data-label]::before,
+  table[data-table="quotations"] tbody td[data-label]::before,
+  table[data-table="invoices"] tbody td[data-label]::before {
+    content: attr(data-label);
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.55px;
+    color: #94a3b8;
+    flex-shrink: 0;
+    min-width: 82px;
+  }
+
+  /* ── Card Header: first <td> = reference number ── */
+  table[data-table="orders"] tbody td:first-child,
+  table[data-table="quotations"] tbody td:first-child,
+  table[data-table="invoices"] tbody td:first-child {
+    background: linear-gradient(135deg, #f0f4ff 0%, #f8faff 100%);
+    border-bottom: 1px solid #dbe4ff;
+    border-left: 4px solid var(--primary, #2149a6);
+    padding: 13px 14px 13px 12px;
+    font-size: 14px;
+    font-weight: 700;
+    color: #0b1427;
+    justify-content: space-between;
+  }
+
+  /* No label in header cell */
+  table[data-table="orders"] tbody td:first-child::before,
+  table[data-table="quotations"] tbody td:first-child::before,
+  table[data-table="invoices"] tbody td:first-child::before {
+    display: none;
+  }
+
+  /* Status pill in header via ::after using tr data-status-* attrs */
+  table[data-table="orders"] tbody tr[data-status-label] td:first-child::after,
+  table[data-table="quotations"] tbody tr[data-status-label] td:first-child::after,
+  table[data-table="invoices"] tbody tr[data-status-label] td:first-child::after {
+    content: attr(data-status-label);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* Pill tones */
+  table[data-table="orders"] tbody tr[data-status-tone="success"] td:first-child::after,
+  table[data-table="quotations"] tbody tr[data-status-tone="success"] td:first-child::after,
+  table[data-table="invoices"] tbody tr[data-status-tone="success"] td:first-child::after {
+    background: #e7f6ed; color: #1b9f5f;
+  }
+  table[data-table="orders"] tbody tr[data-status-tone="warning"] td:first-child::after,
+  table[data-table="quotations"] tbody tr[data-status-tone="warning"] td:first-child::after,
+  table[data-table="invoices"] tbody tr[data-status-tone="warning"] td:first-child::after {
+    background: #fff7e5; color: #c97706;
+  }
+  table[data-table="orders"] tbody tr[data-status-tone="info"] td:first-child::after,
+  table[data-table="quotations"] tbody tr[data-status-tone="info"] td:first-child::after,
+  table[data-table="invoices"] tbody tr[data-status-tone="info"] td:first-child::after {
+    background: #e6f1ff; color: #1f51b5;
+  }
+  table[data-table="orders"] tbody tr[data-status-tone="danger"] td:first-child::after,
+  table[data-table="quotations"] tbody tr[data-status-tone="danger"] td:first-child::after,
+  table[data-table="invoices"] tbody tr[data-status-tone="danger"] td:first-child::after {
+    background: #fef2f2; color: #b91c1c;
+  }
+
+  /* ── Actions cell: full-width tinted button strip ── */
+  table[data-table="orders"] tbody td.actions-col,
+  table[data-table="quotations"] tbody td.actions-col,
+  table[data-table="invoices"] tbody td.actions-col {
+    flex-direction: row;
+    gap: 6px;
+    padding: 10px 12px;
+    background: #f8fafc;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: none;
+  }
+
+  table[data-table="orders"] tbody td.actions-col::before,
+  table[data-table="quotations"] tbody td.actions-col::before,
+  table[data-table="invoices"] tbody td.actions-col::before {
+    display: none;
+  }
+
+  /* Equal-width action buttons */
+  table[data-table="orders"] tbody td.actions-col .btn,
+  table[data-table="quotations"] tbody td.actions-col .btn,
+  table[data-table="invoices"] tbody td.actions-col .btn {
+    flex: 1;
+    justify-content: center;
+    padding: 9px 6px;
+    font-size: 12px;
+    margin-right: 0;
+    border-radius: 8px;
+    min-width: 0;
+  }
+
+} /* end mobile card view */

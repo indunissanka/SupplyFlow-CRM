@@ -2139,32 +2139,32 @@ const formConfigs = {
     fields: [
       { name: "order_id", label: "Order (optional)", type: "select", options: ["-- Optional: select an order --"] },
       { name: "invoice_id", label: "Invoice (optional)", type: "select", options: ["-- Optional: select an invoice --"] },
-      { name: "factory_exit_date", label: "Factory exit date", type: "date" },
-      { name: "etc_date", label: "ETC", type: "date" },
-      { name: "etd_date", label: "ETD", type: "date" },
-      { name: "eta", label: "ETA", type: "date" },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
+      { name: "production_date", label: "Production Date", type: "date" },
+      { name: "booking_date", label: "Booking Date", type: "date" },
+      { name: "cargo_closing_date", label: "Cargo Closing Date", type: "date" },
+      { name: "etd_date", label: "ETD (Departure)", type: "date" },
+      { name: "eta", label: "ETA (Arrival)", type: "date" },
+      { name: "delivery_date", label: "Delivery Date", type: "date" },
+      { name: "carrier", label: "Carrier", type: "text", placeholder: "e.g. DHL, Maersk" },
+      { name: "tracking_number", label: "Tracking Number", type: "text", placeholder: "Tracking / BL number" },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] },
-      { name: "notes", label: "Notes", type: "textarea", placeholder: "Shipment details, vessel, port info, etc." },
-      {
-        name: "status",
-        label: "Status",
-        type: "select",
-        options: ["Factory exit", "Dispatched", "Cut Off", "Shipped", "Delivered"]
-      }
+      { name: "notes", label: "Notes", type: "textarea", placeholder: "Shipment details, vessel, port info, etc." }
     ],
     transform(values) {
       return {
         order_id: values.order_id || null,
         invoice_id: values.invoice_id || null,
         company_id: values.company_id || null,
-        company_name: values.company_name || null,
-        factory_exit_date: values.factory_exit_date || null,
-        etc_date: values.etc_date || null,
+        production_date: values.production_date || null,
+        booking_date: values.booking_date || null,
+        cargo_closing_date: values.cargo_closing_date || null,
         etd_date: values.etd_date || null,
         eta: values.eta || null,
-        notes: values.notes,
-        status: values.status || "Factory exit",
+        delivery_date: values.delivery_date || null,
+        carrier: values.carrier || null,
+        tracking_number: values.tracking_number || null,
+        notes: values.notes || null,
         tags: values.tags
       };
     }
@@ -4829,11 +4829,15 @@ function computeShippingStatus(record) {
     p.setHours(0, 0, 0, 0);
     return isNaN(p.getTime()) ? null : p;
   };
-  if (d(record.eta) && today >= d(record.eta)) return "Delivered";
+  if (d(record.delivery_date) && today >= d(record.delivery_date)) return "Delivered";
+  if (d(record.eta) && today >= d(record.eta)) return "Arrived";
   if (d(record.etd_date) && today >= d(record.etd_date)) return "Shipped";
-  if (d(record.etc_date) && today >= d(record.etc_date)) return "Cut Off";
-  if (d(record.factory_exit_date) && today >= d(record.factory_exit_date)) return "Dispatched";
-  return null;
+  const cargoDate = record.cargo_closing_date || record.etc_date;
+  if (d(cargoDate) && today >= d(cargoDate)) return "Cargo Closing";
+  if (d(record.booking_date) && today >= d(record.booking_date)) return "Booking Confirmed";
+  const prodDate = record.production_date || record.processing_start_date;
+  if (d(prodDate) && today >= d(prodDate)) return "In Production";
+  return "Pending";
 }
 
 async function renderShipping() {
@@ -4853,35 +4857,35 @@ async function renderShipping() {
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString();
   };
+  const shippingToneMap = { "Delivered": "success", "Arrived": "success", "Shipped": "teal", "Cargo Closing": "orange", "Booking Confirmed": "purple", "In Production": "info", "Pending": "warning" };
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
-      const displayStatus = computeShippingStatus(r) || r.status || "Factory exit";
-      const tone = displayStatus === "Delivered" ? "success"
-        : (displayStatus === "Shipped" || displayStatus === "Dispatched" || displayStatus === "Cut Off") ? "info"
-        : "warning";
+      const displayStatus = computeShippingStatus(r);
+      const tone = shippingToneMap[displayStatus] || "warning";
       return [
-        r.company_name || "Unknown Company",
+        r.company_name || "—",
         r.order_reference || "-",
         r.invoice_reference || "-",
-        formatShipDate(r.factory_exit_date),
-        formatShipDate(r.etc_date),
+        formatShipDate(r.production_date || r.processing_start_date),
+        formatShipDate(r.cargo_closing_date || r.etc_date),
         formatShipDate(r.etd_date),
         formatShipDate(r.eta),
         badge(tone, displayStatus)
       ];
     },
     fallback.shipping_schedules.map((row) => {
-      const tone = row.status === "Delivered" ? "success" : row.status === "Shipped" ? "info" : "warning";
+      const st = computeShippingStatus(row);
+      const tone = shippingToneMap[st] || "warning";
       return [
-        row.company || row.company_name || "Unknown Company",
+        row.company || row.company_name || "—",
         row.order,
         row.invoice,
-        formatShipDate(row.factory_exit),
-        formatShipDate(row.etc),
+        formatShipDate(row.production_date),
+        formatShipDate(row.cargo_closing_date || row.etc),
         formatShipDate(row.etd),
         formatShipDate(row.eta),
-        badge(tone, row.status)
+        badge(tone, st)
       ];
     })
   );
@@ -4916,7 +4920,7 @@ async function renderShipping() {
           </label>
         </div>
       </div>
-      ${renderPaginatedTable(["Company", "Order #", "Invoice #", "Factory exit date", "ETC", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
+      ${renderPaginatedTable(["Company", "Order #", "Invoice #", "Production", "Cargo Closing", "ETD", "ETA", "Status"], rows, "shipping_schedules")}
     </div>
   `;
   attachTableSearch("shipping-search-input", "shipping_schedules");
@@ -5952,6 +5956,7 @@ async function renderSettings() {
                     <i data-lucide="eye"></i>
                   </button>
                   <button class="btn primary" id="shippo-config-save-btn" type="button">Save</button>
+                  <button class="btn ghost" id="shippo-config-toggle-btn" type="button" style="min-width:90px">Loading...</button>
                 </div>
               </div>
               <p class="stat-label">Get your token at <strong>goshippo.com/api</strong> &mdash; takes effect immediately without restarting.</p>
@@ -5982,8 +5987,13 @@ async function renderSettings() {
                     <i data-lucide="eye"></i>
                   </button>
                   <button class="btn primary" id="17track-config-save-btn" type="button">Save</button>
+                  <button class="btn ghost" id="17track-config-diagnose-btn" type="button" title="Test API key and check data flow">
+                    <i data-lucide="stethoscope"></i>
+                    Diagnose
+                  </button>
                 </div>
               </div>
+              <div id="17track-diagnose-result" style="display:none;margin-bottom:16px;border-radius:10px;border:1px solid var(--border);overflow:hidden;font-size:13px;"></div>
               <p class="stat-label">Get a free API key at <strong>17track.net/en/service/api</strong> (free tier: 100 tracks/month). When configured, 17track takes priority over Shippo for live tracking.</p>
             </div>
           </div>
@@ -6096,15 +6106,24 @@ async function renderSettings() {
     const shippoKeyInput = document.getElementById("shippo-config-key-input");
     const shippoSaveBtn  = document.getElementById("shippo-config-save-btn");
     const shippoToggleVis = document.getElementById("shippo-config-toggle-vis");
+    const shippoToggleBtn = document.getElementById("shippo-config-toggle-btn");
 
     const loadShippoStatus = async () => {
       if (!shippoStatusEl) return;
       try {
         const res = await apiFetch("/api/settings/shippo-config");
         const data = await res.json();
+        const isEnabled = data.enabled !== false;
+        if (shippoToggleBtn) {
+          shippoToggleBtn.textContent = isEnabled ? "Disable" : "Enable";
+          shippoToggleBtn.className = isEnabled ? "btn danger small" : "btn ghost small";
+          shippoToggleBtn.style.minWidth = "90px";
+          shippoToggleBtn.dataset.shippoEnabled = isEnabled ? "true" : "false";
+        }
         if (data.configured) {
           const src = data.source === "env" ? "environment variable" : "saved in database";
-          shippoStatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src})</span>`;
+          const enabledTag = isEnabled ? "" : ` &mdash; <span style="color:var(--danger,#dc2626)">Disabled</span>`;
+          shippoStatusEl.innerHTML = `<span style="color:${isEnabled ? "var(--success,#16a34a)" : "var(--danger,#dc2626)"}">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src}${enabledTag})</span>`;
         } else {
           shippoStatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured &mdash; live tracking unavailable</span>`;
         }
@@ -6113,6 +6132,27 @@ async function renderSettings() {
       }
     };
     loadShippoStatus();
+
+    shippoToggleBtn?.addEventListener("click", async () => {
+      const currentlyEnabled = shippoToggleBtn.dataset.shippoEnabled === "true";
+      shippoToggleBtn.disabled = true;
+      shippoToggleBtn.textContent = "Saving...";
+      try {
+        const res = await apiFetch("/api/settings/shippo-toggle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: !currentlyEnabled })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Toggle failed");
+        showToast(`Shippo ${data.enabled ? "enabled" : "disabled"}`);
+        await loadShippoStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        shippoToggleBtn.disabled = false;
+      }
+    });
 
     shippoToggleVis?.addEventListener("click", () => {
       if (!shippoKeyInput) return;
@@ -6144,10 +6184,12 @@ async function renderSettings() {
     document.querySelector("[data-tab='shippo-config']")?.addEventListener("click", loadShippoStatus);
 
     // 17track Config tab handlers
-    const t17StatusEl  = document.getElementById("17track-config-status");
-    const t17KeyInput  = document.getElementById("17track-config-key-input");
-    const t17SaveBtn   = document.getElementById("17track-config-save-btn");
-    const t17ToggleVis = document.getElementById("17track-config-toggle-vis");
+    const t17StatusEl    = document.getElementById("17track-config-status");
+    const t17KeyInput    = document.getElementById("17track-config-key-input");
+    const t17SaveBtn     = document.getElementById("17track-config-save-btn");
+    const t17ToggleVis   = document.getElementById("17track-config-toggle-vis");
+    const t17DiagnoseBtn = document.getElementById("17track-config-diagnose-btn");
+    const t17DiagnoseOut = document.getElementById("17track-diagnose-result");
 
     const load17trackStatus = async () => {
       if (!t17StatusEl) return;
@@ -6190,6 +6232,51 @@ async function renderSettings() {
         showToast("Error: " + err.message);
       } finally {
         t17SaveBtn.disabled = false; t17SaveBtn.textContent = "Save";
+      }
+    });
+
+    t17DiagnoseBtn?.addEventListener("click", async () => {
+      if (!t17DiagnoseOut) return;
+      t17DiagnoseBtn.disabled = true;
+      t17DiagnoseBtn.innerHTML = `<i data-lucide="loader"></i> Diagnosing...`;
+      t17DiagnoseOut.style.display = "block";
+      t17DiagnoseOut.innerHTML = `<div style="padding:14px 16px;color:var(--text-muted)">Contacting 17track API&hellip;</div>`;
+      try {
+        const res = await apiFetch("/api/settings/17track-diagnose");
+        const d = await res.json();
+        const ok = d.auth_valid && d.reachable;
+        const warn = d.configured && d.reachable && !d.auth_valid;
+        const accent = ok ? "#16a34a" : warn ? "#c97706" : "#dc2626";
+        const bg     = ok ? "#f0fdf4" : warn ? "#fffbeb" : "#fff5f5";
+        const icon   = ok ? "&#10003;" : warn ? "&#9888;" : "&#10007;";
+        const rows = [
+          ["API Key Configured", d.configured ? `Yes (${sanitizeText(d.key_preview || "")})` : "No"],
+          ["17track Reachable",  d.reachable  ? "Yes" : "No — check your network"],
+          ["Auth Valid",         d.auth_valid ? "Yes" : "No — key may be wrong or quota exceeded"],
+        ];
+        if (d.register_code !== null) rows.push(["Register Response Code", String(d.register_code)]);
+        if (d.register_accepted !== null) rows.push(["Waybill Accepted",  String(d.register_accepted)]);
+        if (d.register_rejected !== null) rows.push(["Waybill Rejected",  String(d.register_rejected)]);
+        if (d.getinfo_code !== null)      rows.push(["GetTrackInfo Code",  String(d.getinfo_code)]);
+        if (d.track_status)               rows.push(["Track Status",       sanitizeText(d.track_status)]);
+        if (d.track_events !== null && d.track_events !== undefined) rows.push(["Events Received", String(d.track_events)]);
+        const tableRows = rows.map(([label, val]) =>
+          `<tr><td style="padding:6px 14px;color:#64748b;font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:0.4px;white-space:nowrap">${label}</td>` +
+          `<td style="padding:6px 14px;color:#0f172a;font-weight:500">${val}</td></tr>`
+        ).join("");
+        t17DiagnoseOut.innerHTML =
+          `<div style="padding:12px 16px;background:${bg};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">` +
+            `<span style="font-size:18px;color:${accent}">${icon}</span>` +
+            `<span style="font-weight:700;color:${accent}">${sanitizeText(d.message || (ok ? "All checks passed" : "Issue detected"))}</span>` +
+          `</div>` +
+          `<table style="width:100%;border-collapse:collapse">${tableRows}</table>`;
+        lucide.createIcons();
+      } catch (err) {
+        t17DiagnoseOut.innerHTML = `<div style="padding:14px 16px;color:#dc2626">Diagnose failed: ${sanitizeText(err.message)}</div>`;
+      } finally {
+        t17DiagnoseBtn.disabled = false;
+        t17DiagnoseBtn.innerHTML = `<i data-lucide="stethoscope"></i> Diagnose`;
+        lucide.createIcons();
       }
     });
 
@@ -7213,7 +7300,14 @@ function renderTable(columns, rows, tableKey = "", includeActions = true, rowInd
         const rowIndex =
           Array.isArray(rowIndexList) && Number.isFinite(rowIndexList[idx]) ? rowIndexList[idx] : idx + rowIndexOffset;
         const cells = Array.isArray(row) ? row : [];
-        return `<tr data-row-index="${rowIndex}">${cells.map((cell) => `<td>${cell}</td>`).join("")}${
+        const statusCellIdx = cells.findIndex(c => typeof c === "string" && c.includes('class="pill'));
+        const pillMatch = statusCellIdx >= 0
+          ? cells[statusCellIdx].match(/class="pill\s+(\w+)"[^>]*>([^<]+)</)
+          : null;
+        const statusAttrs = pillMatch
+          ? ` data-status-tone="${pillMatch[1]}" data-status-label="${pillMatch[2]}"`
+          : "";
+        return `<tr data-row-index="${rowIndex}"${statusAttrs}>${cells.map((cell, ci) => `<td data-label="${columns[ci] || ''}">${cell}</td>`).join("")}${
           includeActions
             ? `<td class="actions-col">
                 <button class="btn ghost small" data-action="preview"><i data-lucide="eye"></i>Preview</button>
@@ -7391,6 +7485,24 @@ async function resolveQuotationForItem(item) {
   ) || null;
 }
 
+function getPreviewModalTitle(tableKey, record) {
+  if (!record) return "Preview";
+  switch (tableKey) {
+    case "sample_shipments": return record.waybill_number ? `Shipment · ${record.waybill_number}` : "Sample Shipment";
+    case "orders":           return record.reference || `Order #${record.id || ""}`;
+    case "quotations":       return record.reference || `Quotation #${record.id || ""}`;
+    case "invoices":         return record.reference || `Invoice #${record.id || ""}`;
+    case "companies":        return record.name || "Company";
+    case "contacts":         return `${record.first_name || ""} ${record.last_name || ""}`.trim() || "Contact";
+    case "products":         return record.name || "Product";
+    case "tasks":            return record.title || "Task";
+    case "notes":            return "Note";
+    case "documents":        return record.title || record.name || "Document";
+    case "shipping_schedules": return record.reference || record.vessel_name || "Shipping Schedule";
+    default:                 return record.name || record.title || record.reference || `${capitalize(tableKey)} Preview`;
+  }
+}
+
 async function openPreviewModal(tableKey, record) {
   await ensureLookupTablesReady();
   if (tableKey === "tasks" || tableKey === "notes") {
@@ -7436,13 +7548,12 @@ async function openPreviewModal(tableKey, record) {
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
-        <h3>Preview ${capitalize(tableKey)}</h3>
+        <h3>${getPreviewModalTitle(tableKey, record)}</h3>
         <button class="btn-close" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body preview-body">${content}</div>
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
-        ${(tableKey === "orders" || tableKey === "sample_shipments") ? `<button class="btn ai-trigger-btn" data-ai-track>⚡ Track &amp; Summarize</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -7462,9 +7573,6 @@ async function openPreviewModal(tableKey, record) {
     });
   }
   if (tableKey === "orders" || tableKey === "sample_shipments") {
-    overlay.querySelector("[data-ai-track]")?.addEventListener("click", () => {
-      openAiTrackSummarizeModal(record, overlay, tableKey);
-    });
     overlay.querySelector("[data-print-preview]")?.addEventListener("click", async () => {
       const quoteKeyCandidates = [record.quotation_id, record.quote_id, record.quotationId, record.quotation, record.quote]
         .map((v) => (v == null ? "" : String(v).trim())).filter(Boolean);
@@ -7609,6 +7717,9 @@ async function openPreviewModal(tableKey, record) {
         showToast("Unable to open document");
       }
     });
+    if (record?.waybill_number) {
+      hydrateSampleTracking(overlay, record).catch((err) => console.error("Live tracking failed", err));
+    }
   } else if (tableKey === "documents") {
     const previewSlot = overlay.querySelector("[data-doc-preview]");
     const openLink = overlay.querySelector("[data-doc-open]");
@@ -7693,7 +7804,7 @@ async function hydrateSampleTracking(overlay, record) {
     `;
   }
   if (eventsSlot) {
-    eventsSlot.innerHTML = `<div class="stat-label">Fetching tracking updates from Shippo...</div>`;
+    eventsSlot.innerHTML = `<div class="stat-label">Fetching tracking updates...</div>`;
   }
 
   try {
@@ -7711,6 +7822,16 @@ async function hydrateSampleTracking(overlay, record) {
     }
     if (carrierLabel) {
       carrierLabel.textContent = carrier ? sanitizeText(carrier) : "";
+    }
+    const sourceEl = overlay.querySelector("[data-tracking-source]");
+    if (sourceEl) {
+      if (data?.source === "17track") {
+        sourceEl.innerHTML = `<span class="badge info" style="font-size:10px;padding:2px 8px">via 17track</span>`;
+      } else if (data?.source === "shippo") {
+        sourceEl.innerHTML = `<span class="badge" style="font-size:10px;padding:2px 8px;background:#f1f5f9;color:#64748b">via Shippo</span>`;
+      } else {
+        sourceEl.innerHTML = "";
+      }
     }
 
     const summaryRows = [
@@ -8329,7 +8450,6 @@ function renderRecordPreview(tableKey, record) {
     return renderSampleShipmentPreview(record);
   }
 
-  // Enhanced title generation based on entity type
   const previewRecord = tableKey === "companies" ? { ...record, address: record.address ?? null } : record;
   let title = "";
   let subtitle = "";
@@ -8338,80 +8458,43 @@ function renderRecordPreview(tableKey, record) {
   switch (tableKey) {
     case "companies":
       title = record.name || `Company #${record.id}`;
-      subtitle = record.owner ? `Owner: ${record.owner}` : "";
+      subtitle = record.industry || record.country || "";
       break;
     case "contacts":
       title = `${record.first_name || ""} ${record.last_name || ""}`.trim() || `Contact #${record.id}`;
       subtitle = record.role || "";
-      if (record.company_name) {
-        relatedInfo = `Company: ${record.company_name}`;
-      }
+      if (record.company_name) relatedInfo = record.company_name;
       break;
     case "orders":
       title = record.reference || `Order #${record.id}`;
       subtitle = formatCurrency(record.total_amount, record.currency);
-      if (record.company_name) {
-        relatedInfo = `Company: ${record.company_name}`;
-      }
-      if (record.contact_name) {
-        relatedInfo += relatedInfo ? ` | Contact: ${record.contact_name}` : `Contact: ${record.contact_name}`;
-      }
+      if (record.company_name) relatedInfo = record.company_name;
       break;
     case "quotations":
       title = record.reference || `Quotation #${record.id}`;
       subtitle = record.title || formatCurrency(record.amount, record.currency);
-      if (record.company_name) {
-        relatedInfo = `Company: ${record.company_name}`;
-      }
-      if (record.contact_name) {
-        relatedInfo += relatedInfo ? ` | Contact: ${record.contact_name}` : `Contact: ${record.contact_name}`;
-      }
+      if (record.company_name) relatedInfo = record.company_name;
       break;
     case "invoices":
       title = record.reference || `Invoice #${record.id}`;
       subtitle = formatCurrency(record.total_amount, record.currency);
-      if (record.company_name) {
-        relatedInfo = `Company: ${record.company_name}`;
-      }
-      if (record.contact_name) {
-        relatedInfo += relatedInfo ? ` | Contact: ${record.contact_name}` : `Contact: ${record.contact_name}`;
-      }
+      if (record.company_name) relatedInfo = record.company_name;
       break;
     case "products":
       title = record.name || `Product #${record.id}`;
-      subtitle = record.sku ? `SKU: ${record.sku}` : formatCurrency(record.price, record.currency);
+      subtitle = record.category || (record.sku ? `SKU: ${record.sku}` : "");
       break;
     case "tasks":
       title = record.title || `Task #${record.id}`;
-      subtitle = record.assignee ? `Assignee: ${record.assignee}` : "";
-      if (record.related_type && record.related_id) {
-        if (record.related_type === "company" && record.company_name) {
-          relatedInfo = `Company: ${record.company_name}`;
-        } else {
-          relatedInfo = `Related: ${record.related_type} #${record.related_id}`;
-        }
-      }
+      subtitle = record.assignee ? `Assigned to ${record.assignee}` : "";
+      if (record.related_type === "company" && record.company_name) relatedInfo = record.company_name;
+      else if (record.related_type && record.related_id) relatedInfo = `${record.related_type} #${record.related_id}`;
       break;
     case "notes":
-      title = record.body || `Note #${record.id}`;
-      subtitle = record.author ? `Author: ${record.author}` : "";
-      if (record.entity_type && record.entity_id) {
-        if (record.entity_type === "company" && record.company_name) {
-          relatedInfo = `Company: ${record.company_name}`;
-        } else {
-          relatedInfo = `Related: ${record.entity_type} #${record.entity_id}`;
-        }
-      }
-      break;
-    case "sample_shipments":
-      title = record.waybill_number || `Sample #${record.id}`;
-      subtitle = record.courier ? `Courier: ${record.courier}` : "";
-      if (record.company_name) {
-        relatedInfo = record.company_name;
-      }
-      if (record.product_name) {
-        relatedInfo += relatedInfo ? ` | ${record.product_name}` : record.product_name;
-      }
+      title = record.body ? (record.body.length > 60 ? record.body.slice(0, 60) + "…" : record.body) : `Note #${record.id}`;
+      subtitle = record.author ? `by ${record.author}` : "";
+      if (record.entity_type === "company" && record.company_name) relatedInfo = record.company_name;
+      else if (record.entity_type && record.entity_id) relatedInfo = `${record.entity_type} #${record.entity_id}`;
       break;
     default:
       title = record.name || record.title || record.reference || `${capitalize(tableKey)} #${record.id || ""}`;
@@ -8422,102 +8505,113 @@ function renderRecordPreview(tableKey, record) {
   const statusBadge = record.status ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>` : "";
   const updatedMeta = record.updated_at ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>` : "";
 
-  // Entity-specific context chips
-  let chips = "";
-  switch (tableKey) {
-    case "companies":
-      chips = [
-        record.industry ? `<span class="odv-chip">${sanitizeText(record.industry)}</span>` : "",
-        record.country ? `<span class="odv-chip">${sanitizeText(record.country)}</span>` : "",
-        record.owner ? `<span class="odv-chip">Owner: ${sanitizeText(record.owner)}</span>` : "",
-      ].filter(Boolean).join("");
-      break;
-    case "contacts":
-      chips = [
-        record.role ? `<span class="odv-chip">${sanitizeText(record.role)}</span>` : "",
-        record.company_name ? `<span class="odv-chip">${sanitizeText(record.company_name)}</span>` : "",
-        record.email ? `<span class="odv-chip">${sanitizeText(record.email)}</span>` : "",
-      ].filter(Boolean).join("");
-      break;
-    case "products":
-      chips = [
-        record.sku ? `<span class="odv-chip">SKU: ${sanitizeText(record.sku)}</span>` : "",
-        record.price ? `<span class="odv-chip">${formatCurrency(record.price, record.currency)}</span>` : "",
-        record.category ? `<span class="odv-chip">${sanitizeText(record.category)}</span>` : "",
-      ].filter(Boolean).join("");
-      break;
-    case "tasks":
-      chips = [
-        record.assignee ? `<span class="odv-chip">${sanitizeText(record.assignee)}</span>` : "",
-        record.due_date ? `<span class="odv-chip">Due ${sanitizeText(record.due_date)}</span>` : "",
-        relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "",
-      ].filter(Boolean).join("");
-      break;
-    case "notes":
-      chips = [
-        record.author ? `<span class="odv-chip">${sanitizeText(record.author)}</span>` : "",
-        record.entity_type ? `<span class="odv-chip">${sanitizeText(record.entity_type)}</span>` : "",
-        relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "",
-      ].filter(Boolean).join("");
-      break;
-    case "sample_shipments": {
-      const trackUrl = getCourierTrackUrl(record.courier, record.waybill_number);
-      chips = [
-        record.courier ? `<span class="odv-chip">${sanitizeText(record.courier)}</span>` : "",
-        record.product_name ? `<span class="odv-chip">${sanitizeText(record.product_name)}</span>` : "",
-        record.quantity != null ? `<span class="odv-chip">Qty: ${sanitizeText(String(record.quantity))}</span>` : "",
-        trackUrl ? `<a class="odv-chip" href="${trackUrl}" target="_blank" rel="noopener noreferrer" style="color:var(--primary,#2563eb);text-decoration:none">&#128279; Track on ${sanitizeText(record.courier)} website</a>` : "",
-      ].filter(Boolean).join("");
-      break;
-    }
-    default:
-      chips = relatedInfo ? `<span class="odv-chip">${sanitizeText(relatedInfo)}</span>` : "";
-  }
+  // Section schemas: each section declares which keys belong to it
+  const SECTION_SCHEMAS = {
+    companies: [
+      { title: "Company Info", icon: "🏢", keys: ["name", "owner", "industry", "country", "phone", "email", "website"] },
+      { title: "Address & Details", icon: "📋", keys: ["address", "receiving_address", "company_code", "notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    contacts: [
+      { title: "Contact Info", icon: "👤", keys: ["first_name", "last_name", "role", "email", "phone"] },
+      { title: "Company", icon: "🏢", keys: ["company_name"] },
+      { title: "Notes & Tags", icon: "🏷️", keys: ["notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    orders: [
+      { title: "Order Summary", icon: "📦", keys: ["reference", "status", "total_amount", "currency"] },
+      { title: "Parties", icon: "👥", keys: ["company_name", "contact_name"] },
+      { title: "Timeline", icon: "📅", keys: ["created_at", "updated_at", "factory_exit_date", "etc_date", "etd_date", "eta"] },
+      { title: "Notes & Tags", icon: "🏷️", keys: ["notes", "tags"] },
+    ],
+    quotations: [
+      { title: "Quotation", icon: "📄", keys: ["reference", "title", "status", "amount", "currency"] },
+      { title: "Parties", icon: "👥", keys: ["company_name", "contact_name"] },
+      { title: "Details", icon: "📋", keys: ["valid_until", "notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    invoices: [
+      { title: "Invoice", icon: "🧾", keys: ["reference", "invoice_date", "status", "total_amount", "currency"] },
+      { title: "Details", icon: "📋", keys: ["notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    products: [
+      { title: "Product Info", icon: "📦", keys: ["name", "sku", "category", "price", "currency", "status"] },
+      { title: "Details", icon: "📋", keys: ["description", "notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    tasks: [
+      { title: "Task", icon: "✅", keys: ["title", "status", "assignee", "due_date"] },
+      { title: "Related", icon: "🔗", keys: ["related_type", "related_id", "company_name"] },
+      { title: "Notes & Tags", icon: "🏷️", keys: ["notes", "tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    notes: [
+      { title: "Note", icon: "📝", keys: ["body", "author"] },
+      { title: "Related", icon: "🔗", keys: ["entity_type", "entity_id", "company_name"] },
+      { title: "Tags", icon: "🏷️", keys: ["tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+  };
 
-  // Field display (same filtering logic, new grid layout)
+  // Keys to always suppress
   const ignore = new Set(["id", "created_at", "updated_at", "company_id", "contact_id", "product_id"]);
-  if (tableKey === "companies") {
-    ignore.delete("id");
-  }
+  if (tableKey === "companies") ignore.delete("id");
   if (tableKey === "orders") {
-    ["created_at", "updated_at"].forEach((key) => ignore.delete(key));
-    ["quotation_id", "invoice_id", "invoice_ids", "invoice_links"].forEach((key) => ignore.add(key));
+    ["created_at", "updated_at"].forEach((k) => ignore.delete(k));
+    ["quotation_id", "invoice_id", "invoice_ids", "invoice_links"].forEach((k) => ignore.add(k));
   }
   if (tableKey === "invoices") {
     ["company_name", "contact_name", "customer_name"].forEach((k) => ignore.add(k));
   }
-  const orderedKeys = orderPreviewKeys(Object.keys(previewRecord).filter((k) => !ignore.has(k)));
-  const extraGrid = orderedKeys.map((key) => {
-    const value = formatPreviewValue(previewRecord[key], key, previewRecord);
-    const label = formatPreviewLabel(key, previewRecord, tableKey);
-    return `
-      <div class="odv-extra-row">
-        <span class="odv-extra-label">${label}</span>
-        <span class="odv-extra-val">${value}</span>
-      </div>
-    `;
-  }).join("");
 
+  // Helper: render one section card
+  function renderSection(sectionTitle, icon, keys) {
+    const rows = keys
+      .filter((k) => !ignore.has(k))
+      .map((k) => {
+        const val = previewRecord[k];
+        if (val === undefined || val === null || val === "") return "";
+        const rendered = formatPreviewValue(val, k, previewRecord);
+        if (rendered === "<span class='stat-label'>—</span>") return "";
+        const lbl = formatPreviewLabel(k, previewRecord, tableKey);
+        return `<div class="preview-field-row"><span class="preview-field-label">${lbl}</span><span class="preview-field-value">${rendered}</span></div>`;
+      })
+      .filter(Boolean);
+    if (!rows.length) return "";
+    return `
+      <div class="preview-section">
+        <div class="preview-section-hd">
+          <span class="preview-section-icon">${icon}</span>
+          <span class="preview-section-title">${sectionTitle}</span>
+        </div>
+        ${rows.join("")}
+      </div>`;
+  }
+
+  const schemas = SECTION_SCHEMAS[tableKey] || [];
+  const coveredKeys = new Set(schemas.flatMap((s) => s.keys));
+  const allKeys = Object.keys(previewRecord).filter((k) => !ignore.has(k));
+  const remainingKeys = orderPreviewKeys(allKeys.filter((k) => !coveredKeys.has(k)));
+
+  const sectionsHtml = [
+    ...schemas.map((s) => renderSection(s.title, s.icon, s.keys)),
+    remainingKeys.length ? renderSection("More Details", "📌", remainingKeys) : "",
+  ].filter(Boolean).join("");
+
+  const avatarLetter = (title.trim()[0] || "#").toUpperCase();
   return `
-    <div class="odv">
+    <div class="preview-card-layout">
       <div class="preview-hero">
         <div class="preview-hero-main">
+          <div class="preview-avatar">${avatarLetter}</div>
           <div class="preview-hero-title">${sanitizeText(title)}</div>
           ${subtitle ? `<div class="preview-hero-subtitle">${sanitizeText(subtitle)}</div>` : ""}
-          ${relatedInfo && tableKey !== "tasks" && tableKey !== "notes" ? `<div class="preview-hero-related">${sanitizeText(relatedInfo)}</div>` : ""}
-          <div class="preview-hero-meta">${statusBadge} ${updatedMeta}</div>
+          ${relatedInfo ? `<div class="preview-hero-related">&#128279; ${sanitizeText(relatedInfo)}</div>` : ""}
+          <div class="preview-hero-meta">${statusBadge}${updatedMeta}</div>
         </div>
-        <div class="preview-hero-right">${(() => {
-          if (tableKey !== "sample_shipments" || !record.waybill_number) return "";
-          const url = getCourierTrackUrl(record.courier, record.waybill_number);
-          if (!url) return "";
-          return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="btn ghost small" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">&#128279; Track ${sanitizeText(record.courier || "")}</a>`;
-        })()}</div>
       </div>
-      ${chips ? `<div class="odv-chips">${chips}</div>` : ""}
-      <div class="odv-section">
-        <div class="odv-extra-grid">${extraGrid}</div>
-      </div>
+      <div class="preview-sections">${sectionsHtml}</div>
     </div>
   `;
 }
@@ -8599,24 +8693,87 @@ function renderShippingSchedulePreview(record) {
   const invoiceRef = record.invoice_reference || (record.invoice_id ? `#${record.invoice_id}` : "");
   const title =
     company ||
-    (orderRef ? `Shipment ${orderRef}` : invoiceRef ? `Shipment ${invoiceRef}` : `Shipment #${record.id || ""}`);
+    (orderRef ? `Shipment ${orderRef}` : invoiceRef ? `Shipment ${invoiceRef}` : `Shipment #${record.id || record._id || ""}`);
   const subtitleParts = [];
   if (orderRef) subtitleParts.push(`Order ${orderRef}`);
   if (invoiceRef) subtitleParts.push(`Invoice ${invoiceRef}`);
   const subtitle = subtitleParts.join(" | ");
-  const statusLabel = record.status || "Factory exit";
-  const statusBadge = `<span class="badge ${statusToneShipping(statusLabel)}">${sanitizeText(statusLabel)}</span>`;
-  const updatedMeta = record.updated_at
-    ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>`
-    : "";
+
+  // Auto-compute current status
+  const displayStatus = computeShippingStatus(record);
+  const statusTone = statusToneShipping(displayStatus);
+  const statusBadge = `<span class="pill ${statusTone}">${sanitizeText(displayStatus)}</span>`;
+
+  // Progress timeline
+  const MILESTONES = ["Pending", "In Production", "Booking Confirmed", "Cargo Closing", "Shipped", "Arrived", "Delivered"];
+  const currentIdx = Math.max(0, MILESTONES.indexOf(displayStatus));
+  const pct = Math.round((currentIdx / (MILESTONES.length - 1)) * 100);
+  const milestoneDots = MILESTONES.map((m, i) => {
+    const cls = i < currentIdx ? "done" : i === currentIdx ? "active" : "";
+    return `<div class="ship-milestone ${cls}"><div class="ship-milestone-dot"></div><span>${sanitizeText(m)}</span></div>`;
+  }).join("");
+  const timeline = `
+    <div class="ship-timeline">
+      <div class="ship-timeline-track"><div class="ship-timeline-fill" style="width:${pct}%"></div></div>
+      <div class="ship-milestones">${milestoneDots}</div>
+    </div>`;
+
+  // Days remaining / overdue
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const futureMilestoneDates = [
+    { label: "Production", date: record.production_date || record.processing_start_date },
+    { label: "Booking", date: record.booking_date },
+    { label: "Cargo Closing", date: record.cargo_closing_date || record.etc_date },
+    { label: "Departure", date: record.etd_date },
+    { label: "Arrival", date: record.eta },
+    { label: "Delivery", date: record.delivery_date }
+  ].filter(m => {
+    if (!m.date) return false;
+    const d = new Date(m.date); d.setHours(0, 0, 0, 0);
+    return !isNaN(d.getTime()) && d > today;
+  }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+  let daysBadge = "";
+  if (futureMilestoneDates.length > 0) {
+    const next = futureMilestoneDates[0];
+    const daysLeft = Math.ceil((new Date(next.date).setHours(0,0,0,0) - today.getTime()) / 86400000);
+    daysBadge = `<span class="days-badge upcoming">${daysLeft}d until ${sanitizeText(next.label)}</span>`;
+  } else if (displayStatus !== "Delivered") {
+    // All dates in past but not yet delivered — check if ETA is overdue
+    const latestDate = record.delivery_date || record.eta;
+    if (latestDate) {
+      const d = new Date(latestDate); d.setHours(0, 0, 0, 0);
+      if (!isNaN(d.getTime())) {
+        const daysOver = Math.ceil((today.getTime() - d.getTime()) / 86400000);
+        if (daysOver > 0) daysBadge = `<span class="days-badge overdue">${daysOver}d overdue</span>`;
+      }
+    }
+  }
+
+  // Schedule date rows (all 6 date fields)
   const scheduleRows = [
-    ["Factory exit", "factory_exit_date", record.factory_exit_date],
-    ["ETC", "etc_date", record.etc_date],
-    ["ETD", "etd_date", record.etd_date],
-    ["ETA", "eta", record.eta]
-  ];
+    ["Production Date",   record.production_date || record.processing_start_date],
+    ["Booking Date",      record.booking_date],
+    ["Cargo Closing",     record.cargo_closing_date || record.etc_date],
+    ["ETD (Departure)",   record.etd_date],
+    ["ETA (Arrival)",     record.eta],
+    ["Delivery Date",     record.delivery_date]
+  ].filter(([, v]) => v);
+
+  const scheduleGrid = scheduleRows.map(([label, value]) => `
+    <div class="odv-extra-row">
+      <span class="odv-extra-label">${sanitizeText(label)}</span>
+      <span class="odv-extra-val">${sanitizeText(new Date(value).toLocaleDateString())}</span>
+    </div>
+  `).join("") || `<div class="odv-extra-row"><span class="odv-extra-label" style="color:#94a3b8">No dates set yet</span></div>`;
 
   const notesText = record.notes ? sanitizeText(record.notes).replace(/\n/g, "<br>") : "";
+  const notesSection = notesText ? `
+    <div class="odv-section">
+      <div class="odv-section-title">Notes</div>
+      <p style="margin:0;color:#475569;font-size:14px;">${notesText}</p>
+    </div>
+  ` : "";
 
   const chips = [
     orderRef ? `<span class="odv-chip">Order ${sanitizeText(orderRef)}</span>` : "",
@@ -8625,19 +8782,9 @@ function renderShippingSchedulePreview(record) {
     record.tracking_number ? `<span class="odv-chip">Tracking: ${sanitizeText(record.tracking_number)}</span>` : "",
   ].filter(Boolean).join("");
 
-  const scheduleGrid = scheduleRows.map(([label, key, value]) => `
-    <div class="odv-extra-row">
-      <span class="odv-extra-label">${sanitizeText(label)}</span>
-      <span class="odv-extra-val">${formatPreviewValue(value, key, record)}</span>
-    </div>
-  `).join("");
-
-  const notesSection = notesText ? `
-    <div class="odv-section">
-      <div class="odv-section-title">Notes</div>
-      <p style="margin:0;color:#475569;font-size:14px;">${notesText}</p>
-    </div>
-  ` : "";
+  const updatedMeta = record.updated_at
+    ? `<span class="stat-label">Updated ${formatPreviewValue(record.updated_at, "updated_at", record)}</span>`
+    : "";
 
   return `
     <div class="odv">
@@ -8645,12 +8792,18 @@ function renderShippingSchedulePreview(record) {
         <div class="odv-hero-left">
           <div class="odv-ref">${sanitizeText(title)}</div>
           <div class="odv-title">${sanitizeText(subtitle || "Shipping Schedule")}</div>
+          ${updatedMeta}
         </div>
-        <div class="odv-hero-right">
+        <div class="odv-hero-right" style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
           ${statusBadge}
+          ${daysBadge}
         </div>
       </div>
-      <div class="odv-chips">${chips}</div>
+      ${chips ? `<div class="odv-chips">${chips}</div>` : ""}
+      <div class="odv-section">
+        <div class="odv-section-title">Journey Progress</div>
+        ${timeline}
+      </div>
       <div class="odv-section">
         <div class="odv-section-title">Schedule</div>
         <div class="odv-extra-grid">${scheduleGrid}</div>
@@ -8679,6 +8832,7 @@ function renderSampleShipmentPreview(record) {
             <div class="preview-meta">
               <span class="badge info" data-tracking-status>Checking...</span>
               <span class="stat-label" data-tracking-carrier></span>
+              <span data-tracking-source></span>
             </div>
           </div>
         </div>
@@ -9010,7 +9164,6 @@ async function renderOrderPreview(record) {
   if (invoiceDate) chips.push({ icon: "calendar-check", label: "Invoice date", val: formatPreviewValue(invoiceDate, "invoice_date", record) });
   if (currency) chips.push({ icon: "coins", label: "Currency", val: currency });
   if (record.carrier) chips.push({ icon: "truck", label: "Carrier", val: sanitizeText(record.carrier) });
-  if (record.tracking_number) chips.push({ icon: "package", label: "Tracking", val: sanitizeText(record.tracking_number) });
   if (record.eta) chips.push({ icon: "map-pin", label: "ETA", val: formatPreviewValue(record.eta, "eta", record) });
   if (record.etd_date) chips.push({ icon: "anchor", label: "ETD", val: formatPreviewValue(record.etd_date, "etd_date", record) });
   if (record.factory_exit_date) chips.push({ icon: "door-open", label: "Factory exit", val: formatPreviewValue(record.factory_exit_date, "factory_exit_date", record) });
@@ -9883,15 +10036,15 @@ function statusToneFront(status) {
 }
 
 function statusToneShipping(status) {
-  const s = (status || "").toLowerCase();
-  if (s.includes("delivered")) return "success";
-  if (s.includes("dispatched") || s.includes("shipped") || s.includes("out for delivery") || s.includes("in transit")) {
-    return "info";
-  }
-  if (s.includes("pre transit") || s.includes("pending") || s.includes("label") || s.includes("failure") || s.includes("return")) {
-    return "warning";
-  }
-  return "info";
+  return {
+    "Delivered": "success",
+    "Arrived": "success",
+    "Shipped": "teal",
+    "Cargo Closing": "orange",
+    "Booking Confirmed": "purple",
+    "In Production": "info",
+    "Pending": "warning"
+  }[status] || "info";
 }
 
 function formatTrackingStatus(value) {
@@ -12828,7 +12981,7 @@ async function openAiExtractPdfModal() {
   });
 }
 
-// Feature 6: Track & Summarize
+
 function getCourierTrackUrl(courier, waybill) {
   const c = (courier || "").toLowerCase().trim();
   const wb = encodeURIComponent((waybill || "").trim());
@@ -12838,88 +12991,6 @@ function getCourierTrackUrl(courier, waybill) {
   if (c.includes("ups"))   return `https://www.ups.com/track?tracknum=${wb}`;
   if (c.includes("tnt"))   return `https://www.tnt.com/express/en_us/site/tracking.html?searchType=con&cons=${wb}`;
   return null;
-}
-
-function openAiTrackSummarizeModal(record, parentOverlay, tableKey) {
-  const waybill = (record && (record.waybill_number || record.tracking_number)) || "";
-  const courier = (record && (record.courier || record.carrier)) || "";
-  const isSample = tableKey === "sample_shipments";
-  const recordId = record && record.id;
-
-  if (!recordId) { showToast("Record ID missing"); return; }
-  if (!waybill) { showToast("No waybill number on this record"); return; }
-
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal">
-      <div class="modal-header">
-        <h3>&#9889; Track &amp; Summarize</h3>
-        <button class="btn-close" aria-label="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-row">
-          <label class="form-label">Waybill</label>
-          <input id="ai-track-waybill" class="form-input" value="${sanitizeText(waybill)}" />
-        </div>
-        <div class="form-row" style="margin-top:10px">
-          <label class="form-label">Courier</label>
-          <input id="ai-track-courier" class="form-input" value="${sanitizeText(courier)}" placeholder="e.g. DHL, FedEx" />
-        </div>
-        <div id="ai-track-courier-link" style="margin-top:8px;font-size:13px"></div>
-        <div id="ai-track-result" style="display:none;margin-top:16px"></div>
-      </div>
-      <div class="form-actions">
-        <button class="btn primary" id="ai-track-run">Track &amp; Summarize</button>
-        <button class="btn" data-close>Cancel</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
-  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
-
-  const wbInput = overlay.querySelector("#ai-track-waybill");
-  const crInput = overlay.querySelector("#ai-track-courier");
-  const linkEl  = overlay.querySelector("#ai-track-courier-link");
-
-  const updateCourierLink = () => {
-    const url = getCourierTrackUrl(crInput.value, wbInput.value);
-    if (url) {
-      const name = crInput.value.trim() || "courier";
-      linkEl.innerHTML = `<a href="${url}" target="_blank" rel="noopener noreferrer" style="color:var(--primary,#2563eb)">&#128279; Track on ${sanitizeText(name)} website &rarr;</a>`;
-    } else {
-      linkEl.innerHTML = "";
-    }
-  };
-  updateCourierLink();
-  wbInput.addEventListener("input", updateCourierLink);
-  crInput.addEventListener("input", updateCourierLink);
-
-  overlay.querySelector("#ai-track-run").addEventListener("click", async () => {
-    const wb = wbInput.value.trim();
-    const cr = crInput.value.trim();
-    if (!wb) { showToast("Waybill is required"); return; }
-    const btn = overlay.querySelector("#ai-track-run");
-    btn.disabled = true; btn.textContent = "Tracking...";
-    try {
-      const payload = isSample
-        ? { sample_id: recordId, waybill: wb, courier: cr }
-        : { order_id: recordId, waybill: wb, courier: cr };
-      const data = await aiPost("/api/ai/track-summary", payload);
-      const result = overlay.querySelector("#ai-track-result");
-      result.style.display = "block";
-      result.innerHTML = `
-        <div class="stat-label" style="margin-bottom:6px">Status: <strong>${sanitizeText(data.status || "&#8212;")}</strong></div>
-        <p>${sanitizeText(data.summary || "")}</p>
-        <p class="stat-label" style="margin-top:8px">Note saved to record.</p>
-      `;
-      btn.textContent = "Done";
-    } catch (err) {
-      showToast("Track error: " + err.message);
-      btn.disabled = false; btn.textContent = "Track & Summarize";
-    }
-  });
 }
 
 // Feature 5: Data Q&A Floating Panel (multi-turn + rich results)

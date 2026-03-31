@@ -750,6 +750,41 @@ app.get('/api/:table/csv', async (req: Request, res: Response) => {
   }
 });
 
+// ── Shipping milestone helpers ────────────────────────────────────────────────
+
+const shippingStatusRank: Record<string, number> = {
+  'Pending':           1,
+  'In Production':     2,
+  'Booking Confirmed': 3,
+  'Cargo Closing':     4,
+  'Shipped':           5,
+  'Arrived':           6,
+  'Delivered':         7,
+};
+
+const parseDateMs = (value: string | null | undefined): number | null => {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isNaN(ms) ? null : ms;
+};
+
+const computeShippingMilestoneStatus = (doc: any): string | null => {
+  const nowMs = Date.now();
+  const deliveryMs = parseDateMs(doc.delivery_date);
+  if (deliveryMs !== null && deliveryMs <= nowMs) return 'Delivered';
+  const etaMs = parseDateMs(doc.eta);
+  if (etaMs !== null && etaMs <= nowMs) return 'Arrived';
+  const etdMs = parseDateMs(doc.etd_date);
+  if (etdMs !== null && etdMs <= nowMs) return 'Shipped';
+  const cargoMs = parseDateMs(doc.cargo_closing_date ?? doc.etc_date);
+  if (cargoMs !== null && cargoMs <= nowMs) return 'Cargo Closing';
+  const bookingMs = parseDateMs(doc.booking_date);
+  if (bookingMs !== null && bookingMs <= nowMs) return 'Booking Confirmed';
+  const prodMs = parseDateMs(doc.production_date ?? doc.processing_start_date);
+  if (prodMs !== null && prodMs <= nowMs) return 'In Production';
+  return null;
+};
+
 // ── Shipping schedules: enrich with company/order/invoice names ───────────────
 
 const enrichShippingSchedule = async (db: Db, ownerEmail: string, doc: any): Promise<any> => {
@@ -792,6 +827,17 @@ const enrichShippingSchedule = async (db: Db, ownerEmail: string, doc: any): Pro
     }
   } else {
     enriched.invoice_reference = null;
+  }
+
+  // Default to 'Pending' when no status is set yet.
+  if (!enriched.status) enriched.status = 'Pending';
+
+  // Auto-advance shipping status based on milestone dates (never go backward).
+  const computedStatus = computeShippingMilestoneStatus(enriched);
+  if (computedStatus !== null) {
+    const currentRank  = shippingStatusRank[enriched.status as string] ?? 0;
+    const computedRank = shippingStatusRank[computedStatus] ?? 0;
+    if (computedRank > currentRank) enriched.status = computedStatus;
   }
 
   return enriched;
@@ -2383,9 +2429,45 @@ async function seedAdminUser() {
   }
 }
 
+async function syncAllShippingMilestones(): Promise<void> {
+  try {
+    const db = await getMongoDB();
+    const col = db.collection('shipping_schedules');
+    const docs = await col.find(
+      {},
+      { projection: { _id: 1, owner_email: 1, status: 1,
+                       production_date: 1, processing_start_date: 1,
+                       booking_date: 1, cargo_closing_date: 1, etc_date: 1,
+                       etd_date: 1, eta: 1, delivery_date: 1 } }
+    ).toArray();
+    if (!docs.length) return;
+    const nowIso = new Date().toISOString();
+    const bulkOps: any[] = [];
+    for (const doc of docs) {
+      const computedStatus = computeShippingMilestoneStatus(doc as any);
+      if (computedStatus === null) continue;
+      const currentRank  = shippingStatusRank[doc.status as string] ?? 0;
+      const computedRank = shippingStatusRank[computedStatus] ?? 0;
+      if (computedRank <= currentRank) continue;
+      bulkOps.push({ updateOne: {
+        filter: { _id: doc._id, owner_email: doc.owner_email },
+        update: { $set: { status: computedStatus, updated_at: nowIso } },
+      }});
+    }
+    if (bulkOps.length) {
+      await col.bulkWrite(bulkOps, { ordered: false });
+      console.log(`[milestones] Updated ${bulkOps.length} shipping schedule(s).`);
+    }
+  } catch (err) {
+    console.error('[milestones] syncAllShippingMilestones error:', err);
+  }
+}
+
 const server = app.listen(port, () => {
   console.log(`Server running on port ${port}`);
   seedAdminUser();
+  syncAllShippingMilestones();
+  setInterval(syncAllShippingMilestones, 60 * 60 * 1000);
 });
 
 process.on('SIGTERM', async () => {
