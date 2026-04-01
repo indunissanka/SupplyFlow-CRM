@@ -268,15 +268,6 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
 
 // ── Public Webhooks ───────────────────────────────────────────────────────────
 
-app.post('/api/webhooks/17track', (req: Request, res: Response) => {
-  // 17track sends a test POST to verify the URL — just return 200
-  // In production, payload contains tracking status updates
-  const payload = req.body;
-  if (payload) {
-    console.log('[webhook/17track] Received push:', JSON.stringify(payload).slice(0, 200));
-  }
-  res.json({ ok: true });
-});
 
 // ── Logout ────────────────────────────────────────────────────────────────────
 
@@ -1257,51 +1248,6 @@ const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 let _anthropic: Anthropic | null = null;
 let _anthropicKeySource: 'env' | 'db' | null = null;
 
-// Lazy 17track key — env first, then DB
-async function get17trackApiKey(db: Db): Promise<string | null> {
-  const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
-  if (envKey) return envKey;
-  const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
-  return (stored?.key_value as string) || null;
-}
-
-// Fetch live tracking data from 17track API
-async function fetch17trackData(apiKey: string, waybill: string, carrierCode?: string): Promise<{ status: string; history: string }> {
-  const TIMEOUT_MS = 10000;
-  const registerPayload: any = { number: waybill };
-  if (carrierCode) registerPayload.carrier_code = carrierCode;
-  // Register the waybill (idempotent — safe to call every time)
-  await fetch('https://api.17track.net/track/v2.2/register', {
-    method: 'POST',
-    headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify([registerPayload]),
-    signal: AbortSignal.timeout(TIMEOUT_MS)
-  });
-
-  // Fetch tracking info
-  const res = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
-    method: 'POST',
-    headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-    body: JSON.stringify([{ number: waybill }]),
-    signal: AbortSignal.timeout(TIMEOUT_MS)
-  });
-  const data: any = await res.json();
-  // Waybill may be in accepted or rejected depending on 17track auto-detection
-  const track = data?.data?.accepted?.[0]?.track;
-
-  const events = Array.isArray(track?.z1) ? track.z1.slice(0, 10) : [];
-  const history = JSON.stringify(events.map((e: any) => ({
-    date: e.a, location: e.b, description: e.c || e.d
-  })));
-
-  const statusCode: number = track?.z0?.z;
-  const statusMap: Record<number, string> = {
-    0: 'Not Found', 10: 'In Transit', 20: 'Expired',
-    30: 'Ready for Pick Up', 35: 'Undelivered', 40: 'Delivered', 50: 'Alert'
-  };
-  const status = statusMap[statusCode] || track?.z0?.d || track?.z0?.c || 'Unknown';
-  return { status, history };
-}
 
 async function getAnthropicClient(db: Db): Promise<Anthropic | null> {
   const envKey = process.env.ANTHROPIC_API_KEY;
@@ -1401,107 +1347,6 @@ app.post('/api/settings/ai-config/toggle', async (req: Request, res: Response) =
   res.json({ ok: true, enabled: newEnabled });
 });
 
-app.get('/api/settings/17track-config', async (req: Request, res: Response) => {
-  const user = (req as any).currentUser as UserRow;
-  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
-  const db: Db = (req as any).db;
-  const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
-  if (envKey) return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
-  const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
-  const dbKey = stored?.key_value as string | null;
-  if (dbKey) return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
-  res.json({ configured: false, source: null, preview: null });
-});
-
-app.post('/api/settings/17track-config', async (req: Request, res: Response) => {
-  const user = (req as any).currentUser as UserRow;
-  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
-  const db: Db = (req as any).db;
-  const key = String((req.body || {}).api_key || '').trim();
-  if (!key || key.length < 10) return res.status(400).json({ error: 'Invalid API key' });
-  await db.collection('api_keys').updateOne(
-    { key_name: '17track' },
-    { $set: { key_name: '17track', key_value: key, updated_at: new Date().toISOString() } },
-    { upsert: true }
-  );
-  res.json({ ok: true, preview: `...${key.slice(-4)}` });
-});
-
-app.get('/api/settings/17track-diagnose', async (req: Request, res: Response) => {
-  const user = (req as any).currentUser as UserRow;
-  if (user?.role !== adminRole) return res.status(403).json({ error: 'Admin only' });
-  const db: Db = (req as any).db;
-  const apiKey = await get17trackApiKey(db);
-
-  if (!apiKey) {
-    return res.json({
-      configured: false, reachable: false, auth_valid: false,
-      key_preview: null, message: 'No API key configured',
-      register_code: null, register_accepted: null, register_rejected: null,
-      getinfo_code: null, track_status: null, track_events: null
-    });
-  }
-
-  const TEST_WAYBILL = '1234567890';
-  let reachable = false;
-  let auth_valid = false;
-  let register_code: number | null = null;
-  let register_accepted: number | null = null;
-  let register_rejected: number | null = null;
-  let getinfo_code: number | null = null;
-  let track_status: string | null = null;
-  let track_events: number | null = null;
-
-  try {
-    const regRes = await fetch('https://api.17track.net/track/v2.2/register', {
-      method: 'POST',
-      headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify([{ number: TEST_WAYBILL }])
-    });
-    reachable = true;
-    register_code = regRes.status;
-    if (regRes.status === 200) {
-      auth_valid = true;
-      const regData: any = await regRes.json();
-      register_accepted = regData?.data?.accepted?.length ?? 0;
-      register_rejected = regData?.data?.rejected?.length ?? 0;
-    }
-  } catch {
-    reachable = false;
-  }
-
-  if (auth_valid) {
-    try {
-      const infoRes = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
-        method: 'POST',
-        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify([{ number: TEST_WAYBILL }])
-      });
-      getinfo_code = infoRes.status;
-      if (infoRes.status === 200) {
-        const infoData: any = await infoRes.json();
-        const track = infoData?.data?.accepted?.[0]?.track;
-        track_status = track?.z0?.d || track?.z0?.c || 'Unknown';
-        track_events = Array.isArray(track?.z1) ? track.z1.length : 0;
-      }
-    } catch { /* ignore */ }
-  }
-
-  const ok = reachable && auth_valid;
-  res.json({
-    configured: true,
-    key_preview: `...${apiKey.slice(-4)}`,
-    reachable,
-    auth_valid,
-    message: ok ? 'All checks passed' : (!reachable ? 'Cannot reach 17track API' : 'Auth failed — check API key'),
-    register_code,
-    register_accepted,
-    register_rejected,
-    getinfo_code,
-    track_status,
-    track_events
-  });
-});
 
 function safeParseJson(text: string): any {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -1521,20 +1366,6 @@ async function extractPdfText(filePath: string): Promise<string> {
   return text.slice(0, 6000);
 }
 
-// Map courier name → 17track carrier_code (used to speed up auto-detection)
-const track17CarrierMap: Record<string, string> = {
-  dhl: 'dhl', 'dhl express': 'dhl', 'dhl ecommerce': 'dhlecommerce',
-  fedex: 'fedex', 'fedex express': 'fedex',
-  ups: 'ups',
-  'sf express': 'sfexpress', 'sf-express': 'sfexpress',
-  aramex: 'aramex',
-  'royal mail': 'royalmail',
-  tnt: 'tnt',
-};
-const resolve17trackCarrier = (value?: string | null): string | undefined => {
-  const n = (value || '').trim().toLowerCase();
-  return n ? track17CarrierMap[n] : undefined;
-};
 
 // Feature 3: Smart Note
 app.post('/api/ai/smart-note', async (req: Request, res: Response) => {
@@ -1620,6 +1451,7 @@ interface QueryPlan {
   collection: string;
   match: Record<string, any>;
   group_by?: string | null;
+  sum_field?: string | null;
   count_only?: boolean;
   sort_field?: string | null;
   sort_dir?: number;
@@ -1630,8 +1462,13 @@ async function runQueryPlan(db: Db, plan: QueryPlan, ownerEmail: string): Promis
   const matchStage: any = { ...(plan.match || {}), owner_email: ownerEmail };
   const pipeline: any[] = [{ $match: matchStage }];
   if (plan.group_by) {
-    pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
-    pipeline.push({ $sort: { count: -1 } });
+    if (plan.sum_field) {
+      pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 }, total: { $sum: { $toDouble: `$${plan.sum_field}` } } } });
+      pipeline.push({ $sort: { total: -1 } });
+    } else {
+      pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
+      pipeline.push({ $sort: { count: -1 } });
+    }
   } else if (plan.count_only) {
     pipeline.push({ $count: 'total' });
   } else {
@@ -1640,6 +1477,26 @@ async function runQueryPlan(db: Db, plan: QueryPlan, ownerEmail: string): Promis
   }
   pipeline.push({ $limit: Math.min(plan.limit || 10, 20) });
   return db.collection(plan.collection).aggregate(pipeline).toArray();
+}
+
+function isReportRequest(question: string): boolean {
+  const q = question.toLowerCase();
+  return /\b(report|summary|overview|monthly|quarterly|yearly|annual|sales report|revenue report|sales data|sales overview)\b/.test(q);
+}
+
+function buildSalesReportPlans(): QueryPlan[] {
+  return [
+    // Orders by status with revenue totals
+    { collection: 'orders', match: {}, group_by: 'status', sum_field: 'total_amount', limit: 20 },
+    // Top customers by order revenue
+    { collection: 'orders', match: {}, group_by: 'company_name', sum_field: 'total_amount', limit: 10 },
+    // Recent orders
+    { collection: 'orders', match: {}, sort_field: 'created_at', sort_dir: -1, limit: 10 },
+    // Invoice status with totals
+    { collection: 'invoices', match: {}, group_by: 'status', sum_field: 'total_amount', limit: 10 },
+    // Recent shipments
+    { collection: 'shipping_schedules', match: {}, sort_field: 'created_at', sort_dir: -1, limit: 5 },
+  ];
 }
 
 app.post('/api/ai/query', async (req: Request, res: Response) => {
@@ -1689,37 +1546,54 @@ Rules:
     const client = await getAnthropicClient(db);
     if (!client) return res.status(501).json({ error: 'AI features not configured' });
 
-    const planMsg = await client.messages.create({
-      model: AI_MODEL,
-      max_tokens: 512,
-      system: planSystem,
-      messages: [...historyMessages, { role: 'user', content: question }]
-    });
-    const planRaw = planMsg.content[0]?.type === 'text' ? planMsg.content[0].text : '[]';
-    let plans: QueryPlan[] = [];
-    try {
-      const parsed = safeParseJson(planRaw);
-      plans = Array.isArray(parsed) ? parsed : [parsed];
-    } catch { plans = []; }
+    let plans: QueryPlan[];
+    let answerSystem: string;
+    let maxTokens: number;
 
-    // Filter to allowed collections only
-    plans = plans.filter((p) => p && aiAllowedCollections.has(p.collection));
+    if (isReportRequest(question)) {
+      // Report intent: skip the query planner and use predefined report queries
+      plans = buildSalesReportPlans();
+      answerSystem = `You are a CRM assistant generating a sales report. Using the query results provided, produce a complete report with these sections:
+1. **Order Summary** — total orders by status, total revenue
+2. **Top Customers** — ranked by revenue/order count
+3. **Recent Orders** — latest order activity
+4. **Invoice & Payment Status** — amounts by status (paid, unpaid, overdue)
+5. **Shipment Activity** — recent shipping schedules
 
-    // Run all queries in parallel, cap total at 30
+Format each section with a bold heading and bullet points. Include specific numbers, amounts, and names from the data. Do NOT ask any clarifying questions — generate the full report now using all available data. End with one short sentence offering optional refinement (e.g. date range or specific customer filter).`;
+      maxTokens = 1500;
+    } else {
+      // Normal query: use the AI query planner
+      const planMsg = await client.messages.create({
+        model: AI_MODEL,
+        max_tokens: 512,
+        system: planSystem,
+        messages: [...historyMessages, { role: 'user', content: question }]
+      });
+      const planRaw = planMsg.content[0]?.type === 'text' ? planMsg.content[0].text : '[]';
+      try {
+        const parsed = safeParseJson(planRaw);
+        plans = Array.isArray(parsed) ? parsed : [parsed];
+      } catch { plans = []; }
+      plans = plans.filter((p) => p && aiAllowedCollections.has(p.collection));
+      answerSystem = `You are a CRM assistant with access to all site data. Answer the user's question based on the query results. Be clear and helpful (2-5 sentences). Mention specific record names, counts, amounts, or dates where relevant. If no results were found, say so and suggest what they might search for instead.`;
+      maxTokens = 512;
+    }
+
+    // Run all queries in parallel
     const queryResults = await Promise.all(plans.map((p) => runQueryPlan(db, p, ownerEmail).catch(() => [])));
     const results: Array<{ collection: string; rows: any[] }> = plans.map((p, i) => ({
       collection: p.collection,
       rows: (queryResults[i] || []).map(serializeDoc)
     })).filter((r) => r.rows.length > 0);
 
-    // Generate answer with full context
-    const answerSystem = `You are a CRM assistant with access to all site data. Answer the user's question based on the query results. Be clear and helpful (2-5 sentences). Mention specific record names, counts, amounts, or dates where relevant. If no results were found, say so and suggest what they might search for instead.`;
+    // Generate answer
     const allRows = results.flatMap((r) => r.rows.map((row) => ({ ...row, _collection: r.collection })));
-    const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 50))}`;
+    const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 80))}`;
 
     const answerMsg = await client.messages.create({
       model: AI_MODEL,
-      max_tokens: 512,
+      max_tokens: maxTokens,
       system: answerSystem,
       messages: [...historyMessages, { role: 'user', content: answerInput }]
     });
@@ -1800,23 +1674,9 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
   const record = await db.collection(collection).findOne({ _id: oid, owner_email: ownerEmail });
   if (!record) return res.status(404).json({ error: 'Record not found' });
 
-  const trackApiKey17 = await get17trackApiKey(db);
-
   try {
-    let status = 'UNKNOWN';
-    let history = '[]';
-
-    if (trackApiKey17) {
-      const result = await fetch17trackData(trackApiKey17, waybill);
-      status = result.status;
-      history = result.history;
-    }
-
-    const hasLiveData = Boolean(trackApiKey17);
-    const system = hasLiveData
-      ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences. Mention the current status and latest location if available.'
-      : 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
-    const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}\nStatus: ${status}\nHistory: ${history}`, 256);
+    const system = 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
+    const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}`, 256);
 
     const now = new Date().toISOString();
     const noteDoc = {
@@ -1832,64 +1692,13 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
     };
     const noteResult = await db.collection('notes').insertOne(noteDoc);
 
-    res.json({ summary, status, note_id: noteResult.insertedId.toString() });
+    res.json({ summary, note_id: noteResult.insertedId.toString() });
   } catch (err: any) {
     console.error('AI track-summary error', err);
     res.status(500).json({ error: err.message || 'AI error' });
   }
 });
 
-// ── Live Tracking ─────────────────────────────────────────────────────────────
-
-app.get('/api/tracking/live', async (req: Request, res: Response) => {
-  const db: Db = (req as any).db;
-  const waybill = p(req.query.waybill as string);
-  const courier = p(req.query.courier as string);
-  if (!waybill) return res.status(400).json({ error: 'waybill is required' });
-
-  const trackApiKey17 = await get17trackApiKey(db);
-
-  if (!trackApiKey17) {
-    return res.status(501).json({ error: 'No tracking API configured' });
-  }
-
-  try {
-    const carrierCode = resolve17trackCarrier(courier);
-    let result: { status: string; history: string };
-    try {
-      result = await fetch17trackData(trackApiKey17, waybill, carrierCode);
-    } catch (fetchErr: any) {
-      const isTimeout = fetchErr?.name === 'TimeoutError' || fetchErr?.name === 'AbortError';
-      console.warn('[17track] fetch error for', waybill, fetchErr?.message);
-      return res.json({
-        carrier: courier || null,
-        tracking_code: waybill,
-        status: isTimeout ? 'Pending' : 'Unknown',
-        status_detail: isTimeout ? 'Tracking data is being fetched. Please check back in a moment.' : (fetchErr?.message || 'Lookup failed'),
-        updated_at: null, est_delivery_date: null, source: '17track', tracking_details: []
-      });
-    }
-    const events: any[] = JSON.parse(result.history || '[]');
-    return res.json({
-      carrier: courier || null,
-      tracking_code: waybill,
-      status: result.status,
-      status_detail: result.status,
-      updated_at: events[0]?.date || null,
-      est_delivery_date: null,
-      source: '17track',
-      tracking_details: events.map((e: any) => ({
-        status: e.description,
-        message: e.description,
-        datetime: e.date,
-        tracking_location: { city: e.location || '', state: '', zip: '', country: '' }
-      }))
-    });
-  } catch (err: any) {
-    console.error('Tracking error', err);
-    return res.status(500).json({ error: err.message || 'Internal error' });
-  }
-});
 
 // ── Generic CRUD ──────────────────────────────────────────────────────────────
 

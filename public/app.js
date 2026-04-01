@@ -5678,7 +5678,6 @@ async function renderSettings() {
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
-          ${canManageUsers ? `<button class="tab" data-tab="17track-config">17track Configuration</button>` : ""}
         </div>
         <div class="tab-content active" id="site-config">
           <div class="panel configuration-panel">
@@ -5927,42 +5926,7 @@ async function renderSettings() {
             </div>
           </div>
         </div>
-        <div class="tab-content" id="17track-config">
-          <div class="panel">
-            <div class="panel-header">
-              <h3 class="panel-title panel-title-icon">
-                <i data-lucide="package-search"></i>
-                17track Configuration
-              </h3>
-              <div class="stat-label">17track provides live tracking for DHL, FedEx, UPS, TNT, SF Express, Aramex, and 1000+ carriers from a single API key.</div>
-            </div>
-            <div style="padding:20px 0 8px">
-              <div style="margin-bottom:16px">
-                <div class="stat-label" style="margin-bottom:4px">Status</div>
-                <div id="17track-config-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
-                  <span style="color:var(--text-muted)">Loading...</span>
-                </div>
-              </div>
-              <div style="margin-bottom:16px">
-                <label class="form-label" for="17track-config-key-input">17track API Key</label>
-                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
-                  <input id="17track-config-key-input" type="password" class="form-input" placeholder="Paste your 17track API key..." autocomplete="off" style="flex:1;min-width:0" />
-                  <button class="btn ghost small" id="17track-config-toggle-vis" type="button" title="Show/hide key">
-                    <i data-lucide="eye"></i>
-                  </button>
-                  <button class="btn primary" id="17track-config-save-btn" type="button">Save</button>
-                  <button class="btn ghost" id="17track-config-diagnose-btn" type="button" title="Test API key and check data flow">
-                    <i data-lucide="stethoscope"></i>
-                    Diagnose
-                  </button>
-                </div>
-              </div>
-              <div id="17track-diagnose-result" style="display:none;margin-bottom:16px;border-radius:10px;border:1px solid var(--border);overflow:hidden;font-size:13px;"></div>
-              <p class="stat-label">Get a free API key at <strong>17track.net/en/service/api</strong> (free tier: 100 tracks/month). When configured, 17track provides live tracking for all supported carriers.</p>
-            </div>
-          </div>
-        </div>
-        ` : ""}
+` : ""}
       </div>
     </div>
   `;
@@ -6065,104 +6029,6 @@ async function renderSettings() {
     // Also trigger status load when tab is clicked
     document.querySelector("[data-tab='ai-config']")?.addEventListener("click", loadAiStatus);
 
-    // 17track Config tab handlers
-    const t17StatusEl    = document.getElementById("17track-config-status");
-    const t17KeyInput    = document.getElementById("17track-config-key-input");
-    const t17SaveBtn     = document.getElementById("17track-config-save-btn");
-    const t17ToggleVis   = document.getElementById("17track-config-toggle-vis");
-    const t17DiagnoseBtn = document.getElementById("17track-config-diagnose-btn");
-    const t17DiagnoseOut = document.getElementById("17track-diagnose-result");
-
-    const load17trackStatus = async () => {
-      if (!t17StatusEl) return;
-      try {
-        const res = await apiFetch("/api/settings/17track-config");
-        const data = await res.json();
-        if (data.configured) {
-          const src = data.source === "env" ? "environment variable" : "saved in database";
-          t17StatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Configured</strong> <span class="stat-label">(${sanitizeText(data.preview || "")} &mdash; ${src})</span>`;
-        } else {
-          t17StatusEl.innerHTML = `<span style="color:var(--text-muted)">&#9679;</span> <span class="stat-label">Not configured</span>`;
-        }
-      } catch (_) {
-        t17StatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
-      }
-    };
-    load17trackStatus();
-
-    t17ToggleVis?.addEventListener("click", () => {
-      if (!t17KeyInput) return;
-      t17KeyInput.type = t17KeyInput.type === "password" ? "text" : "password";
-    });
-
-    t17SaveBtn?.addEventListener("click", async () => {
-      const key = t17KeyInput?.value.trim() || "";
-      if (!key) { showToast("Please enter an API key"); return; }
-      t17SaveBtn.disabled = true; t17SaveBtn.textContent = "Saving...";
-      try {
-        const res = await apiFetch("/api/settings/17track-config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_key: key })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Save failed");
-        showToast("17track API key saved");
-        if (t17KeyInput) t17KeyInput.value = "";
-        await load17trackStatus();
-      } catch (err) {
-        showToast("Error: " + err.message);
-      } finally {
-        t17SaveBtn.disabled = false; t17SaveBtn.textContent = "Save";
-      }
-    });
-
-    t17DiagnoseBtn?.addEventListener("click", async () => {
-      if (!t17DiagnoseOut) return;
-      t17DiagnoseBtn.disabled = true;
-      t17DiagnoseBtn.innerHTML = `<i data-lucide="loader"></i> Diagnosing...`;
-      t17DiagnoseOut.style.display = "block";
-      t17DiagnoseOut.innerHTML = `<div style="padding:14px 16px;color:var(--text-muted)">Contacting 17track API&hellip;</div>`;
-      try {
-        const res = await apiFetch("/api/settings/17track-diagnose");
-        const d = await res.json();
-        const ok = d.auth_valid && d.reachable;
-        const warn = d.configured && d.reachable && !d.auth_valid;
-        const accent = ok ? "#16a34a" : warn ? "#c97706" : "#dc2626";
-        const bg     = ok ? "#f0fdf4" : warn ? "#fffbeb" : "#fff5f5";
-        const icon   = ok ? "&#10003;" : warn ? "&#9888;" : "&#10007;";
-        const rows = [
-          ["API Key Configured", d.configured ? `Yes (${sanitizeText(d.key_preview || "")})` : "No"],
-          ["17track Reachable",  d.reachable  ? "Yes" : "No — check your network"],
-          ["Auth Valid",         d.auth_valid ? "Yes" : "No — key may be wrong or quota exceeded"],
-        ];
-        if (d.register_code !== null) rows.push(["Register Response Code", String(d.register_code)]);
-        if (d.register_accepted !== null) rows.push(["Waybill Accepted",  String(d.register_accepted)]);
-        if (d.register_rejected !== null) rows.push(["Waybill Rejected",  String(d.register_rejected)]);
-        if (d.getinfo_code !== null)      rows.push(["GetTrackInfo Code",  String(d.getinfo_code)]);
-        if (d.track_status)               rows.push(["Track Status",       sanitizeText(d.track_status)]);
-        if (d.track_events !== null && d.track_events !== undefined) rows.push(["Events Received", String(d.track_events)]);
-        const tableRows = rows.map(([label, val]) =>
-          `<tr><td style="padding:6px 14px;color:#64748b;font-weight:600;text-transform:uppercase;font-size:10.5px;letter-spacing:0.4px;white-space:nowrap">${label}</td>` +
-          `<td style="padding:6px 14px;color:#0f172a;font-weight:500">${val}</td></tr>`
-        ).join("");
-        t17DiagnoseOut.innerHTML =
-          `<div style="padding:12px 16px;background:${bg};border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px">` +
-            `<span style="font-size:18px;color:${accent}">${icon}</span>` +
-            `<span style="font-weight:700;color:${accent}">${sanitizeText(d.message || (ok ? "All checks passed" : "Issue detected"))}</span>` +
-          `</div>` +
-          `<table style="width:100%;border-collapse:collapse">${tableRows}</table>`;
-        lucide.createIcons();
-      } catch (err) {
-        t17DiagnoseOut.innerHTML = `<div style="padding:14px 16px;color:#dc2626">Diagnose failed: ${sanitizeText(err.message)}</div>`;
-      } finally {
-        t17DiagnoseBtn.disabled = false;
-        t17DiagnoseBtn.innerHTML = `<i data-lucide="stethoscope"></i> Diagnose`;
-        lucide.createIcons();
-      }
-    });
-
-    document.querySelector("[data-tab='17track-config']")?.addEventListener("click", load17trackStatus);
   }
 
   const passwordForm = document.getElementById("password-form");
@@ -6809,23 +6675,6 @@ async function syncInvoiceDocuments(invoiceId, attachmentKeys) {
   }
 }
 
-async function fetchLiveTracking(waybill, courier) {
-  const code = (waybill || "").toString().trim();
-  if (!code) {
-    throw new Error("Missing waybill number");
-  }
-  const params = new URLSearchParams({ waybill: code });
-  const carrier = (courier || "").toString().trim();
-  if (carrier) {
-    params.set("courier", carrier);
-  }
-  const res = await apiFetch(`/api/tracking/live?${params.toString()}`);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || "Tracking lookup failed");
-  }
-  return res.json();
-}
 
 
 
@@ -7598,9 +7447,6 @@ async function openPreviewModal(tableKey, record) {
         showToast("Unable to open document");
       }
     });
-    if (record?.waybill_number) {
-      hydrateSampleTracking(overlay, record).catch((err) => console.error("Live tracking failed", err));
-    }
   } else if (tableKey === "documents") {
     const previewSlot = overlay.querySelector("[data-doc-preview]");
     const openLink = overlay.querySelector("[data-doc-open]");
@@ -7622,169 +7468,6 @@ async function openPreviewModal(tableKey, record) {
   }
 }
 
-function updateSampleStatusCell(record, statusLabel) {
-  if (!record || !statusLabel) return;
-  const rows = Array.isArray(tableRecords.sample_shipments) ? tableRecords.sample_shipments : [];
-  const rowIndex = rows.findIndex((row) => row && (row.id === record.id));
-  if (rowIndex < 0) return;
-  const state = paginationState.get("sample_shipments");
-  const columns = state?.columns || [];
-  const statusIndex = columns.indexOf("Status");
-  if (state && statusIndex !== -1) {
-    const nextBadge = badge(statusToneShipping(statusLabel), statusLabel);
-    if (Array.isArray(state.allRows) && Array.isArray(state.allRowIndices)) {
-      const originalIdx = state.allRowIndices.indexOf(rowIndex);
-      if (originalIdx !== -1 && state.allRows[originalIdx]) {
-        state.allRows[originalIdx][statusIndex] = nextBadge;
-      }
-    }
-    if (Array.isArray(state.rowIndices)) {
-      const filteredIdx = state.rowIndices.indexOf(rowIndex);
-      if (filteredIdx !== -1 && state.rows?.[filteredIdx]) {
-        state.rows[filteredIdx][statusIndex] = nextBadge;
-      }
-    } else if (state.rows?.[rowIndex]) {
-      state.rows[rowIndex][statusIndex] = nextBadge;
-    }
-  }
-  const table = document.querySelector('table[data-table="sample_shipments"]');
-  const row = table?.querySelector(`tr[data-row-index="${rowIndex}"]`);
-  if (!row) return;
-  const cells = row.querySelectorAll("td");
-  const target = cells[statusIndex !== -1 ? statusIndex : cells.length - 1];
-  if (!target) return;
-  target.innerHTML = badge(statusToneShipping(statusLabel), statusLabel);
-}
-
-async function hydrateSampleTracking(overlay, record) {
-  const waybill = record?.waybill_number?.toString().trim();
-  if (!waybill) return;
-  const statusBadge = overlay.querySelector("[data-tracking-status]");
-  const carrierLabel = overlay.querySelector("[data-tracking-carrier]");
-  const summarySlot = overlay.querySelector("[data-tracking-summary]");
-  const eventsSlot = overlay.querySelector("[data-tracking-events]");
-
-  if (statusBadge) {
-    statusBadge.textContent = "Checking...";
-    statusBadge.className = "badge info";
-  }
-  if (summarySlot) {
-    summarySlot.innerHTML = `
-      <div class="preview-row">
-        <div class="preview-label">Waybill</div>
-        <div class="preview-value">${sanitizeText(waybill)}</div>
-      </div>
-      <div class="preview-row">
-        <div class="preview-label">Status</div>
-        <div class="preview-value"><span class="stat-label">Loading...</span></div>
-      </div>
-      <div class="preview-row">
-        <div class="preview-label">Updated</div>
-        <div class="preview-value">--</div>
-      </div>
-    `;
-  }
-  if (eventsSlot) {
-    eventsSlot.innerHTML = `<div class="stat-label">Fetching tracking updates...</div>`;
-  }
-
-  try {
-    const data = await fetchLiveTracking(waybill, record?.courier);
-    const rawStatusDetail = typeof data?.status_detail === "string" ? data.status_detail.trim() : "";
-    const statusLabel = formatTrackingStatus(data?.status);
-    const tone = statusToneShipping(statusLabel);
-    const carrier = data?.carrier || record?.courier || "";
-    const updatedAt = data?.updated_at ? new Date(data.updated_at).toLocaleString() : "--";
-    const estDelivery = data?.est_delivery_date ? new Date(data.est_delivery_date).toLocaleDateString() : "";
-
-    if (statusBadge) {
-      statusBadge.textContent = statusLabel;
-      statusBadge.className = `badge ${tone}`;
-    }
-    if (carrierLabel) {
-      carrierLabel.textContent = carrier ? sanitizeText(carrier) : "";
-    }
-    const sourceEl = overlay.querySelector("[data-tracking-source]");
-    if (sourceEl) {
-      sourceEl.innerHTML = data?.source === "17track"
-        ? `<span class="badge info" style="font-size:10px;padding:2px 8px">via 17track</span>`
-        : "";
-    }
-
-    const summaryRows = [
-      ["Waybill", waybill],
-      ["Carrier", carrier || "-"],
-      ["Status", statusLabel],
-      ["Updated", updatedAt]
-    ];
-    if (estDelivery) {
-      summaryRows.push(["Est. Delivery", estDelivery]);
-    }
-    if (summarySlot) {
-      summarySlot.innerHTML = summaryRows
-        .map(
-          ([label, value]) => `
-            <div class="preview-row">
-              <div class="preview-label">${sanitizeText(label)}</div>
-              <div class="preview-value">${sanitizeText(value)}</div>
-            </div>
-          `
-        )
-        .join("");
-    }
-
-    const events = Array.isArray(data?.tracking_details) ? data.tracking_details : [];
-    if (eventsSlot) {
-      eventsSlot.innerHTML = events.length
-        ? events
-            .map((event) => {
-              const timestamp = event?.datetime ? new Date(event.datetime).toLocaleString() : "Unknown time";
-              const eventStatus = formatTrackingStatus(event?.status);
-              const message = event?.message ? event.message : "";
-              const location = formatTrackingLocation(event?.tracking_location);
-              const detailParts = [eventStatus, message].filter(Boolean).join(" - ");
-              const locationMarkup = location ? `<div class="stat-label">${sanitizeText(location)}</div>` : "";
-              return `
-                <div class="preview-row">
-                  <div class="preview-label">${sanitizeText(timestamp)}</div>
-                  <div class="preview-value">${sanitizeText(detailParts) || "Update"}${locationMarkup}</div>
-                </div>
-              `;
-            })
-            .join("")
-        : `<div class="stat-label">No tracking scans yet.</div>`;
-    }
-
-    record.tracking_status = statusLabel;
-    record.tracking_carrier = carrier;
-    record.tracking_status_detail = rawStatusDetail;
-    record.tracking_updated_at = data?.updated_at || null;
-    record.tracking_details = events;
-
-    updateSampleStatusCell(record, statusLabel);
-  } catch (err) {
-    console.error("Tracking lookup failed", err);
-    if (statusBadge) {
-      statusBadge.textContent = "Unavailable";
-      statusBadge.className = "badge warning";
-    }
-    if (summarySlot) {
-      summarySlot.innerHTML = `
-        <div class="preview-row">
-          <div class="preview-label">Waybill</div>
-          <div class="preview-value">${sanitizeText(waybill)}</div>
-        </div>
-        <div class="preview-row">
-          <div class="preview-label">Status</div>
-          <div class="preview-value">Unable to fetch tracking data.</div>
-        </div>
-      `;
-    }
-    if (eventsSlot) {
-      eventsSlot.innerHTML = `<div class="stat-label">Tracking details unavailable.</div>`;
-    }
-  }
-}
 
 async function renderInvoicePreview(record) {
   const currency = record.currency || "USD";
@@ -8700,46 +8383,6 @@ function renderSampleShipmentPreview(record) {
   const productLabel = record.product_name || (record.product_id ? `Product #${record.product_id}` : "Product");
   const documentLabel = record.document_title || (record.document_id ? `Document #${record.document_id}` : "");
 
-  const trackingCard = record.waybill_number
-    ? `
-      <div class="preview-card" data-tracking-card>
-        <div class="preview-header">
-          <div class="preview-title-section">
-            <div class="preview-title">Live Tracking</div>
-            <div class="preview-meta">
-              <span class="badge info" data-tracking-status>Checking...</span>
-              <span class="stat-label" data-tracking-carrier></span>
-              <span data-tracking-source></span>
-            </div>
-          </div>
-        </div>
-        <div class="preview-grid" data-tracking-summary>
-          <div class="preview-row">
-            <div class="preview-label">Waybill</div>
-            <div class="preview-value">${sanitizeText(record.waybill_number)}</div>
-          </div>
-          <div class="preview-row">
-            <div class="preview-label">Status Detail</div>
-            <div class="preview-value"><span class="stat-label">Fetching updates...</span></div>
-          </div>
-          <div class="preview-row">
-            <div class="preview-label">Updated</div>
-            <div class="preview-value">--</div>
-          </div>
-        </div>
-        <div class="preview-header">
-          <div class="preview-title-section">
-            <div class="preview-title">Tracking Events</div>
-            <div class="preview-subtitle">Latest scans from the carrier</div>
-          </div>
-        </div>
-        <div class="preview-grid" data-tracking-events>
-          <div class="stat-label">Fetching tracking updates...</div>
-        </div>
-      </div>
-    `
-    : "";
-
   const odvChips = [
     companyLabel ? `<span class="odv-chip">${sanitizeText(companyLabel)}</span>` : "",
     productLabel ? `<span class="odv-chip">${sanitizeText(productLabel)}</span>` : "",
@@ -8789,7 +8432,7 @@ function renderSampleShipmentPreview(record) {
     </div>
   `;
 
-  return trackingCard ? `<div class="preview-stack">${mainCard}${trackingCard}</div>` : mainCard;
+  return mainCard;
 }
 
 function renderDocumentViewer(fileUrl, mime, title, record) {

@@ -230,15 +230,6 @@ app.use(async (req, res, next) => {
     next();
 });
 // ── Public Webhooks ───────────────────────────────────────────────────────────
-app.post('/api/webhooks/17track', (req, res) => {
-    // 17track sends a test POST to verify the URL — just return 200
-    // In production, payload contains tracking status updates
-    const payload = req.body;
-    if (payload) {
-        console.log('[webhook/17track] Received push:', JSON.stringify(payload).slice(0, 200));
-    }
-    res.json({ ok: true });
-});
 // ── Logout ────────────────────────────────────────────────────────────────────
 app.post('/api/auth/logout', async (req, res) => {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
@@ -385,6 +376,7 @@ app.get('/api/dashboard', async (req, res) => {
     const ownerEmail = req.ownerEmail;
     const db = req.db;
     try {
+        await syncShippingMilestonesForUser(db, ownerEmail);
         const [companies, contacts, orders, quotations, invoices, tasks] = await Promise.all([
             db.collection('companies').countDocuments({ owner_email: ownerEmail }),
             db.collection('contacts').countDocuments({ owner_email: ownerEmail }),
@@ -395,7 +387,7 @@ app.get('/api/dashboard', async (req, res) => {
         ]);
         // Pipeline data: recent orders + unpaid invoices
         const [recentOrders, recentInvoices, quotationPipeline, unpaidAgg, activeOrderCount, recentTasks] = await Promise.all([
-            db.collection('orders').find({ owner_email: ownerEmail }).sort({ created_at: -1 }).limit(5).toArray(),
+            db.collection('orders').find({ owner_email: ownerEmail }).sort({ updated_at: -1 }).limit(5).toArray(),
             db.collection('invoices').find({ owner_email: ownerEmail, status: { $in: ['Unpaid', 'Open', 'Overdue'] } }).sort({ created_at: -1 }).limit(4).toArray(),
             db.collection('quotations').countDocuments({ owner_email: ownerEmail, status: { $in: ['Draft', 'Sent'] } }),
             db.collection('invoices').aggregate([
@@ -407,7 +399,7 @@ app.get('/api/dashboard', async (req, res) => {
         ]);
         const toStatusType = (status) => {
             const s = (status || '').toLowerCase();
-            if (['paid', 'completed', 'delivered'].includes(s))
+            if (['paid', 'completed', 'delivered', 'arrived', 'shipped'].includes(s))
                 return 'success';
             if (['overdue', 'cancelled', 'rejected'].includes(s))
                 return 'danger';
@@ -438,7 +430,7 @@ app.get('/api/dashboard', async (req, res) => {
                 currency: o.currency || 'USD',
                 status: o.status || 'Draft',
                 statusType: toStatusType(o.status),
-                date: o.created_at || ''
+                date: o.updated_at || o.created_at || ''
             };
         });
         const invoiceItems = recentInvoices.map((inv) => ({
@@ -721,9 +713,12 @@ app.get('/api/:table/csv', async (req, res) => {
 // ── Shipping milestone helpers ────────────────────────────────────────────────
 const shippingStatusRank = {
     'Pending': 1,
-    'In Production': 2,
+    'Factory exit': 1, // legacy alias
+    'In Progress': 2,
+    'Dispatched': 2, // legacy alias
     'Booking Confirmed': 3,
     'Cargo Closing': 4,
+    'Cut Off': 4, // legacy alias
     'Shipped': 5,
     'Arrived': 6,
     'Delivered': 7,
@@ -753,7 +748,7 @@ const computeShippingMilestoneStatus = (doc) => {
         return 'Booking Confirmed';
     const prodMs = parseDateMs(doc.production_date ?? doc.processing_start_date);
     if (prodMs !== null && prodMs <= nowMs)
-        return 'In Production';
+        return 'In Progress';
     return null;
 };
 // ── Orders: derive status from linked shipping schedule ───────────────────────
@@ -859,6 +854,7 @@ app.post('/api/shipping_schedules', async (req, res) => {
     try {
         const result = await db.collection('shipping_schedules').insertOne(doc);
         const created = await db.collection('shipping_schedules').findOne({ _id: result.insertedId });
+        syncShippingMilestonesForUser(db, ownerEmail).catch(() => { });
         res.status(201).json({ row: serializeDoc(created) });
     }
     catch (err) {
@@ -882,6 +878,7 @@ app.put('/api/shipping_schedules/:id', async (req, res) => {
         const updated = await db.collection('shipping_schedules').findOne({ _id: oid });
         if (!updated)
             return res.status(404).json({ error: 'Not found' });
+        syncShippingMilestonesForUser(db, ownerEmail).catch(() => { });
         res.json({ row: serializeDoc(updated) });
     }
     catch (err) {
@@ -1203,49 +1200,6 @@ const AI_MODEL = process.env.AI_MODEL || 'claude-haiku-4-5-20251001';
 // Lazy Anthropic client — prefers env var, falls back to DB-stored key
 let _anthropic = null;
 let _anthropicKeySource = null;
-// Lazy 17track key — env first, then DB
-async function get17trackApiKey(db) {
-    const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
-    if (envKey)
-        return envKey;
-    const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
-    return stored?.key_value || null;
-}
-// Fetch live tracking data from 17track API
-async function fetch17trackData(apiKey, waybill, carrierCode) {
-    const TIMEOUT_MS = 10000;
-    const registerPayload = { number: waybill };
-    if (carrierCode)
-        registerPayload.carrier_code = carrierCode;
-    // Register the waybill (idempotent — safe to call every time)
-    await fetch('https://api.17track.net/track/v2.2/register', {
-        method: 'POST',
-        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify([registerPayload]),
-        signal: AbortSignal.timeout(TIMEOUT_MS)
-    });
-    // Fetch tracking info
-    const res = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
-        method: 'POST',
-        headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-        body: JSON.stringify([{ number: waybill }]),
-        signal: AbortSignal.timeout(TIMEOUT_MS)
-    });
-    const data = await res.json();
-    // Waybill may be in accepted or rejected depending on 17track auto-detection
-    const track = data?.data?.accepted?.[0]?.track;
-    const events = Array.isArray(track?.z1) ? track.z1.slice(0, 10) : [];
-    const history = JSON.stringify(events.map((e) => ({
-        date: e.a, location: e.b, description: e.c || e.d
-    })));
-    const statusCode = track?.z0?.z;
-    const statusMap = {
-        0: 'Not Found', 10: 'In Transit', 20: 'Expired',
-        30: 'Ready for Pick Up', 35: 'Undelivered', 40: 'Delivered', 50: 'Alert'
-    };
-    const status = statusMap[statusCode] || track?.z0?.d || track?.z0?.c || 'Unknown';
-    return { status, history };
-}
 async function getAnthropicClient(db) {
     const envKey = process.env.ANTHROPIC_API_KEY;
     if (envKey) {
@@ -1336,104 +1290,6 @@ app.post('/api/settings/ai-config/toggle', async (req, res) => {
     _anthropicKeySource = null;
     res.json({ ok: true, enabled: newEnabled });
 });
-app.get('/api/settings/17track-config', async (req, res) => {
-    const user = req.currentUser;
-    if (user?.role !== adminRole)
-        return res.status(403).json({ error: 'Admin only' });
-    const db = req.db;
-    const envKey = process.env.SEVENTEEN_TRACK_API_KEY;
-    if (envKey)
-        return res.json({ configured: true, source: 'env', preview: `...${envKey.slice(-4)}` });
-    const stored = await db.collection('api_keys').findOne({ key_name: '17track' });
-    const dbKey = stored?.key_value;
-    if (dbKey)
-        return res.json({ configured: true, source: 'db', preview: `...${dbKey.slice(-4)}` });
-    res.json({ configured: false, source: null, preview: null });
-});
-app.post('/api/settings/17track-config', async (req, res) => {
-    const user = req.currentUser;
-    if (user?.role !== adminRole)
-        return res.status(403).json({ error: 'Admin only' });
-    const db = req.db;
-    const key = String((req.body || {}).api_key || '').trim();
-    if (!key || key.length < 10)
-        return res.status(400).json({ error: 'Invalid API key' });
-    await db.collection('api_keys').updateOne({ key_name: '17track' }, { $set: { key_name: '17track', key_value: key, updated_at: new Date().toISOString() } }, { upsert: true });
-    res.json({ ok: true, preview: `...${key.slice(-4)}` });
-});
-app.get('/api/settings/17track-diagnose', async (req, res) => {
-    const user = req.currentUser;
-    if (user?.role !== adminRole)
-        return res.status(403).json({ error: 'Admin only' });
-    const db = req.db;
-    const apiKey = await get17trackApiKey(db);
-    if (!apiKey) {
-        return res.json({
-            configured: false, reachable: false, auth_valid: false,
-            key_preview: null, message: 'No API key configured',
-            register_code: null, register_accepted: null, register_rejected: null,
-            getinfo_code: null, track_status: null, track_events: null
-        });
-    }
-    const TEST_WAYBILL = '1234567890';
-    let reachable = false;
-    let auth_valid = false;
-    let register_code = null;
-    let register_accepted = null;
-    let register_rejected = null;
-    let getinfo_code = null;
-    let track_status = null;
-    let track_events = null;
-    try {
-        const regRes = await fetch('https://api.17track.net/track/v2.2/register', {
-            method: 'POST',
-            headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-            body: JSON.stringify([{ number: TEST_WAYBILL }])
-        });
-        reachable = true;
-        register_code = regRes.status;
-        if (regRes.status === 200) {
-            auth_valid = true;
-            const regData = await regRes.json();
-            register_accepted = regData?.data?.accepted?.length ?? 0;
-            register_rejected = regData?.data?.rejected?.length ?? 0;
-        }
-    }
-    catch {
-        reachable = false;
-    }
-    if (auth_valid) {
-        try {
-            const infoRes = await fetch('https://api.17track.net/track/v2.2/gettrackinfo', {
-                method: 'POST',
-                headers: { '17token': apiKey, 'Content-Type': 'application/json' },
-                body: JSON.stringify([{ number: TEST_WAYBILL }])
-            });
-            getinfo_code = infoRes.status;
-            if (infoRes.status === 200) {
-                const infoData = await infoRes.json();
-                const track = infoData?.data?.accepted?.[0]?.track;
-                track_status = track?.z0?.d || track?.z0?.c || 'Unknown';
-                track_events = Array.isArray(track?.z1) ? track.z1.length : 0;
-            }
-        }
-        catch { /* ignore */ }
-    }
-    const ok = reachable && auth_valid;
-    res.json({
-        configured: true,
-        key_preview: `...${apiKey.slice(-4)}`,
-        reachable,
-        auth_valid,
-        message: ok ? 'All checks passed' : (!reachable ? 'Cannot reach 17track API' : 'Auth failed — check API key'),
-        register_code,
-        register_accepted,
-        register_rejected,
-        getinfo_code,
-        track_status,
-        track_events
-    });
-});
 function safeParseJson(text) {
     const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
     return JSON.parse(cleaned);
@@ -1450,20 +1306,6 @@ async function extractPdfText(filePath) {
     }
     return text.slice(0, 6000);
 }
-// Map courier name → 17track carrier_code (used to speed up auto-detection)
-const track17CarrierMap = {
-    dhl: 'dhl', 'dhl express': 'dhl', 'dhl ecommerce': 'dhlecommerce',
-    fedex: 'fedex', 'fedex express': 'fedex',
-    ups: 'ups',
-    'sf express': 'sfexpress', 'sf-express': 'sfexpress',
-    aramex: 'aramex',
-    'royal mail': 'royalmail',
-    tnt: 'tnt',
-};
-const resolve17trackCarrier = (value) => {
-    const n = (value || '').trim().toLowerCase();
-    return n ? track17CarrierMap[n] : undefined;
-};
 // Feature 3: Smart Note
 app.post('/api/ai/smart-note', async (req, res) => {
     const ownerEmail = req.ownerEmail;
@@ -1543,8 +1385,14 @@ async function runQueryPlan(db, plan, ownerEmail) {
     const matchStage = { ...(plan.match || {}), owner_email: ownerEmail };
     const pipeline = [{ $match: matchStage }];
     if (plan.group_by) {
-        pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
-        pipeline.push({ $sort: { count: -1 } });
+        if (plan.sum_field) {
+            pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 }, total: { $sum: { $toDouble: `$${plan.sum_field}` } } } });
+            pipeline.push({ $sort: { total: -1 } });
+        }
+        else {
+            pipeline.push({ $group: { _id: `$${plan.group_by}`, count: { $sum: 1 } } });
+            pipeline.push({ $sort: { count: -1 } });
+        }
     }
     else if (plan.count_only) {
         pipeline.push({ $count: 'total' });
@@ -1555,6 +1403,24 @@ async function runQueryPlan(db, plan, ownerEmail) {
     }
     pipeline.push({ $limit: Math.min(plan.limit || 10, 20) });
     return db.collection(plan.collection).aggregate(pipeline).toArray();
+}
+function isReportRequest(question) {
+    const q = question.toLowerCase();
+    return /\b(report|summary|overview|monthly|quarterly|yearly|annual|sales report|revenue report|sales data|sales overview)\b/.test(q);
+}
+function buildSalesReportPlans() {
+    return [
+        // Orders by status with revenue totals
+        { collection: 'orders', match: {}, group_by: 'status', sum_field: 'total_amount', limit: 20 },
+        // Top customers by order revenue
+        { collection: 'orders', match: {}, group_by: 'company_name', sum_field: 'total_amount', limit: 10 },
+        // Recent orders
+        { collection: 'orders', match: {}, sort_field: 'created_at', sort_dir: -1, limit: 10 },
+        // Invoice status with totals
+        { collection: 'invoices', match: {}, group_by: 'status', sum_field: 'total_amount', limit: 10 },
+        // Recent shipments
+        { collection: 'shipping_schedules', match: {}, sort_field: 'created_at', sort_dir: -1, limit: 5 },
+    ];
 }
 app.post('/api/ai/query', async (req, res) => {
     const ownerEmail = req.ownerEmail;
@@ -1601,36 +1467,54 @@ Rules:
         const client = await getAnthropicClient(db);
         if (!client)
             return res.status(501).json({ error: 'AI features not configured' });
-        const planMsg = await client.messages.create({
-            model: AI_MODEL,
-            max_tokens: 512,
-            system: planSystem,
-            messages: [...historyMessages, { role: 'user', content: question }]
-        });
-        const planRaw = planMsg.content[0]?.type === 'text' ? planMsg.content[0].text : '[]';
-        let plans = [];
-        try {
-            const parsed = safeParseJson(planRaw);
-            plans = Array.isArray(parsed) ? parsed : [parsed];
+        let plans;
+        let answerSystem;
+        let maxTokens;
+        if (isReportRequest(question)) {
+            // Report intent: skip the query planner and use predefined report queries
+            plans = buildSalesReportPlans();
+            answerSystem = `You are a CRM assistant generating a sales report. Using the query results provided, produce a complete report with these sections:
+1. **Order Summary** — total orders by status, total revenue
+2. **Top Customers** — ranked by revenue/order count
+3. **Recent Orders** — latest order activity
+4. **Invoice & Payment Status** — amounts by status (paid, unpaid, overdue)
+5. **Shipment Activity** — recent shipping schedules
+
+Format each section with a bold heading and bullet points. Include specific numbers, amounts, and names from the data. Do NOT ask any clarifying questions — generate the full report now using all available data. End with one short sentence offering optional refinement (e.g. date range or specific customer filter).`;
+            maxTokens = 1500;
         }
-        catch {
-            plans = [];
+        else {
+            // Normal query: use the AI query planner
+            const planMsg = await client.messages.create({
+                model: AI_MODEL,
+                max_tokens: 512,
+                system: planSystem,
+                messages: [...historyMessages, { role: 'user', content: question }]
+            });
+            const planRaw = planMsg.content[0]?.type === 'text' ? planMsg.content[0].text : '[]';
+            try {
+                const parsed = safeParseJson(planRaw);
+                plans = Array.isArray(parsed) ? parsed : [parsed];
+            }
+            catch {
+                plans = [];
+            }
+            plans = plans.filter((p) => p && aiAllowedCollections.has(p.collection));
+            answerSystem = `You are a CRM assistant with access to all site data. Answer the user's question based on the query results. Be clear and helpful (2-5 sentences). Mention specific record names, counts, amounts, or dates where relevant. If no results were found, say so and suggest what they might search for instead.`;
+            maxTokens = 512;
         }
-        // Filter to allowed collections only
-        plans = plans.filter((p) => p && aiAllowedCollections.has(p.collection));
-        // Run all queries in parallel, cap total at 30
+        // Run all queries in parallel
         const queryResults = await Promise.all(plans.map((p) => runQueryPlan(db, p, ownerEmail).catch(() => [])));
         const results = plans.map((p, i) => ({
             collection: p.collection,
             rows: (queryResults[i] || []).map(serializeDoc)
         })).filter((r) => r.rows.length > 0);
-        // Generate answer with full context
-        const answerSystem = `You are a CRM assistant with access to all site data. Answer the user's question based on the query results. Be clear and helpful (2-5 sentences). Mention specific record names, counts, amounts, or dates where relevant. If no results were found, say so and suggest what they might search for instead.`;
+        // Generate answer
         const allRows = results.flatMap((r) => r.rows.map((row) => ({ ...row, _collection: r.collection })));
-        const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 50))}`;
+        const answerInput = `Question: ${question}\nData: ${JSON.stringify(allRows.slice(0, 80))}`;
         const answerMsg = await client.messages.create({
             model: AI_MODEL,
-            max_tokens: 512,
+            max_tokens: maxTokens,
             system: answerSystem,
             messages: [...historyMessages, { role: 'user', content: answerInput }]
         });
@@ -1711,20 +1595,9 @@ app.post('/api/ai/track-summary', async (req, res) => {
     const record = await db.collection(collection).findOne({ _id: oid, owner_email: ownerEmail });
     if (!record)
         return res.status(404).json({ error: 'Record not found' });
-    const trackApiKey17 = await get17trackApiKey(db);
     try {
-        let status = 'UNKNOWN';
-        let history = '[]';
-        if (trackApiKey17) {
-            const result = await fetch17trackData(trackApiKey17, waybill);
-            status = result.status;
-            history = result.history;
-        }
-        const hasLiveData = Boolean(trackApiKey17);
-        const system = hasLiveData
-            ? 'You are a logistics assistant. Summarize the shipment tracking history in 2-3 plain English sentences. Mention the current status and latest location if available.'
-            : 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
-        const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}\nStatus: ${status}\nHistory: ${history}`, 256);
+        const system = 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
+        const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}`, 256);
         const now = new Date().toISOString();
         const noteDoc = {
             entity_type: collection,
@@ -1738,61 +1611,11 @@ app.post('/api/ai/track-summary', async (req, res) => {
             updated_at: now
         };
         const noteResult = await db.collection('notes').insertOne(noteDoc);
-        res.json({ summary, status, note_id: noteResult.insertedId.toString() });
+        res.json({ summary, note_id: noteResult.insertedId.toString() });
     }
     catch (err) {
         console.error('AI track-summary error', err);
         res.status(500).json({ error: err.message || 'AI error' });
-    }
-});
-// ── Live Tracking ─────────────────────────────────────────────────────────────
-app.get('/api/tracking/live', async (req, res) => {
-    const db = req.db;
-    const waybill = p(req.query.waybill);
-    const courier = p(req.query.courier);
-    if (!waybill)
-        return res.status(400).json({ error: 'waybill is required' });
-    const trackApiKey17 = await get17trackApiKey(db);
-    if (!trackApiKey17) {
-        return res.status(501).json({ error: 'No tracking API configured' });
-    }
-    try {
-        const carrierCode = resolve17trackCarrier(courier);
-        let result;
-        try {
-            result = await fetch17trackData(trackApiKey17, waybill, carrierCode);
-        }
-        catch (fetchErr) {
-            const isTimeout = fetchErr?.name === 'TimeoutError' || fetchErr?.name === 'AbortError';
-            console.warn('[17track] fetch error for', waybill, fetchErr?.message);
-            return res.json({
-                carrier: courier || null,
-                tracking_code: waybill,
-                status: isTimeout ? 'Pending' : 'Unknown',
-                status_detail: isTimeout ? 'Tracking data is being fetched. Please check back in a moment.' : (fetchErr?.message || 'Lookup failed'),
-                updated_at: null, est_delivery_date: null, source: '17track', tracking_details: []
-            });
-        }
-        const events = JSON.parse(result.history || '[]');
-        return res.json({
-            carrier: courier || null,
-            tracking_code: waybill,
-            status: result.status,
-            status_detail: result.status,
-            updated_at: events[0]?.date || null,
-            est_delivery_date: null,
-            source: '17track',
-            tracking_details: events.map((e) => ({
-                status: e.description,
-                message: e.description,
-                datetime: e.date,
-                tracking_location: { city: e.location || '', state: '', zip: '', country: '' }
-            }))
-        });
-    }
-    catch (err) {
-        console.error('Tracking error', err);
-        return res.status(500).json({ error: err.message || 'Internal error' });
     }
 });
 // ── Generic CRUD ──────────────────────────────────────────────────────────────
@@ -2460,51 +2283,101 @@ async function seedAdminUser() {
         console.error('Failed to seed admin user:', err);
     }
 }
-async function syncAllShippingMilestones() {
-    try {
-        const db = await getMongoDB();
-        const col = db.collection('shipping_schedules');
-        const docs = await col.find({}, { projection: { _id: 1, owner_email: 1, status: 1,
-                production_date: 1, processing_start_date: 1,
-                booking_date: 1, cargo_closing_date: 1, etc_date: 1,
-                etd_date: 1, eta: 1, delivery_date: 1 } }).toArray();
-        if (!docs.length)
-            return;
-        const nowIso = new Date().toISOString();
-        const bulkOps = [];
-        for (const doc of docs) {
-            const computedStatus = computeShippingMilestoneStatus(doc);
-            if (computedStatus === null)
-                continue;
-            const currentRank = shippingStatusRank[doc.status] ?? 0;
-            const computedRank = shippingStatusRank[computedStatus] ?? 0;
-            if (computedRank <= currentRank)
-                continue;
-            bulkOps.push({ updateOne: {
-                    filter: { _id: doc._id, owner_email: doc.owner_email },
+async function syncShippingMilestonesForUser(db, ownerEmail) {
+    const col = db.collection('shipping_schedules');
+    const docs = await col.find({ owner_email: ownerEmail }, { projection: { _id: 1, status: 1, order_id: 1,
+            production_date: 1, processing_start_date: 1,
+            booking_date: 1, cargo_closing_date: 1, etc_date: 1,
+            etd_date: 1, eta: 1, delivery_date: 1 } }).toArray();
+    if (!docs.length)
+        return;
+    const nowIso = new Date().toISOString();
+    // Step 1: advance shipping schedule statuses and build order→status map
+    const scheduleBulk = [];
+    // Maps order_id string → highest effective shipping status
+    const orderStatusMap = new Map();
+    for (const doc of docs) {
+        const computedStatus = computeShippingMilestoneStatus(doc);
+        const currentRank = shippingStatusRank[doc.status] ?? 0;
+        const computedRank = computedStatus ? (shippingStatusRank[computedStatus] ?? 0) : 0;
+        const effectiveStatus = computedRank > currentRank ? computedStatus : doc.status;
+        if (computedStatus && computedRank > currentRank) {
+            scheduleBulk.push({ updateOne: {
+                    filter: { _id: doc._id, owner_email: ownerEmail },
                     update: { $set: { status: computedStatus, updated_at: nowIso } },
                 } });
         }
-        if (bulkOps.length) {
-            await col.bulkWrite(bulkOps, { ordered: false });
-            console.log(`[milestones] Updated ${bulkOps.length} shipping schedule(s).`);
-        }
-        // Cascade status to orders that reference a shipping schedule
-        const ordersWithSched = await db.collection('orders').find({ shipping_schedule_id: { $exists: true, $ne: null } }, { projection: { _id: 1, owner_email: 1, shipping_schedule_id: 1, status: 1 } }).toArray();
-        const orderOps = [];
-        for (const order of ordersWithSched) {
-            const enriched = await enrichOrderWithShipping(db, order.owner_email, order);
-            if (enriched.status !== order.status) {
-                orderOps.push({ updateOne: {
-                        filter: { _id: order._id },
-                        update: { $set: { status: enriched.status, updated_at: nowIso } },
-                    } });
+        // Track the highest effective status for each linked order
+        if (doc.order_id && effectiveStatus) {
+            const orderId = String(doc.order_id);
+            const existing = orderStatusMap.get(orderId);
+            const existingRank = existing ? (shippingStatusRank[existing] ?? 0) : 0;
+            if ((shippingStatusRank[effectiveStatus] ?? 0) > existingRank) {
+                orderStatusMap.set(orderId, effectiveStatus);
             }
         }
-        if (orderOps.length) {
-            await db.collection('orders').bulkWrite(orderOps, { ordered: false });
-            console.log(`[milestones] Updated ${orderOps.length} order(s) from shipping schedules.`);
+    }
+    if (scheduleBulk.length) {
+        await col.bulkWrite(scheduleBulk, { ordered: false });
+        console.log(`[milestones] Updated ${scheduleBulk.length} shipping schedule(s) for ${ownerEmail}`);
+    }
+    // Step 2: cascade the highest shipping status to each linked order
+    if (orderStatusMap.size) {
+        // Separate order_id values: valid ObjectIds vs legacy integer IDs
+        const objectIdEntries = [];
+        const legacyIdEntries = [];
+        for (const orderId of orderStatusMap.keys()) {
+            const oid = toMongoId(orderId);
+            if (oid) {
+                objectIdEntries.push([oid, orderId]);
+            }
+            else {
+                const legacyId = parseInt(orderId, 10);
+                if (!isNaN(legacyId))
+                    legacyIdEntries.push([legacyId, orderId]);
+            }
         }
+        const applyOrderUpdate = (order, newStatus, bulk) => {
+            const currentOrderRank = shippingStatusRank[order.status] ?? 0;
+            const newStatusRank = shippingStatusRank[newStatus] ?? 0;
+            if (newStatusRank > currentOrderRank) {
+                bulk.push({ updateOne: {
+                        filter: { _id: order._id },
+                        update: { $set: { status: newStatus, updated_at: nowIso } },
+                    } });
+            }
+        };
+        const orderBulk = [];
+        if (objectIdEntries.length) {
+            const orders = await db.collection('orders').find({ _id: { $in: objectIdEntries.map(([oid]) => oid) }, owner_email: ownerEmail }, { projection: { _id: 1, status: 1 } }).toArray();
+            for (const order of orders) {
+                const newStatus = orderStatusMap.get(String(order._id));
+                if (newStatus)
+                    applyOrderUpdate(order, newStatus, orderBulk);
+            }
+        }
+        if (legacyIdEntries.length) {
+            const orders = await db.collection('orders').find({ legacy_id: { $in: legacyIdEntries.map(([lid]) => lid) }, owner_email: ownerEmail }, { projection: { _id: 1, legacy_id: 1, status: 1 } }).toArray();
+            for (const order of orders) {
+                const pair = legacyIdEntries.find(([lid]) => lid === Number(order.legacy_id));
+                if (!pair)
+                    continue;
+                const newStatus = orderStatusMap.get(pair[1]);
+                if (newStatus)
+                    applyOrderUpdate(order, newStatus, orderBulk);
+            }
+        }
+        if (orderBulk.length) {
+            await db.collection('orders').bulkWrite(orderBulk, { ordered: false });
+        }
+    }
+}
+async function syncAllShippingMilestones() {
+    try {
+        const db = await getMongoDB();
+        const ownerEmails = await db.collection('shipping_schedules').distinct('owner_email');
+        await Promise.all(ownerEmails.map((email) => syncShippingMilestonesForUser(db, email)));
+        console.log(`[milestones] Synced shipping milestones for ${ownerEmails.length} user(s).`);
     }
     catch (err) {
         console.error('[milestones] syncAllShippingMilestones error:', err);
