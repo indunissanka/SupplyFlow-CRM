@@ -3797,6 +3797,9 @@ async function renderPricing() {
             ${i18nSpan("search.pricing.label", "Search pricing")}
             <input id="pricing-filter-search" class="document-search-input" type="search"${i18nPlaceholderAttr("search.pricing.placeholder")} autocomplete="off" />
           </label>
+          <button class="btn ghost small" id="pricing-download-csv" type="button">
+            <i data-lucide="download"></i> Download CSV
+          </button>
         </div>
       </div>
       <div class="doc-filter-bar">
@@ -4102,6 +4105,49 @@ async function renderPricing() {
   dateFromInput?.addEventListener("input", applyFilters);
   dateToInput?.addEventListener("input", applyFilters);
   applyFilters();
+
+  const csvBtn = sectionContent.querySelector("#pricing-download-csv");
+  csvBtn?.addEventListener("click", () => {
+    const csvColumns = ["Quote", "Company", "Date", "Item", "Exchange Rate", "Unit", "Drums", "Bank Charge", "Shipping", "Commission", "Unit Total", "Currency", "Status"];
+    const escCsv = (val) => {
+      const s = val == null ? "" : String(val);
+      return s.includes(",") || s.includes('"') || s.includes("\n") ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const dataRows = filteredRows.map((row) => {
+      const item = enrichedItems[row.recordIndex];
+      const currency = (item?.currency || "USD").toUpperCase();
+      const unit = parseCurrency(item?.unit_price) ?? 0;
+      const drums = parseCurrency(item?.drums_price) ?? 0;
+      const bank = parseCurrency(item?.bank_charge_price) ?? 0;
+      const shipping = parseCurrency(item?.shipping_price) ?? 0;
+      const commission = parseCurrency(item?.customer_commission) ?? 0;
+      const total = unit + drums + bank + shipping + commission;
+      const exchangeRate = Number.isFinite(Number(item?.exchange_rate)) ? Number(item.exchange_rate) : "";
+      return [
+        item?.quotation_reference || item?.reference || "",
+        item?.company_name || "",
+        item?.quotation_date ? new Date(item.quotation_date).toLocaleDateString() : "",
+        item?.product_name || "",
+        exchangeRate,
+        unit || "",
+        drums || "",
+        bank || "",
+        shipping || "",
+        commission || "",
+        total || "",
+        currency,
+        item?.quotation_status || ""
+      ].map(escCsv).join(",");
+    });
+    const csv = [csvColumns.map(escCsv).join(","), ...dataRows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pricing-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
 }
 
 async function renderOrders() {
