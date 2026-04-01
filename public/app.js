@@ -4173,7 +4173,7 @@ async function renderOrders() {
 
   const rows = orders.map((r) => {
     const status = r?.status || "Pending";
-    const orderToneMap = { "Delivered":"success","Arrived":"success","Shipped":"teal","Cargo Closing":"orange","Booking Confirmed":"purple","In Production":"info","Pending":"warning","In Progress":"success","Completed":"info" };
+    const orderToneMap = { "Delivered":"success","Arrived":"success","Shipped":"teal","Cargo Closing":"orange","Booking Confirmed":"purple","In Progress":"info","Pending":"warning","Completed":"info" };
     const tone = orderToneMap[status] || "warning";
     const { total, currency } = resolveOrderTotal(r);
     return [
@@ -4832,7 +4832,7 @@ function computeShippingStatus(record) {
   if (d(cargoDate) && today >= d(cargoDate)) return "Cargo Closing";
   if (d(record.booking_date) && today >= d(record.booking_date)) return "Booking Confirmed";
   const prodDate = record.production_date || record.processing_start_date;
-  if (d(prodDate) && today >= d(prodDate)) return "In Production";
+  if (d(prodDate) && today >= d(prodDate)) return "In Progress";
   return "Pending";
 }
 
@@ -4853,11 +4853,11 @@ async function renderShipping() {
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString();
   };
-  const shippingToneMap = { "Delivered": "success", "Arrived": "success", "Shipped": "teal", "Cargo Closing": "orange", "Booking Confirmed": "purple", "In Production": "info", "Pending": "warning" };
+  const shippingToneMap = { "Delivered": "success", "Arrived": "success", "Shipped": "teal", "Cargo Closing": "orange", "Booking Confirmed": "purple", "In Progress": "info", "Pending": "warning" };
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
-      const displayStatus = computeShippingStatus(r);
+      const displayStatus = r.status || computeShippingStatus(r);
       const tone = shippingToneMap[displayStatus] || "warning";
       return [
         r.company_name || "—",
@@ -4871,7 +4871,7 @@ async function renderShipping() {
       ];
     },
     fallback.shipping_schedules.map((row) => {
-      const st = computeShippingStatus(row);
+      const st = row.status || computeShippingStatus(row);
       const tone = shippingToneMap[st] || "warning";
       return [
         row.company || row.company_name || "—",
@@ -8577,12 +8577,12 @@ function renderShippingSchedulePreview(record) {
   const subtitle = subtitleParts.join(" | ");
 
   // Auto-compute current status
-  const displayStatus = computeShippingStatus(record);
+  const displayStatus = record.status || computeShippingStatus(record);
   const statusTone = statusToneShipping(displayStatus);
   const statusBadge = `<span class="pill ${statusTone}">${sanitizeText(displayStatus)}</span>`;
 
   // Progress timeline
-  const MILESTONES = ["Pending", "In Production", "Booking Confirmed", "Cargo Closing", "Shipped", "Arrived", "Delivered"];
+  const MILESTONES = ["Pending", "In Progress", "Booking Confirmed", "Cargo Closing", "Shipped", "Arrived", "Delivered"];
   const currentIdx = Math.max(0, MILESTONES.indexOf(displayStatus));
   const pct = Math.round((currentIdx / (MILESTONES.length - 1)) * 100);
   const milestoneDots = MILESTONES.map((m, i) => {
@@ -9919,7 +9919,7 @@ function statusToneShipping(status) {
     "Shipped": "teal",
     "Cargo Closing": "orange",
     "Booking Confirmed": "purple",
-    "In Production": "info",
+    "In Progress": "info",
     "Pending": "warning"
   }[status] || "info";
 }
