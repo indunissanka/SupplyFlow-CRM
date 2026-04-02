@@ -1129,6 +1129,7 @@ const dashboardSearchSectionMap = {
   shipping_schedules: "shipping",
   sample_shipments: "sample_shipments",
   tasks: "tasks",
+  meetings: "meetings",
   notes: "notes",
   tags: "tags",
   doc_types: "tags"
@@ -1145,6 +1146,7 @@ const dashboardSearchTypeLabels = {
   shipping_schedules: { key: "search.type.shipping", fallback: "Shipping" },
   sample_shipments: { key: "search.type.sample", fallback: "Sample" },
   tasks: { key: "search.type.task", fallback: "Task" },
+  meetings: { key: "search.type.meeting", fallback: "Meeting" },
   notes: { key: "search.type.note", fallback: "Note" },
   tags: { key: "search.type.tag", fallback: "Tag" },
   doc_types: { key: "search.type.docType", fallback: "Doc Type" }
@@ -2552,6 +2554,8 @@ function getSearchResultTitle(table, record) {
       return record.waybill_number || `Sample #${record.id || ""}`;
     case "tasks":
       return record.title || `Task #${record.id || ""}`;
+    case "meetings":
+      return record.meeting_title || `Meeting #${record.id || ""}`;
     case "notes":
       return shortenSearchText(record.body || `Note #${record.id || ""}`, 60);
     case "tags":
@@ -2585,6 +2589,8 @@ function getSearchResultMeta(table, record) {
       return joinSearchMeta(record.courier, record.status, record.receiving_address);
     case "tasks":
       return joinSearchMeta(record.status, record.assignee, record.due_date);
+    case "meetings":
+      return joinSearchMeta(record.company_name, record.meeting_type, record.meeting_date, record.status);
     case "notes":
       return joinSearchMeta(record.author, record.note_date || record.created_at);
     case "tags":

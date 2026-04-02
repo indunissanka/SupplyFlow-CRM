@@ -526,6 +526,7 @@ app.get('/api/search', async (req: Request, res: Response) => {
     shipping_schedules: [{ reference: regex }, { status: regex }, { carrier: regex }, { destination: regex }],
     sample_shipments:   [{ reference: regex }, { status: regex }, { company_name: regex }],
     tasks:              [{ title: regex }, { description: regex }, { assigned_to: regex }],
+    meetings:           [{ meeting_title: regex }, { company_name: regex }, { contact_person: regex }, { status: regex }, { meeting_type: regex }, { next_action: regex }],
     notes:              [{ title: regex }, { body: regex }],
     tags:               [{ name: regex }],
     doc_types:          [{ name: regex }],
