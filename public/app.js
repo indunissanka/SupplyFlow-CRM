@@ -679,6 +679,7 @@ const accessOptions = [
   { id: "documents", label: "Documents", aliases: ["document", "documents", "docs"] },
   { id: "shipping", label: "Shipping", aliases: ["shipping", "schedule", "schedules"] },
   { id: "sample_shipments", label: "Samples", aliases: ["sample", "samples", "sample_shipments"] },
+  { id: "meetings", label: "Meetings", aliases: ["meeting", "meetings"] },
   { id: "tasks", label: "Tasks", aliases: ["task", "tasks"] },
   { id: "notes", label: "Notes", aliases: ["note", "notes"] },
   { id: "settings", label: "Settings", aliases: ["setting", "settings"] }
@@ -1753,6 +1754,7 @@ const sectionRenderers = {
   documents: renderDocuments,
   shipping: renderShipping,
   sample_shipments: renderSampleShipments,
+  meetings: renderMeetings,
   tasks: renderTasks,
   notes: renderNotes,
   tags: renderTags,
@@ -2234,6 +2236,48 @@ const formConfigs = {
       { name: "name", label: "Name", required: true },
       { name: "color", label: "Color", placeholder: "#2563eb" }
     ]
+  },
+  meetings: {
+    title: "Schedule Meeting",
+    endpoint: "/api/meetings",
+    fields: [
+      { name: "meeting_title", label: "Meeting Title", required: true, placeholder: "e.g. Quarterly Review" },
+      { name: "company_id", label: "Customer / Company", type: "select", options: ["-- Select company --"] },
+      { name: "contact_person", label: "Contact Person", placeholder: "Full name" },
+      { name: "meeting_type", label: "Meeting Type", type: "select", options: ["Office Meeting", "Customer Visit", "Online Meeting", "Phone Call"] },
+      { name: "meeting_date", label: "Meeting Date", type: "date", required: true },
+      { name: "meeting_time", label: "Meeting Time", type: "time" },
+      { name: "duration", label: "Duration (optional)", placeholder: "e.g. 1 hour" },
+      { name: "location", label: "Meeting Location", placeholder: "Address or room name" },
+      { name: "meeting_link", label: "Meeting Link (optional)", placeholder: "https://meet.google.com/..." },
+      { name: "status", label: "Status", type: "select", options: ["Planned", "Completed", "Postponed", "Cancelled"] },
+      { name: "assigned_to", label: "Assigned To" },
+      { name: "notes", label: "Notes / Agenda", type: "textarea", placeholder: "Meeting agenda, topics to discuss..." },
+      { name: "outcome", label: "Meeting Outcome", type: "textarea", placeholder: "What was discussed and decided..." },
+      { name: "follow_up_date", label: "Follow-up Date", type: "date" },
+      { name: "next_action", label: "Next Action", placeholder: "e.g. Send proposal" },
+      { name: "reminder", label: "Reminder", type: "select", options: ["None", "30 minutes before", "1 hour before", "1 day before"] }
+    ],
+    transform(values) {
+      return {
+        meeting_title: values.meeting_title,
+        company_id: values.company_id || null,
+        contact_person: values.contact_person || null,
+        meeting_type: values.meeting_type || "Office Meeting",
+        meeting_date: values.meeting_date,
+        meeting_time: values.meeting_time || null,
+        duration: values.duration || null,
+        location: values.location || null,
+        meeting_link: values.meeting_link || null,
+        status: values.status || "Planned",
+        assigned_to: values.assigned_to || null,
+        notes: values.notes || null,
+        outcome: values.outcome || null,
+        follow_up_date: values.follow_up_date || null,
+        next_action: values.next_action || null,
+        reminder: values.reminder || "None"
+      };
+    }
   }
 };
 
@@ -2678,6 +2722,21 @@ async function renderDashboard() {
       </div>
       <div id="activity-feed"></div>
     </div>
+    <div class="panel" id="meetings-widget">
+      <div class="panel-header">
+        <h3 class="panel-title panel-title-icon">
+          <i data-lucide="calendar-clock"></i>
+          Upcoming Meetings
+        </h3>
+        <div class="panel-header-actions">
+          <div class="stat-label">Today, tomorrow, and next 7 days</div>
+          <button class="btn ghost small" data-section-link="meetings">View All</button>
+        </div>
+      </div>
+      <div id="meetings-widget-body" class="meetings-widget-body">
+        <div class="stat-label">Loading meetings...</div>
+      </div>
+    </div>
   `;
 
   let stats = { ...statDefaults };
@@ -2863,6 +2922,68 @@ async function renderDashboard() {
       </div>
     `;
   }
+
+  // Populate Upcoming Meetings widget
+  const meetingsWidgetBody = document.getElementById("meetings-widget-body");
+  if (meetingsWidgetBody) {
+    apiFetch("/api/meetings/upcoming").then(async (res) => {
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      const upcoming = data.rows || [];
+      const companyRecs = tableRecords["companies"] || [];
+
+      if (!upcoming.length) {
+        meetingsWidgetBody.innerHTML = `<div class="empty-state-sm">No meetings scheduled for the next 7 days.</div>`;
+        return;
+      }
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const tomorrowStr = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+      const grouped = {};
+      for (const m of upcoming) {
+        const d = m.meeting_date;
+        const label = d === todayStr ? "Today" : d === tomorrowStr ? "Tomorrow" : d;
+        if (!grouped[label]) grouped[label] = [];
+        grouped[label].push(m);
+      }
+
+      let html = "";
+      for (const [label, items] of Object.entries(grouped)) {
+        html += `<div class="meetings-widget-day-label">${escapeHtml(label)}</div>`;
+        for (const m of items) {
+          const co = companyRecs.find(c => String(c.id) === String(m.company_id));
+          const coName = m.company_name || co?.name || "";
+          const tone = m.status === "Completed" ? "success" : m.status === "Planned" ? "info" : m.status === "Postponed" ? "warning" : "danger";
+          html += `
+            <div class="meetings-widget-item" data-meetings-nav="true">
+              <div class="meetings-widget-item-left">
+                <div class="meetings-widget-time">${m.meeting_time ? escapeHtml(m.meeting_time) : "All day"}</div>
+                <div class="meetings-widget-title">${escapeHtml(m.meeting_title || "Untitled")}</div>
+                ${coName ? `<div class="meetings-widget-company">${escapeHtml(coName)}</div>` : ""}
+              </div>
+              ${badge(tone, m.status || "Planned")}
+            </div>
+          `;
+        }
+      }
+      meetingsWidgetBody.innerHTML = html;
+      meetingsWidgetBody.querySelectorAll("[data-meetings-nav]").forEach(el => {
+        el.addEventListener("click", () => renderSection("meetings"));
+      });
+      lucide?.createIcons();
+    }).catch(() => {
+      meetingsWidgetBody.innerHTML = `<div class="empty-state-sm">Could not load meetings.</div>`;
+    });
+  }
+
+  // "View All" meetings link
+  document.getElementById("meetings-widget")?.querySelector("[data-section-link='meetings']")?.addEventListener("click", () => {
+    renderSection("meetings");
+  });
+
+  // Trigger reminder check
+  checkMeetingReminders().catch(console.debug);
 }
 
 const analyticsState = (() => {
@@ -4219,7 +4340,7 @@ async function renderOrders() {
 
   const rows = orders.map((r) => {
     const status = r?.status || "Pending";
-    const orderToneMap = { "Delivered":"success","Arrived":"success","Shipped":"teal","Cargo Closing":"orange","Booking Confirmed":"purple","In Progress":"info","Pending":"warning","Completed":"info" };
+    const orderToneMap = { "Delivered":"success","Arrived":"success","Shipped":"teal","Cargo Closing":"orange","Booking Confirmed":"purple","In Production":"info","Pending":"warning","Completed":"info" };
     const tone = orderToneMap[status] || "warning";
     const { total, currency } = resolveOrderTotal(r);
     return [
@@ -4878,7 +4999,7 @@ function computeShippingStatus(record) {
   if (d(cargoDate) && today >= d(cargoDate)) return "Cargo Closing";
   if (d(record.booking_date) && today >= d(record.booking_date)) return "Booking Confirmed";
   const prodDate = record.production_date || record.processing_start_date;
-  if (d(prodDate) && today >= d(prodDate)) return "In Progress";
+  if (d(prodDate) && today >= d(prodDate)) return "In Production";
   return "Pending";
 }
 
@@ -4899,7 +5020,7 @@ async function renderShipping() {
     const parsed = new Date(raw);
     return Number.isNaN(parsed.getTime()) ? raw : parsed.toLocaleDateString();
   };
-  const shippingToneMap = { "Delivered": "success", "Arrived": "success", "Shipped": "teal", "Cargo Closing": "orange", "Booking Confirmed": "purple", "In Progress": "info", "Pending": "warning" };
+  const shippingToneMap = { "Delivered": "success", "Arrived": "success", "Shipped": "teal", "Cargo Closing": "orange", "Booking Confirmed": "purple", "In Production": "info", "Pending": "warning" };
   const rows = await loadTableFromApi(
     "shipping_schedules",
     (r) => {
@@ -5232,6 +5353,344 @@ async function renderNotes() {
   searchInput?.addEventListener("input", applyNotesSearch);
   applyNotesSearch();
   document.getElementById("btn-ai-smart-note")?.addEventListener("click", openAiSmartNoteModal);
+}
+
+// ── Meetings ──────────────────────────────────────────────────────────────────
+
+function meetingStatusBadge(status) {
+  const tone = status === "Completed" ? "success" : status === "Planned" ? "info" : status === "Postponed" ? "warning" : "danger";
+  return badge(tone, status || "Planned");
+}
+
+function meetingTypeIcon(type) {
+  if (type === "Online Meeting") return "video";
+  if (type === "Phone Call") return "phone";
+  if (type === "Customer Visit") return "map-pin";
+  return "users";
+}
+
+function renderMeetingsCalendar(year, month, meetings) {
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startDow = firstDay.getDay(); // 0=Sun
+  const totalDays = lastDay.getDate();
+  const monthName = firstDay.toLocaleString("default", { month: "long", year: "numeric" });
+
+  // Group meetings by date string
+  const byDate = {};
+  for (const m of meetings) {
+    const d = m.meeting_date || "";
+    if (!byDate[d]) byDate[d] = [];
+    byDate[d].push(m);
+  }
+
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const headerCells = dayNames.map(d => `<div class="cal-header-cell">${d}</div>`).join("");
+
+  let cells = "";
+  // Blank cells for days before month starts
+  for (let i = 0; i < startDow; i++) {
+    cells += `<div class="cal-day cal-day-empty"></div>`;
+  }
+  for (let d = 1; d <= totalDays; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const isToday = dateStr === todayStr;
+    const dayMeetings = byDate[dateStr] || [];
+    const chips = dayMeetings.map(m => `
+      <div class="cal-chip" data-meeting-id="${escapeHtml(m.id || "")}" title="${escapeHtml(m.meeting_title || "")}">
+        ${m.meeting_time ? escapeHtml(m.meeting_time) + " " : ""}${escapeHtml(m.meeting_title || "")}
+      </div>
+    `).join("");
+    cells += `
+      <div class="cal-day${isToday ? " cal-day-today" : ""}" data-cal-date="${escapeHtml(dateStr)}">
+        <div class="cal-day-num">${d}</div>
+        ${chips}
+      </div>
+    `;
+  }
+  // Trailing blanks to complete grid
+  const totalCells = startDow + totalDays;
+  const remainder = totalCells % 7;
+  if (remainder > 0) {
+    for (let i = remainder; i < 7; i++) {
+      cells += `<div class="cal-day cal-day-empty"></div>`;
+    }
+  }
+
+  return `
+    <div class="meetings-calendar">
+      <div class="cal-nav">
+        <button class="btn ghost small" id="cal-prev"><i data-lucide="chevron-left"></i></button>
+        <span class="cal-month-label">${escapeHtml(monthName)}</span>
+        <button class="btn ghost small" id="cal-next"><i data-lucide="chevron-right"></i></button>
+      </div>
+      <div class="cal-grid-header">${headerCells}</div>
+      <div class="cal-grid">${cells}</div>
+    </div>
+  `;
+}
+
+function renderMeetingCard(m, companyRecords) {
+  const company = (companyRecords || []).find(c => String(c.id) === String(m.company_id));
+  const companyName = m.company_name || company?.name || "-";
+  const typeIcon = meetingTypeIcon(m.meeting_type);
+  return `
+    <div class="meeting-card" data-meeting-id="${escapeHtml(m.id || "")}">
+      <div class="meeting-card-header">
+        <div class="meeting-card-title">
+          <i data-lucide="${typeIcon}" class="meeting-type-icon"></i>
+          ${escapeHtml(m.meeting_title || "Untitled")}
+        </div>
+        ${meetingStatusBadge(m.status)}
+      </div>
+      <div class="meeting-card-meta">
+        <span><i data-lucide="building-2"></i> ${escapeHtml(companyName)}</span>
+        ${m.contact_person ? `<span><i data-lucide="user"></i> ${escapeHtml(m.contact_person)}</span>` : ""}
+        ${m.meeting_time ? `<span><i data-lucide="clock"></i> ${escapeHtml(m.meeting_time)}</span>` : ""}
+        ${m.location ? `<span><i data-lucide="map-pin"></i> ${escapeHtml(m.location)}</span>` : ""}
+      </div>
+      ${m.next_action ? `<div class="meeting-card-action"><i data-lucide="arrow-right"></i> ${escapeHtml(m.next_action)}</div>` : ""}
+      <div class="meeting-card-footer">
+        <button class="btn ghost small" data-action="preview" data-entity="meetings" data-meeting-id="${escapeHtml(m.id || "")}">
+          <i data-lucide="eye"></i> View
+        </button>
+        <button class="btn ghost small" data-action="edit" data-entity="meetings" data-meeting-id="${escapeHtml(m.id || "")}">
+          <i data-lucide="edit-3"></i> Edit
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+async function renderMeetings() {
+  setSectionTitleForSection("meetings");
+
+  // Load all meetings and companies
+  let meetings = [];
+  try {
+    const res = await apiFetch("/api/meetings");
+    if (res.ok) {
+      const data = await res.json();
+      meetings = data.rows || [];
+      tableRecords["meetings"] = meetings;
+    }
+  } catch (err) {
+    console.debug("Failed to load meetings", err);
+  }
+
+  const companyRecords = tableRecords["companies"] || [];
+
+  // Enrich meetings with company_name for display
+  for (const m of meetings) {
+    if (!m.company_name && m.company_id) {
+      const co = companyRecords.find(c => String(c.id) === String(m.company_id));
+      if (co) m.company_name = co.name;
+    }
+  }
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  let calYear = new Date().getFullYear();
+  let calMonth = new Date().getMonth();
+  let activeTab = "list";
+
+  const renderTabContent = () => {
+    const container = document.getElementById("meetings-tab-content");
+    if (!container) return;
+
+    if (activeTab === "list") {
+      const rows = meetings.map(m => {
+        const co = companyRecords.find(c => String(c.id) === String(m.company_id));
+        const coName = m.company_name || co?.name || "-";
+        return [
+          m.meeting_date || "-",
+          m.meeting_time || "-",
+          coName,
+          m.meeting_title || "-",
+          m.meeting_type || "-",
+          meetingStatusBadge(m.status),
+          m.next_action || "-",
+          m.assigned_to || "-"
+        ];
+      });
+      container.innerHTML = `
+        <div class="panel">
+          <div class="panel-header">
+            <div>
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="list"></i>
+                All Meetings
+              </h3>
+              <div class="stat-label">Sorted by most recent. Click a row to view details.</div>
+            </div>
+            <div class="table-actions">
+              <label class="document-search-field">
+                Search meetings
+                <input id="meetings-search-input" class="document-search-input" type="search" placeholder="Title, customer, status..." autocomplete="off" />
+              </label>
+            </div>
+          </div>
+          ${renderPaginatedTable(["Date", "Time", "Customer", "Title", "Type", "Status", "Next Action", "Assigned To"], rows, "meetings")}
+        </div>
+      `;
+      attachTableSearch("meetings-search-input", "meetings");
+
+    } else if (activeTab === "calendar") {
+      container.innerHTML = `
+        <div class="panel">
+          <div class="panel-header">
+            <h3 class="panel-title panel-title-icon">
+              <i data-lucide="calendar"></i>
+              Calendar View
+            </h3>
+            <div class="stat-label">Click a meeting to view details. Click an empty day to schedule.</div>
+          </div>
+          ${renderMeetingsCalendar(calYear, calMonth, meetings)}
+        </div>
+      `;
+      lucide?.createIcons();
+
+      document.getElementById("cal-prev")?.addEventListener("click", () => {
+        calMonth--;
+        if (calMonth < 0) { calMonth = 11; calYear--; }
+        renderTabContent();
+      });
+      document.getElementById("cal-next")?.addEventListener("click", () => {
+        calMonth++;
+        if (calMonth > 11) { calMonth = 0; calYear++; }
+        renderTabContent();
+      });
+
+      container.querySelectorAll(".cal-chip").forEach(chip => {
+        chip.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const id = chip.dataset.meetingId;
+          const rec = meetings.find(m => String(m.id) === String(id));
+          if (rec) openPreviewModal("meetings", rec).catch(console.error);
+        });
+      });
+
+      container.querySelectorAll(".cal-day:not(.cal-day-empty)").forEach(day => {
+        day.addEventListener("click", () => {
+          const dateStr = day.dataset.calDate;
+          if (!dateStr) return;
+          // Open form with pre-filled date
+          openForm("meetings");
+          requestAnimationFrame(() => {
+            const dateInput = document.querySelector(".modal-overlay input[name='meeting_date']");
+            if (dateInput) dateInput.value = dateStr;
+          });
+        });
+      });
+
+    } else if (activeTab === "today") {
+      const today = meetings.filter(m => m.meeting_date === todayStr);
+      const upcoming = meetings.filter(m => m.meeting_date > todayStr && m.meeting_date <= new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10));
+      const overdue = meetings.filter(m => m.follow_up_date && m.follow_up_date < todayStr && m.status !== "Completed" && m.status !== "Cancelled");
+
+      const renderMeetingsGroup = (label, icon, items, emptyMsg) => {
+        if (!items.length) return `
+          <div class="meetings-section-label"><i data-lucide="${icon}"></i> ${label}</div>
+          <div class="empty-state-sm">${emptyMsg}</div>
+        `;
+        return `
+          <div class="meetings-section-label"><i data-lucide="${icon}"></i> ${label} <span class="meetings-count">${items.length}</span></div>
+          ${items.map(m => renderMeetingCard(m, companyRecords)).join("")}
+        `;
+      };
+
+      container.innerHTML = `
+        ${renderMeetingsGroup("Today's Meetings", "sun", today, "No meetings scheduled for today.")}
+        ${renderMeetingsGroup("Upcoming (Next 7 Days)", "calendar", upcoming, "No upcoming meetings this week.")}
+        ${renderMeetingsGroup("Overdue Follow-ups", "alert-circle", overdue, "No overdue follow-ups.")}
+      `;
+      lucide?.createIcons();
+
+      container.querySelectorAll("[data-action='preview'][data-entity='meetings']").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.meetingId;
+          const rec = meetings.find(m => String(m.id) === String(id));
+          if (rec) openPreviewModal("meetings", rec).catch(console.error);
+        });
+      });
+
+      container.querySelectorAll("[data-action='edit'][data-entity='meetings']").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.dataset.meetingId;
+          const rec = meetings.find(m => String(m.id) === String(id));
+          if (rec) openEditModal("meetings", rec).catch(console.error);
+        });
+      });
+    }
+
+    lucide?.createIcons();
+  };
+
+  const todayCount = meetings.filter(m => m.meeting_date === todayStr).length;
+  const plannedCount = meetings.filter(m => m.status === "Planned").length;
+  const completedCount = meetings.filter(m => m.status === "Completed").length;
+
+  sectionContent.innerHTML = `
+    <div class="page-header">
+      <div>
+        <div class="eyebrow">Schedule</div>
+        <h2 class="page-title">Meetings</h2>
+        <div class="page-meta">Plan, track, and follow up on customer meetings.</div>
+      </div>
+      <div class="actions">
+        <button class="btn primary" data-form="meetings">
+          <i data-lucide="plus"></i>
+          Schedule Meeting
+        </button>
+      </div>
+    </div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">Today</div>
+        <div class="stat-value">${todayCount}</div>
+        <div class="stat-pill"><span class="badge-dot" style="background:#2563eb"></span>Meetings today</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Planned</div>
+        <div class="stat-value">${plannedCount}</div>
+        <div class="stat-pill"><span class="badge-dot" style="background:#0ea5e9"></span>Upcoming</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value">${completedCount}</div>
+        <div class="stat-pill"><span class="badge-dot" style="background:#16a34a"></span>Done</div>
+      </div>
+    </div>
+    <div class="meetings-tabs">
+      <button class="meetings-tab active" data-meetings-tab="list">
+        <i data-lucide="list"></i> List
+      </button>
+      <button class="meetings-tab" data-meetings-tab="calendar">
+        <i data-lucide="calendar"></i> Calendar
+      </button>
+      <button class="meetings-tab" data-meetings-tab="today">
+        <i data-lucide="sun"></i> Today &amp; Upcoming
+      </button>
+    </div>
+    <div id="meetings-tab-content"></div>
+  `;
+
+  // Tab switching
+  sectionContent.querySelectorAll("[data-meetings-tab]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      sectionContent.querySelectorAll("[data-meetings-tab]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeTab = btn.dataset.meetingsTab;
+      renderTabContent();
+    });
+  });
+
+  renderTabContent();
+  lucide?.createIcons();
+
+  // Check reminders after rendering
+  checkMeetingReminders().catch(console.debug);
 }
 
 async function renderTags() {
@@ -7273,6 +7732,7 @@ function getPreviewModalTitle(tableKey, record) {
     case "products":         return record.name || "Product";
     case "tasks":            return record.title || "Task";
     case "notes":            return "Note";
+    case "meetings":         return record.meeting_title || "Meeting";
     case "documents":        return record.title || record.name || "Document";
     case "shipping_schedules": return record.reference || record.vessel_name || "Shipping Schedule";
     default:                 return record.name || record.title || record.reference || `${capitalize(tableKey)} Preview`;
@@ -7321,6 +7781,7 @@ async function openPreviewModal(tableKey, record) {
   overlay.className = "modal-overlay";
   const canDelete = Boolean(record?.id);
   const showPrint = tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "orders";
+  const showScheduleMeeting = tableKey === "companies";
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
@@ -7330,6 +7791,7 @@ async function openPreviewModal(tableKey, record) {
       <div class="modal-body preview-body">${content}</div>
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
+        ${showScheduleMeeting ? `<button class="btn" data-schedule-meeting><i data-lucide="calendar-plus"></i> Schedule Meeting</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -7346,6 +7808,23 @@ async function openPreviewModal(tableKey, record) {
     overlay.querySelector("[data-delete]")?.addEventListener("click", () => {
       overlay.remove();
       openDeleteConfirm(tableKey, record);
+    });
+  }
+  if (showScheduleMeeting) {
+    overlay.querySelector("[data-schedule-meeting]")?.addEventListener("click", () => {
+      overlay.remove();
+      openForm("meetings");
+      // Pre-fill company and contact after form DOM renders
+      requestAnimationFrame(() => {
+        const companySelect = document.querySelector(".modal-overlay select[name='company_id']");
+        if (companySelect && record?.id) {
+          companySelect.value = String(record.id);
+        }
+        const contactInput = document.querySelector(".modal-overlay input[name='contact_person']");
+        if (contactInput && !contactInput.value && record?.contact_name) {
+          contactInput.value = record.contact_name;
+        }
+      });
     });
   }
   if (tableKey === "orders" || tableKey === "sample_shipments") {
@@ -7893,6 +8372,10 @@ function openEditModal(tableKey, record) {
     openForm("notes", { initialValues: record, mode: "edit" });
     return;
   }
+  if (tableKey === "meetings") {
+    openForm("meetings", { initialValues: record, mode: "edit" });
+    return;
+  }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const isQuotation = tableKey === "quotations";
@@ -8311,7 +8794,7 @@ function renderShippingSchedulePreview(record) {
   const statusBadge = `<span class="pill ${statusTone}">${sanitizeText(displayStatus)}</span>`;
 
   // Progress timeline
-  const MILESTONES = ["Pending", "In Progress", "Booking Confirmed", "Cargo Closing", "Shipped", "Arrived", "Delivered"];
+  const MILESTONES = ["Pending", "In Production", "Booking Confirmed", "Cargo Closing", "Shipped", "Arrived", "Delivered"];
   const currentIdx = Math.max(0, MILESTONES.indexOf(displayStatus));
   const pct = Math.round((currentIdx / (MILESTONES.length - 1)) * 100);
   const milestoneDots = MILESTONES.map((m, i) => {
@@ -9608,7 +10091,7 @@ function statusToneShipping(status) {
     "Shipped": "teal",
     "Cargo Closing": "orange",
     "Booking Confirmed": "purple",
-    "In Progress": "info",
+    "In Production": "info",
     "Pending": "warning"
   }[status] || "info";
 }
@@ -9894,6 +10377,22 @@ function openForm(key, options = {}) {
         .catch(() => {
           companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
         });
+    }
+  }
+  if (key === "meetings") {
+    overlay.querySelector(".modal")?.classList.add("modal-large");
+    const companySelect = overlay.querySelector('select[name="company_id"]');
+    if (companySelect) {
+      companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
+      fetchCompaniesList().then((companies) => {
+        companySelect.innerHTML = `${i18nPlaceholderOption("-- Select company --")}${companies
+          .map((c) => `<option value="${c.id}">${c.name}</option>`)
+          .join("")}`;
+        const selectedId = initialValues?.company_id;
+        if (selectedId) companySelect.value = String(selectedId);
+      }).catch(() => {
+        companySelect.innerHTML = i18nPlaceholderOption("-- Select company --");
+      });
     }
   }
   if (key === "shipping") {
@@ -11836,6 +12335,87 @@ function showToast(message) {
     toast.classList.remove("show");
     setTimeout(() => toast.remove(), 200);
   }, 2200);
+}
+
+async function checkMeetingReminders() {
+  try {
+    const res = await apiFetch("/api/meetings/upcoming");
+    if (!res.ok) return;
+    const data = await res.json();
+    const meetings = data.rows || [];
+    const now = new Date();
+
+    for (const m of meetings) {
+      if (!m.reminder || m.reminder === "None") continue;
+      if (m.status === "Completed" || m.status === "Cancelled") continue;
+      if (!m.meeting_date) continue;
+
+      const reminderKey = `meeting-reminded-${m.id}`;
+      if (sessionStorage.getItem(reminderKey)) continue;
+
+      // Build meeting datetime
+      const timeStr = m.meeting_time || "00:00";
+      const meetingDt = new Date(`${m.meeting_date}T${timeStr}:00`);
+      if (isNaN(meetingDt.getTime())) continue;
+
+      const minutesUntil = (meetingDt - now) / 60000;
+      const windowMap = {
+        "30 minutes before": 30,
+        "1 hour before": 60,
+        "1 day before": 1440
+      };
+      const windowMin = windowMap[m.reminder];
+      if (!windowMin) continue;
+
+      // Fire if within window and not already past
+      if (minutesUntil > 0 && minutesUntil <= windowMin) {
+        sessionStorage.setItem(reminderKey, "1");
+        showMeetingReminderToast(m);
+      }
+    }
+  } catch (err) {
+    console.debug("Reminder check failed", err);
+  }
+}
+
+function showMeetingReminderToast(meeting) {
+  const existing = document.querySelectorAll(".meeting-reminder-toast");
+  const topOffset = 16 + existing.length * 100;
+
+  const toast = document.createElement("div");
+  toast.className = "meeting-reminder-toast";
+  toast.style.top = `${topOffset}px`;
+
+  const timeLabel = meeting.meeting_time || "";
+  const title = meeting.meeting_title || "Meeting";
+  const company = meeting.company_name || "";
+
+  toast.innerHTML = `
+    <button class="toast-close" aria-label="Close">&times;</button>
+    <div class="toast-icon"><i data-lucide="calendar-clock"></i></div>
+    <div class="toast-title">Reminder: ${escapeHtml(title)}</div>
+    <div class="toast-meta">
+      ${timeLabel ? `<span><i data-lucide="clock"></i> ${escapeHtml(timeLabel)}</span>` : ""}
+      ${company ? `<span><i data-lucide="building-2"></i> ${escapeHtml(company)}</span>` : ""}
+      <span class="toast-reminder-label">${escapeHtml(meeting.reminder)}</span>
+    </div>
+    <button class="btn ghost small toast-view-btn">View Meetings</button>
+  `;
+
+  document.body.appendChild(toast);
+  lucide?.createIcons();
+
+  toast.querySelector(".toast-close")?.addEventListener("click", () => toast.remove());
+  toast.querySelector(".toast-view-btn")?.addEventListener("click", () => {
+    toast.remove();
+    renderSection("meetings");
+  });
+
+  // Auto-dismiss after 10 seconds
+  setTimeout(() => {
+    toast.classList.add("toast-fade-out");
+    setTimeout(() => toast.remove(), 500);
+  }, 10000);
 }
 
 function badge(type, label) {

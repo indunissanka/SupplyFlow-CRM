@@ -112,7 +112,7 @@ const p = (v) => (Array.isArray(v) ? v[0] : v) ?? '';
 const allowedTables = new Set([
     'companies', 'contacts', 'products', 'orders', 'quotations', 'invoices',
     'documents', 'shipping_schedules', 'sample_shipments', 'tasks', 'notes',
-    'tags', 'tag_links', 'doc_types', 'quotation_items'
+    'tags', 'tag_links', 'doc_types', 'quotation_items', 'meetings'
 ]);
 // ── Express app ───────────────────────────────────────────────────────────────
 const app = express();
@@ -405,6 +405,8 @@ app.get('/api/dashboard', async (req, res) => {
                 return 'danger';
             if (['pending', 'draft', 'unpaid', 'open', 'factory exit'].includes(s))
                 return 'warning';
+            if (['in production', 'booking confirmed', 'cargo closing', 'in progress'].includes(s))
+                return 'info';
             return 'info';
         };
         // For orders with no total_amount, look up sum from quotation_items via quotation_id
@@ -418,11 +420,12 @@ app.get('/api/dashboard', async (req, res) => {
             ]).toArray();
             qAgg.forEach((row) => { orderQuoteTotals[String(row._id)] = row.total; });
         }
-        const orderItems = recentOrders.map((o) => {
+        const enrichedOrders = await Promise.all(recentOrders.map((o) => enrichOrderWithShipping(db, ownerEmail, serializeDoc(o))));
+        const orderItems = enrichedOrders.map((o) => {
             const directTotal = Number(o.total_amount || o.amount || 0);
             const amount = directTotal || orderQuoteTotals[String(o.quotation_id)] || 0;
             return {
-                id: o._id.toString(),
+                id: o.id || o._id?.toString(),
                 type: 'order',
                 ref: o.reference || o.order_reference || (o.legacy_id ? `SO-${o.legacy_id}` : 'Order'),
                 account: o.company_name || '-',
@@ -714,7 +717,8 @@ app.get('/api/:table/csv', async (req, res) => {
 const shippingStatusRank = {
     'Pending': 1,
     'Factory exit': 1, // legacy alias
-    'In Progress': 2,
+    'In Production': 2,
+    'In Progress': 2, // legacy alias
     'Dispatched': 2, // legacy alias
     'Booking Confirmed': 3,
     'Cargo Closing': 4,
@@ -748,7 +752,7 @@ const computeShippingMilestoneStatus = (doc) => {
         return 'Booking Confirmed';
     const prodMs = parseDateMs(doc.production_date ?? doc.processing_start_date);
     if (prodMs !== null && prodMs <= nowMs)
-        return 'In Progress';
+        return 'In Production';
     return null;
 };
 // ── Orders: derive status from linked shipping schedule ───────────────────────
@@ -1698,6 +1702,28 @@ app.put('/api/orders/:id', async (req, res) => {
     res.json({ row: enriched });
 });
 // GET list
+// ── Meetings: upcoming (today + next 7 days) ──────────────────────────────────
+app.get('/api/meetings/upcoming', async (req, res) => {
+    const ownerEmail = req.ownerEmail;
+    const db = req.db;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const in8 = new Date(today);
+    in8.setDate(today.getDate() + 8);
+    const todayStr = today.toISOString().slice(0, 10);
+    const in8Str = in8.toISOString().slice(0, 10);
+    try {
+        const rows = await db.collection('meetings').find({
+            owner_email: ownerEmail,
+            meeting_date: { $gte: todayStr, $lt: in8Str }
+        }).sort({ meeting_date: 1, meeting_time: 1 }).toArray();
+        res.json({ rows: rows.map(serializeDoc) });
+    }
+    catch (err) {
+        console.error('Error fetching upcoming meetings', err);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
 app.get('/api/:table', async (req, res, next) => {
     const table = p(req.params.table);
     if (analyticsRouteNames.has(table))
@@ -2340,7 +2366,8 @@ async function syncShippingMilestonesForUser(db, ownerEmail) {
         const applyOrderUpdate = (order, newStatus, bulk) => {
             const currentOrderRank = shippingStatusRank[order.status] ?? 0;
             const newStatusRank = shippingStatusRank[newStatus] ?? 0;
-            if (newStatusRank > currentOrderRank) {
+            // Update if rank advances OR same rank but status name differs (e.g. renamed legacy values)
+            if (newStatusRank > currentOrderRank || (newStatusRank === currentOrderRank && newStatus !== order.status)) {
                 bulk.push({ updateOne: {
                         filter: { _id: order._id },
                         update: { $set: { status: newStatus, updated_at: nowIso } },
@@ -2383,9 +2410,26 @@ async function syncAllShippingMilestones() {
         console.error('[milestones] syncAllShippingMilestones error:', err);
     }
 }
+async function migrateInProgressToInProduction() {
+    try {
+        const db = await getMongoDB();
+        const nowIso = new Date().toISOString();
+        const [orderRes, schedRes] = await Promise.all([
+            db.collection('orders').updateMany({ status: 'In Progress' }, { $set: { status: 'In Production', updated_at: nowIso } }),
+            db.collection('shipping_schedules').updateMany({ status: 'In Progress' }, { $set: { status: 'In Production', updated_at: nowIso } })
+        ]);
+        if (orderRes.modifiedCount || schedRes.modifiedCount) {
+            console.log(`[migration] Renamed "In Progress" → "In Production": ${orderRes.modifiedCount} order(s), ${schedRes.modifiedCount} shipping schedule(s)`);
+        }
+    }
+    catch (err) {
+        console.error('[migration] migrateInProgressToInProduction error:', err);
+    }
+}
 const server = app.listen(port, () => {
     console.log(`Server running on port ${port}`);
     seedAdminUser();
+    migrateInProgressToInProduction();
     syncAllShippingMilestones();
     setInterval(syncAllShippingMilestones, 60 * 60 * 1000);
 });

@@ -127,7 +127,7 @@ export async function initializeMongoDBSchema(db) {
     const collections = [
         'companies', 'contacts', 'products', 'orders', 'quotations', 'invoices',
         'tasks', 'shipping_schedules', 'sample_shipments', 'documents', 'notes',
-        'tags', 'users', 'sessions', 'site_config', 'ai_config'
+        'tags', 'users', 'sessions', 'site_config', 'ai_config', 'meetings'
     ];
     for (const collectionName of collections) {
         try {
@@ -162,6 +162,7 @@ export async function initializeMongoDBSchema(db) {
         db.collection('notes').createIndex({ owner_email: 1, created_at: -1 }),
         db.collection('products').createIndex({ owner_email: 1, name: 1 }),
         db.collection('tag_links').createIndex({ owner_email: 1, entity_id: 1 }),
+        db.collection('meetings').createIndex({ owner_email: 1, meeting_date: 1, status: 1 }),
     ]);
     console.log('MongoDB schema initialized');
 }
