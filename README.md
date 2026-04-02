@@ -7,14 +7,16 @@ A full-stack CRM application built with **Node.js / TypeScript** and **MongoDB**
 - **Companies, Contacts, Products** — full CRUD management
 - **Quotations** — line-item quotations with PDF preview and print
 - **Orders & Invoices** — order and invoice tracking with file attachments
-- **Shipping Schedules** — shipment tracking with factory exit, ETC, ETD, ETA dates
+- **Shipping Schedules** — shipment tracking with milestone status (Pending → In Production → Booking Confirmed → Cargo Closing → Shipped → Arrived → Delivered)
 - **Sample Shipments** — sample tracking workflow
+- **Meetings** — meeting planner with Calendar, List, and Today views; reminders; customer scheduling integration
 - **Tasks** — task management with assignees and due dates
-- **Analytics Dashboard** — KPI, operations, finance, and forecasting at `/analytics`
+- **Analytics Dashboard** — KPI, operations, finance, and forecasting
 - **File Uploads** — attach PDFs and images to invoices and orders
-- **Authentication** — JWT-based user login and session management
+- **Authentication** — JWT-based user login with role-based access control
 - **Tags** — flexible tagging across records
-- **Responsive UI** — desktop and mobile layouts
+- **AI Features** — smart notes, task suggestions, query, quote drafting, document extraction
+- **Responsive UI** — desktop and mobile layouts with bottom navigation
 
 ## Tech Stack
 
@@ -23,7 +25,40 @@ A full-stack CRM application built with **Node.js / TypeScript** and **MongoDB**
 - **Frontend**: Vanilla JS single-page app (no bundler)
 - **Auth**: JWT tokens
 - **File storage**: Local disk (`uploads/`)
-- **Process manager**: PM2
+- **Process manager**: PM2 or Docker Compose
+
+## Modules
+
+| Module | Description |
+|---|---|
+| Dashboard | Live pipeline snapshot, upcoming meetings widget, activity feed, workspace stats |
+| Companies | Customer and prospect management |
+| Contacts | Individual contact records linked to companies |
+| Products | Product catalogue with pricing |
+| Pricing | Price list management |
+| Orders | Sales orders linked to shipping schedules and quotations |
+| Quotations | Line-item quotes with PDF export |
+| Invoices | Invoice tracking with payment status |
+| Documents | File attachments with metadata |
+| Shipping Schedules | Shipment milestone tracking with auto-advancing status |
+| Samples | Sample shipment workflow |
+| **Meetings** | Meeting planner — Calendar view, List view, Today & Upcoming view, reminders |
+| Tasks | Work items with assignees and due dates |
+| Notes | Free-form notes linked to any record |
+| Analytics | KPI cards, revenue trends, forecasting, data quality |
+| Settings | User management, site config, AI config, backup |
+
+## Meeting Planner
+
+The Meetings module provides full meeting lifecycle management:
+
+- **Schedule meetings** from any Company record (auto-fills customer)
+- **3 views**: Monthly Calendar, sortable List, Today & Upcoming cards
+- **Status tracking**: Planned → Completed / Postponed / Cancelled
+- **Reminders**: 30 minutes / 1 hour / 1 day before — shown as toast notifications
+- **Follow-up tracking**: outcome notes, follow-up date, next action
+- **Overdue follow-ups** surfaced in the Today view
+- **Dashboard widget**: Upcoming meetings for today, tomorrow, and next 7 days
 
 ## Project Structure
 
@@ -36,10 +71,10 @@ SupplyFlow-CRM/
 │   ├── analytics.ts       # Analytics endpoints
 │   └── types.ts           # Shared TypeScript types
 ├── public/
-│   ├── index.html         # Main app shell
-│   ├── app.js             # Frontend single-page app
-│   ├── styles.css         # Desktop styles
-│   ├── mobile.css         # Mobile styles
+│   ├── index.html         # Main app shell and navigation
+│   ├── app.js             # Frontend single-page app (~14k lines)
+│   ├── styles.css         # Desktop + component styles
+│   ├── mobile.css         # Mobile responsive styles
 │   └── analytics/         # Analytics dashboard (React + ECharts)
 ├── scripts/
 │   ├── init-admin.js              # Seed first admin user
@@ -48,9 +83,10 @@ SupplyFlow-CRM/
 │   ├── backup-mongodb.sh          # MongoDB backup script
 │   ├── backup.ps1                 # Windows backup script
 │   └── deploy-node.sh             # Node.js deploy script
-├── dist/                  # Compiled JS output (git-ignored)
+├── dist/                  # Compiled JS output
 ├── uploads/               # Uploaded files (git-ignored)
-├── Dockerfile             # Docker configuration
+├── Dockerfile
+├── docker-compose.yml
 ├── package.json
 ├── tsconfig.json
 └── .env.example           # Environment variable template
@@ -88,21 +124,11 @@ SupplyFlow-CRM/
    npm start
    ```
 
-### Analytics UI
-
-The analytics dashboard lives in `public/analytics/` and is built with React + TypeScript + ECharts.
-
-```bash
-npm run build:analytics
-```
-
-This compiles `public/analytics/app.ts` into `public/analytics/dist/app.js`. Run before `npm run dev` if you want the analytics page locally.
-
 ## Environment Variables
 
 Create a `.env` file based on `.env.example`:
 
-```
+```env
 # MongoDB
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB_NAME=crmmango
@@ -118,10 +144,8 @@ AUTH_SECRET=your_secure_random_string_32_chars_min
 ADMIN_EMAIL=admin@example.com
 ADMIN_PASSWORD=your_password
 
-# Optional: Shippo tracking API
-SHIPPO_API_KEY=
-
-# Optional: AI model
+# Optional: AI features
+ANTHROPIC_API_KEY=
 AI_MODEL=claude-haiku-4-5-20251001
 ```
 
@@ -139,14 +163,10 @@ To manually create or reset an admin user:
 node scripts/init-admin.js "your-email@example.com" "your-password"
 ```
 
-To generate a password hash:
-```bash
-node scripts/generate-password-hash.js "your-password" "your-email@example.com"
-```
-
 ## Running with PM2
 
 ```bash
+npm run build
 pm2 start dist/server.js --name SupplyFlow-CRM
 pm2 save
 ```
@@ -160,9 +180,6 @@ Runs the app and MongoDB together with a single command.
 1. **Copy and configure your environment file**:
    ```bash
    cp .env.example .env
-   ```
-   At minimum set `AUTH_SECRET`:
-   ```bash
    echo "AUTH_SECRET=$(openssl rand -base64 32)" >> .env
    ```
 
@@ -183,27 +200,22 @@ Runs the app and MongoDB together with a single command.
 
 4. **Updating after code changes**:
    ```bash
+   npm run build
    docker compose build app
    docker compose up -d app
    ```
 
-> **Data persistence**: MongoDB data is stored in the `SupplyFlow-CRM-mongo` named volume.
-> Uploaded files are stored in the `uploads` named volume.
-> Both survive container restarts and `docker compose down`.
+> **Data persistence**: MongoDB data is stored in the `mongo_data` named volume. Uploaded files are stored in the `uploads` named volume. Both survive container restarts.
 
 ---
 
 ### Option 2 — Docker only (bring your own MongoDB)
 
-If you already have MongoDB running elsewhere:
-
 ```bash
-# Build the image
-docker build -t SupplyFlow-CRM .
+docker build -t supplyflow-crm .
 
-# Run the container
 docker run -d \
-  --name SupplyFlow-CRM \
+  --name supplyflow-crm \
   -p 3000:3000 \
   -e MONGODB_URI=mongodb://your-mongo-host:27017 \
   -e MONGODB_DB_NAME=crmmango \
@@ -211,34 +223,79 @@ docker run -d \
   -e ADMIN_EMAIL=admin@example.com \
   -e ADMIN_PASSWORD=yourpassword \
   -v $(pwd)/uploads:/app/uploads \
-  SupplyFlow-CRM
+  supplyflow-crm
 ```
 
-Or use an env file:
-```bash
-docker run -d --name SupplyFlow-CRM -p 3000:3000 --env-file .env \
-  -v $(pwd)/uploads:/app/uploads SupplyFlow-CRM
+## API Reference
+
+All endpoints require `Authorization: Bearer <token>` and are scoped to the authenticated user.
+
+### Core CRUD
+
 ```
+GET    /api/:table          List records (supports ?limit=&offset=)
+GET    /api/:table/:id      Get single record
+POST   /api/:table          Create record
+PUT    /api/:table/:id      Update record
+DELETE /api/:table/:id      Delete record
+POST   /api/:table/bulk     Bulk insert (CSV import)
+GET    /api/:table/csv      Export as CSV
+```
+
+Supported tables: `companies`, `contacts`, `products`, `orders`, `quotations`, `invoices`, `documents`, `shipping_schedules`, `sample_shipments`, `tasks`, `notes`, `tags`, `meetings`
+
+### Special Endpoints
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/orders` | Orders enriched with live shipping status |
+| `GET /api/meetings/upcoming` | Meetings for today + next 7 days |
+| `GET /api/dashboard` | Pipeline snapshot, stats, activity feed |
+| `GET /api/search?q=` | Global search across all collections |
+| `POST /api/upload` | Upload file attachment |
+
+### Analytics
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/kpis` | KPI cards, pipeline, invoice aging |
+| `GET /api/timeseries` | Revenue / orders over time |
+| `GET /api/breakdown` | Breakdown by company, product, status |
+| `GET /api/forecast` | Revenue forecast with confidence band |
+| `GET /api/data-quality` | Missing fields and data completeness |
+
+### AI
+
+| Endpoint | Description |
+|---|---|
+| `POST /api/ai/smart-note` | Generate structured note |
+| `POST /api/ai/suggest-tasks` | Suggest follow-up tasks |
+| `POST /api/ai/query` | Natural language data query |
+| `POST /api/ai/draft-quote` | Draft a quotation |
+| `POST /api/ai/extract-doc` | Extract data from a document |
+
+## Shipping Status Flow
+
+Status advances automatically based on milestone dates:
+
+```
+Pending → In Production → Booking Confirmed → Cargo Closing → Shipped → Arrived → Delivered
+```
+
+Status is computed from the shipping schedule's milestone dates and cascaded to linked orders at load time and on a scheduled hourly sync.
 
 ## Troubleshooting
 
 ### Login Issues
 
-Test login with curl:
 ```bash
 curl -X POST http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "your@email.com", "password": "yourpassword"}'
 ```
 
-If login fails, reset the admin user:
-```bash
-node scripts/init-admin.js "your@email.com" "newpassword"
-```
-
 ### MongoDB Connection
 
-Check your `MONGODB_URI` in `.env`. For a local instance:
 ```bash
 mongosh mongodb://localhost:27017
 ```
@@ -250,28 +307,6 @@ npm run check   # type-check only
 npm run build   # full compile
 ```
 
-## Analytics API Endpoints
-
-All endpoints require a valid JWT (`Authorization: Bearer <token>`) and are scoped to the authenticated user's data.
-
-| Endpoint | Description |
-|---|---|
-| `GET /api/kpis` | KPI cards, pipeline, invoice aging |
-| `GET /api/timeseries` | Revenue / orders / invoices over time |
-| `GET /api/breakdown` | Breakdown by company, product, status |
-| `GET /api/forecast` | Forecast with confidence band and MAPE |
-| `GET /api/data-quality` | Missing fields, orphans, duplicates |
-| `POST /api/ai/research` | AI-powered CRM data questions |
-| `POST /api/ai/propose` | AI-proposed record updates (read-only) |
-
 ## License
 
 MIT License
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request

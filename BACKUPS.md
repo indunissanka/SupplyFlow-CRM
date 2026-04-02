@@ -1,95 +1,107 @@
 # Backups
 
-This project uses a manual, external backup flow (no runtime impact) that exports D1 schema + data and downloads all document objects from R2 using Wrangler.
+SupplyFlow-CRM uses MongoDB and stores uploaded files on local disk. Backups can be triggered from within the app (Settings → Backup) or via the API/scripts.
 
-## Architecture (short)
-- D1: Export schema and data separately using `wrangler d1 export`.
-- Documents: Query D1 for all file keys, then download each object from R2 with `wrangler r2 object get`.
-- Config: Copy `schema.sql`, `wrangler.toml`, and `wrangler-container.toml` into the backup for human verification.
+## What Gets Backed Up
 
-## Folder Structure (example)
-```
-backups/
-  20250101-120000/
-    backup.json
-    d1/
-      schema.sql
-      data.sql
-      tables.json
-      row_counts.json
-    documents/
-      keys.sql
-      manifest.json
-      objects/
-        uploads/
-          1234-abc.pdf
-    config/
-      schema.sql
-      wrangler.toml
-      wrangler-container.toml
-```
+- **MongoDB data** — all collections: companies, contacts, orders, quotations, invoices, shipping schedules, meetings, tasks, notes, documents, products, tags, users, site config
+- **Uploaded files** — PDFs and images stored in `uploads/`
 
-## Manual Commands (D1)
-Schema only:
+---
+
+## In-App Backup (Recommended)
+
+Navigate to **Settings → Backup** in the CRM. From there you can:
+
+- Create a backup (downloads a `.zip` of all data + uploaded files)
+- Restore from a previously downloaded `.zip`
+- List and delete old backups
+
+---
+
+## API Backup
+
+All backup endpoints require `Authorization: Bearer <token>`.
+
 ```
-wrangler d1 export tcm-crm --remote --no-data --output backups/<timestamp>/d1/schema.sql
+GET    /api/backup/list                  List available backups
+POST   /api/backup/create               Create new backup
+GET    /api/backup/download/:filename   Download a backup zip
+POST   /api/backup/restore/:filename    Restore from a stored backup
+POST   /api/backup/upload-restore       Upload a zip and restore
+DELETE /api/backup/:filename            Delete a backup
 ```
 
-Schema + data:
-```
-wrangler d1 export tcm-crm --remote --no-schema --output backups/<timestamp>/d1/data.sql
+---
+
+## Script Backup (Linux/macOS)
+
+```bash
+bash scripts/backup-mongodb.sh
 ```
 
-## Manual Script (All Backups)
-Run once, safe to repeat:
-```
+Creates a timestamped `mongodump` archive in `backups/`.
+
+## Script Backup (Windows)
+
+```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup.ps1
 ```
 
-Optional overrides:
+---
+
+## Backup Folder Structure
+
 ```
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup.ps1 -DatabaseName tcm-crm -BucketName crmforall-files
+backups/
+  20250401-120000.zip
+    data/
+      companies.json
+      contacts.json
+      orders.json
+      meetings.json
+      ...
+    uploads/
+      1234-abc.pdf
+      5678-def.jpg
 ```
+
+---
 
 ## Restore Guide
 
-### Restore schema only
-1) Create a new D1 database if needed.
-2) Apply schema:
-```
-wrangler d1 execute <db-name> --remote --file backups/<timestamp>/d1/schema.sql
+### From in-app backup
+
+1. Go to **Settings → Backup**
+2. Click **Upload & Restore**
+3. Select the `.zip` backup file
+4. Confirm — all existing data is replaced
+
+### From mongodump archive
+
+```bash
+mongorestore --uri="mongodb://localhost:27017" --db crmmango backups/<timestamp>/
 ```
 
-### Restore schema + data
-1) Apply schema:
-```
-wrangler d1 execute <db-name> --remote --file backups/<timestamp>/d1/schema.sql
-```
-2) Apply data:
-```
-wrangler d1 execute <db-name> --remote --file backups/<timestamp>/d1/data.sql
+### Docker volume restore
+
+If running via Docker Compose, the MongoDB data lives in the `mongo_data` named volume. To restore:
+
+```bash
+docker compose down
+docker volume rm supplyflow-crm_mongo_data
+docker compose up -d mongo
+# wait for mongo to start, then restore
+mongorestore --uri="mongodb://localhost:27017" --db crmmango backups/<timestamp>/
+docker compose up -d app
 ```
 
-### Restore documents (R2)
-Use the manifest to restore keys exactly as saved:
-```
-$manifest = Get-Content backups/<timestamp>/documents/manifest.json | ConvertFrom-Json
-foreach ($item in $manifest) {
-  if ($item.status -ne "downloaded") { continue }
-  $filePath = Join-Path "backups/<timestamp>/documents/objects" $item.key
-  $objectPath = "crmforall-files/$($item.key)"
-  if ($item.content_type) {
-    wrangler r2 object put $objectPath --remote --file $filePath --content-type $item.content_type
-  } else {
-    wrangler r2 object put $objectPath --remote --file $filePath
-  }
-}
-```
+---
 
 ## Verification Checklist
-- D1 export files exist: `d1/schema.sql` and `d1/data.sql`.
-- `d1/tables.json` matches production tables.
-- `d1/row_counts.json` looks reasonable and can be re-queried post-restore.
-- `documents/manifest.json` includes all expected keys and sources.
-- Every manifest entry has `status: downloaded` (or investigate missing).
-- Spot-check 2-3 restored objects by key (download + open).
+
+- All collection `.json` files are present in the backup
+- Row counts look reasonable compared to before backup
+- `uploads/` directory contains expected files
+- Test login after restore to confirm user records are intact
+- Spot-check 2–3 records across companies, orders, and meetings
