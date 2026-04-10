@@ -2693,6 +2693,31 @@ const server = app.listen(port, () => {
   migrateInProgressToInProduction();
   syncAllShippingMilestones();
   setInterval(syncAllShippingMilestones, 60 * 60 * 1000);
+
+  // Daily auto-backup at 02:00
+  function scheduleNextBackup() {
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(2, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    const msUntil = next.getTime() - now.getTime();
+    setTimeout(() => {
+      const { exec } = require('child_process');
+      const scriptPath = path.resolve(process.cwd(), 'scripts/backup-mongodb.sh');
+      exec(`bash "${scriptPath}"`, (err: any, stdout: string, stderr: string) => {
+        if (err) console.error('[auto-backup] Error:', stderr || err.message);
+        else console.log('[auto-backup]', stdout.trim().split('\n').pop());
+      });
+      setInterval(() => {
+        exec(`bash "${scriptPath}"`, (err: any, stdout: string, stderr: string) => {
+          if (err) console.error('[auto-backup] Error:', stderr || err.message);
+          else console.log('[auto-backup]', stdout.trim().split('\n').pop());
+        });
+      }, 24 * 60 * 60 * 1000);
+    }, msUntil);
+    console.log(`[auto-backup] Next backup scheduled in ${Math.round(msUntil / 3600000)}h`);
+  }
+  scheduleNextBackup();
 });
 
 process.on('SIGTERM', async () => {
