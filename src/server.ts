@@ -589,14 +589,22 @@ function safeBackupFilename(filename: string): string | null {
   return base.endsWith('.tar.gz') ? base : null;
 }
 
+function userBackupDir(email: string): string {
+  const safe = email.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
+  const dir = path.join(BACKUP_DIR, safe);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
 
 // GET /api/backup/list
 app.get('/api/backup/list', async (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
+  const dir = userBackupDir(cu.email);
   try {
-    const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.tar.gz'));
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.tar.gz'));
     const backups = files.map(f => {
-      const stat = fs.statSync(path.join(BACKUP_DIR, f));
+      const stat = fs.statSync(path.join(dir, f));
       return { filename: f, size: stat.size, created_at: stat.mtime.toISOString() };
     }).sort((a, b) => b.created_at.localeCompare(a.created_at));
     res.json({ backups });
@@ -607,9 +615,11 @@ app.get('/api/backup/list', async (req: Request, res: Response) => {
 
 // POST /api/backup/create
 app.post('/api/backup/create', async (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
+  const dir = userBackupDir(cu.email);
   try {
-    const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}"`, { timeout: 120000 });
+    const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
     res.json({ ok: true, log: stdout || stderr });
   } catch (err: any) {
     console.error('Backup create failed', err);
@@ -619,20 +629,22 @@ app.post('/api/backup/create', async (req: Request, res: Response) => {
 
 // GET /api/backup/download/:filename
 app.get('/api/backup/download/:filename', (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = path.join(userBackupDir(cu.email), filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   res.download(filePath, filename);
 });
 
 // DELETE /api/backup/:filename
 app.delete('/api/backup/:filename', (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = path.join(userBackupDir(cu.email), filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   try {
     fs.unlinkSync(filePath);
@@ -644,10 +656,11 @@ app.delete('/api/backup/:filename', (req: Request, res: Response) => {
 
 // POST /api/backup/restore/:filename
 app.post('/api/backup/restore/:filename', async (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = path.join(userBackupDir(cu.email), filename);
   if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Not found' });
   const uploadsTarget = path.resolve(process.cwd(), 'uploads');
   try {
@@ -670,7 +683,12 @@ app.post('/api/backup/restore/:filename', async (req: Request, res: Response) =>
 
 // POST /api/backup/upload-restore  — upload a .tar.gz from client then restore it
 const _backupUploadStorage = (multer as any).diskStorage({
-  destination: (_req: any, _file: any, cb: any) => { fs.mkdirSync(BACKUP_DIR, { recursive: true }); cb(null, BACKUP_DIR); },
+  destination: (req: any, _file: any, cb: any) => {
+    const email = req.currentUser?.email;
+    const dir = email ? userBackupDir(email) : BACKUP_DIR;
+    fs.mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
   filename: (_req: any, file: any, cb: any) => { cb(null, path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_')); }
 });
 const _backupUpload = (multer as any)({
@@ -679,12 +697,13 @@ const _backupUpload = (multer as any)({
   fileFilter: (_req: any, file: any, cb: any) => { cb(null, file.originalname.endsWith('.tar.gz')); }
 });
 app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (req: Request, res: Response) => {
-  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
+  const cu = (req as any).currentUser;
+  if (!cu) return res.status(403).json({ error: 'Authentication required' });
   const file = (req as any).file as Express.Multer.File | undefined;
   if (!file) return res.status(400).json({ error: 'No file uploaded or file is not a .tar.gz' });
   const filename = safeBackupFilename(file.filename);
   if (!filename) { fs.unlinkSync(file.path); return res.status(400).json({ error: 'Invalid filename' }); }
-  const filePath = path.join(BACKUP_DIR, filename);
+  const filePath = file.path;
   const uploadsTarget = path.resolve(process.cwd(), 'uploads');
   try {
     const cmd = [
@@ -2710,12 +2729,14 @@ const server = app.listen(port, () => {
     setTimeout(() => {
       const { exec } = require('child_process');
       const scriptPath = path.resolve(process.cwd(), 'scripts/backup-mongodb.sh');
-      exec(`bash "${scriptPath}"`, (err: any, stdout: string, stderr: string) => {
+      const autoDir = path.join(BACKUP_DIR, '_auto');
+      fs.mkdirSync(autoDir, { recursive: true });
+      exec(`bash "${scriptPath}" "${autoDir}"`, (err: any, stdout: string, stderr: string) => {
         if (err) console.error('[auto-backup] Error:', stderr || err.message);
         else console.log('[auto-backup]', stdout.trim().split('\n').pop());
       });
       setInterval(() => {
-        exec(`bash "${scriptPath}"`, (err: any, stdout: string, stderr: string) => {
+        exec(`bash "${scriptPath}" "${autoDir}"`, (err: any, stdout: string, stderr: string) => {
           if (err) console.error('[auto-backup] Error:', stderr || err.message);
           else console.log('[auto-backup]', stdout.trim().split('\n').pop());
         });

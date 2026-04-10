@@ -13,7 +13,7 @@ fi
 
 MONGO_URI="${MONGODB_URI:-mongodb://localhost:27017}"
 DB_NAME="${MONGODB_DB_NAME:-crmmango}"
-BACKUP_ROOT="${BACKUP_DIR:-/app/backups}"
+BACKUP_ROOT="${1:-${BACKUP_DIR:-/app/backups}}"
 RETENTION_DAYS=7
 STAMP=$(date +%Y%m%d_%H%M%S)
 DEST="$BACKUP_ROOT/$STAMP"
