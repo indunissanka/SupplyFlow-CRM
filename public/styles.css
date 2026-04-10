@@ -2039,6 +2039,24 @@ body.salesperson-mode .content {
 .privilege-name {
   margin: 0;
   font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.self-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--primary, #6366f1);
+  color: #fff;
+  letter-spacing: 0.03em;
+}
+
+.privilege-item.is-self {
+  border-color: rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.04);
 }
 
 .privilege-role {

@@ -1710,6 +1710,7 @@ function renderPrivilegeItem(user) {
   const idAttr = user.id ? ` data-id="${user.id}"` : "";
   const canEdit = currentRole === adminRole;
   const canRemove = user.role !== adminRole;
+  const isSelf = user.email === currentUserEmail;
   const accessList = Array.isArray(user.accessList) ? user.accessList : parseAccessList(user.access || "");
   const accessText = formatAccessText(accessList);
   const enabled = user.enabled !== false;
@@ -1728,9 +1729,9 @@ function renderPrivilegeItem(user) {
         return `<span class="access-tag">${label}</span>`;
       }).join("")}</div>`;
   return `
-    <div class="privilege-item${enabled ? "" : " disabled"}"${emailAttr}${idAttr}>
+    <div class="privilege-item${enabled ? "" : " disabled"}${isSelf ? " is-self" : ""}"${emailAttr}${idAttr}>
       <div>
-        <p class="privilege-name">${safeName}</p>
+        <p class="privilege-name">${safeName}${isSelf ? ' <span class="self-badge">You</span>' : ""}</p>
         <p class="privilege-role">${safeRole}</p>
       </div>
       <div class="privilege-access">
@@ -1738,10 +1739,14 @@ function renderPrivilegeItem(user) {
         <span class="privilege-access-text">${accessText}</span>
       </div>
       <div class="privilege-actions">
-        ${canEdit ? `<button type="button" class="toggle-pill ${statusClass}" data-action="toggle-user">${enabled ? "On" : "Off"}</button>` : `<span class="privilege-status ${statusClass}">${enabled ? "On" : "Off"}</span>`}
-        ${canEdit ? `<button type="button" class="btn ghost small" data-action="edit-user">Edit</button>` : ""}
-        <button type="button" class="btn ghost small" data-action="reset-user">Reset password</button>
-        ${canEdit && canRemove ? `<button type="button" class="btn ghost" data-action="remove-user">Remove</button>` : ""}
+        ${isSelf
+          ? `<span class="privilege-status ${statusClass}">${enabled ? "On" : "Off"}</span>`
+          : canEdit
+            ? `<button type="button" class="toggle-pill ${statusClass}" data-action="toggle-user">${enabled ? "On" : "Off"}</button>`
+            : `<span class="privilege-status ${statusClass}">${enabled ? "On" : "Off"}</span>`}
+        ${canEdit && !isSelf ? `<button type="button" class="btn ghost small" data-action="edit-user">Edit</button>` : ""}
+        ${!isSelf ? `<button type="button" class="btn ghost small" data-action="reset-user">Reset password</button>` : ""}
+        ${canEdit && canRemove && !isSelf ? `<button type="button" class="btn ghost" data-action="remove-user">Remove</button>` : ""}
       </div>
     </div>
   `;
