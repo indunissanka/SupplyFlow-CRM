@@ -1294,6 +1294,48 @@ async function callClaude(db: Db, system: string, userText: string, maxTokens = 
   return block.type === 'text' ? block.text : '';
 }
 
+// Per-user AI helpers — non-admin users supply their own Anthropic API key
+async function getUserAnthropicClient(db: Db, userEmail: string): Promise<Anthropic | null> {
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: userEmail });
+  if (!stored?.key_value || stored?.enabled === false) return null;
+  return new Anthropic({ apiKey: stored.key_value as string });
+}
+
+async function isAiAvailableForUser(db: Db, user: UserRow): Promise<boolean> {
+  if (user.role === adminRole) return await aiConfigured(db);
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: user.email });
+  // Personal key takes priority if configured and enabled
+  if (stored?.key_value && stored?.enabled !== false) return true;
+  // Fall back to admin shared key unless user has explicitly disabled it
+  if (stored?.use_admin_key !== false) return await aiConfigured(db);
+  return false;
+}
+
+async function getAiClientForUser(db: Db, user: UserRow): Promise<Anthropic | null> {
+  if (user.role === adminRole) return await getAnthropicClient(db);
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: user.email });
+  // Personal key first
+  if (stored?.key_value && stored?.enabled !== false) {
+    return new Anthropic({ apiKey: stored.key_value as string });
+  }
+  // Fall back to admin shared key unless user has disabled it
+  if (stored?.use_admin_key !== false) return await getAnthropicClient(db);
+  return null;
+}
+
+async function callClaudeForUser(db: Db, user: UserRow, system: string, userText: string, maxTokens = 1024): Promise<string> {
+  const client = await getAiClientForUser(db, user);
+  if (!client) throw new Error('AI not configured');
+  const msg = await client.messages.create({
+    model: AI_MODEL,
+    max_tokens: maxTokens,
+    system,
+    messages: [{ role: 'user', content: userText }]
+  });
+  const block = msg.content[0];
+  return block.type === 'text' ? block.text : '';
+}
+
 // ── AI Config endpoints (Admin only) ──────────────────────────────────────────
 
 app.get('/api/settings/ai-config', async (req: Request, res: Response) => {
@@ -1353,6 +1395,72 @@ app.post('/api/settings/ai-config/toggle', async (req: Request, res: Response) =
   res.json({ ok: true, enabled: newEnabled });
 });
 
+// ── User AI Config endpoints (non-admin users only) ───────────────────────────
+
+app.get('/api/settings/user-ai-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role === adminRole) return res.status(403).json({ error: 'Admins use /api/settings/ai-config' });
+  const db: Db = (req as any).db;
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: user.email });
+  const enabled = stored?.enabled !== false;
+  const useAdminKey = stored?.use_admin_key !== false; // default true
+  const dbKey = stored?.key_value as string | null;
+  const adminConfigured = await aiConfigured(db);
+  if (dbKey) {
+    const preview = `sk-ant-...${dbKey.slice(-4)}`;
+    return res.json({ configured: true, preview, enabled, use_admin_key: useAdminKey, admin_configured: adminConfigured });
+  }
+  res.json({ configured: false, preview: null, enabled, use_admin_key: useAdminKey, admin_configured: adminConfigured });
+});
+
+app.post('/api/settings/user-ai-config', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role === adminRole) return res.status(403).json({ error: 'Admins use /api/settings/ai-config' });
+  const db: Db = (req as any).db;
+  const { anthropic_api_key } = req.body || {};
+  const key = String(anthropic_api_key || '').trim();
+  if (!key || !key.startsWith('sk-ant-') || key.length < 20) {
+    return res.status(400).json({ error: 'Invalid API key format (must start with sk-ant-)' });
+  }
+  await db.collection('user_ai_keys').updateOne(
+    { user_email: user.email },
+    { $set: { user_email: user.email, key_value: key, enabled: true, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  const preview = `sk-ant-...${key.slice(-4)}`;
+  res.json({ ok: true, preview });
+});
+
+app.post('/api/settings/user-ai-config/toggle', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role === adminRole) return res.status(403).json({ error: 'Admins use /api/settings/ai-config' });
+  const db: Db = (req as any).db;
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: user.email });
+  const currentlyEnabled = stored?.enabled !== false;
+  const newEnabled = !currentlyEnabled;
+  await db.collection('user_ai_keys').updateOne(
+    { user_email: user.email },
+    { $set: { enabled: newEnabled, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  res.json({ ok: true, enabled: newEnabled });
+});
+
+app.post('/api/settings/user-ai-config/admin-key-toggle', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
+  if (user?.role === adminRole) return res.status(403).json({ error: 'Admins manage the shared key via /api/settings/ai-config' });
+  const db: Db = (req as any).db;
+  const stored = await db.collection('user_ai_keys').findOne({ user_email: user.email });
+  const currentlyUsing = stored?.use_admin_key !== false; // default true
+  const newUseAdminKey = !currentlyUsing;
+  await db.collection('user_ai_keys').updateOne(
+    { user_email: user.email },
+    { $set: { use_admin_key: newUseAdminKey, updated_at: new Date().toISOString() } },
+    { upsert: true }
+  );
+  res.json({ ok: true, use_admin_key: newUseAdminKey });
+});
+
 
 function safeParseJson(text: string): any {
   const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
@@ -1376,8 +1484,9 @@ async function extractPdfText(filePath: string): Promise<string> {
 // Feature 3: Smart Note
 app.post('/api/ai/smart-note', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
   const { text } = req.body || {};
   if (!text) return res.status(400).json({ error: 'text is required' });
 
@@ -1394,7 +1503,7 @@ Tags in CRM: ${tagNames || 'none'}
 Return exactly: {"structured_body":"...","suggested_company_name":"...or null","suggested_tags":["..."],"follow_up_task":{"title":"...","due_date":"YYYY-MM-DD"}|null}`;
 
   try {
-    const raw = await callClaude(db, system, text, 512);
+    const raw = await callClaudeForUser(db, user, system, text, 512);
     const parsed = safeParseJson(raw);
     res.json({ note: parsed });
   } catch (err: any) {
@@ -1406,8 +1515,9 @@ Return exactly: {"structured_body":"...","suggested_company_name":"...or null","
 // Feature 4: Suggest Tasks
 app.post('/api/ai/suggest-tasks', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
 
   const now = new Date();
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -1436,7 +1546,7 @@ app.post('/api/ai/suggest-tasks', async (req: Request, res: Response) => {
 Today is ${todayStr}. Limit to 10 tasks.`;
 
   try {
-    const raw = await callClaude(db, system, context, 1024);
+    const raw = await callClaudeForUser(db, user, system, context, 1024);
     const suggestions = safeParseJson(raw);
     res.json({ suggestions: Array.isArray(suggestions) ? suggestions : [] });
   } catch (err: any) {
@@ -1507,8 +1617,9 @@ function buildSalesReportPlans(): QueryPlan[] {
 
 app.post('/api/ai/query', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
 
   const { question, history } = req.body || {};
   if (!question) return res.status(400).json({ error: 'question is required' });
@@ -1549,7 +1660,7 @@ Rules:
 
   try {
     const historyMessages = safeHistory.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
-    const client = await getAnthropicClient(db);
+    const client = await getAiClientForUser(db, user);
     if (!client) return res.status(501).json({ error: 'AI features not configured' });
 
     let plans: QueryPlan[];
@@ -1615,8 +1726,9 @@ Format each section with a bold heading and bullet points. Include specific numb
 // Feature 1: AI Draft Quote
 app.post('/api/ai/draft-quote', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
   const { text } = req.body || {};
   if (!text) return res.status(400).json({ error: 'text is required' });
 
@@ -1633,7 +1745,7 @@ Products (id:name): ${productList || 'none'}
 Return JSON only: {"company_name":"...or null","company_id":"...or null","product_name":"...or null","product_id":"...or null","quantity":null,"currency":"USD","payment_terms":"...or null","notes":"...or null"}`;
 
   try {
-    const raw = await callClaude(db, system, text, 512);
+    const raw = await callClaudeForUser(db, user, system, text, 512);
     const draft = safeParseJson(raw);
     res.json({ draft });
   } catch (err: any) {
@@ -1644,8 +1756,9 @@ Return JSON only: {"company_name":"...or null","company_id":"...or null","produc
 
 // Feature 2: Extract PDF
 app.post('/api/ai/extract-doc', async (req: Request, res: Response) => {
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
   const { file_key } = req.body || {};
   if (!file_key || !String(file_key).startsWith('uploads/') || String(file_key).includes('..')) {
     return res.status(400).json({ error: 'Invalid file_key' });
@@ -1657,7 +1770,7 @@ app.post('/api/ai/extract-doc', async (req: Request, res: Response) => {
     const system = `You are a document extraction assistant. Extract structured data from document text.
 Return JSON only: {"company_name":null,"contact_name":null,"items":[],"total_amount":null,"currency":null,"issue_date":null,"due_date":null,"reference":null,"notes":null}
 Dates should be YYYY-MM-DD. items is array of {description, quantity, unit_price}.`;
-    const extracted = safeParseJson(await callClaude(db, system, pdfText, 1024));
+    const extracted = safeParseJson(await callClaudeForUser(db, user, system, pdfText, 1024));
     res.json({ extracted });
   } catch (err: any) {
     console.error('AI extract-doc error', err);
@@ -1668,8 +1781,9 @@ Dates should be YYYY-MM-DD. items is array of {description, quantity, unit_price
 // Feature 6: Shipment Track & Summarize
 app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
+  const user = (req as any).currentUser as UserRow;
   const db: Db = (req as any).db;
-  if (!await aiConfigured(db)) return res.status(501).json({ error: 'AI features not configured' });
+  if (!await isAiAvailableForUser(db, user)) return res.status(501).json({ error: 'AI features not configured' });
   const { order_id, sample_id, waybill, courier } = req.body || {};
   const recordId = order_id || sample_id;
   const collection = sample_id ? 'sample_shipments' : 'orders';
@@ -1682,7 +1796,7 @@ app.post('/api/ai/track-summary', async (req: Request, res: Response) => {
 
   try {
     const system = 'You are a logistics assistant. No live tracking API is configured. Write a brief 1-2 sentence note acknowledging the waybill and courier, and advise checking the courier website directly for live status.';
-    const summary = await callClaude(db, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}`, 256);
+    const summary = await callClaudeForUser(db, user, system, `Waybill: ${waybill}\nCourier: ${courier || 'unknown'}`, 256);
 
     const now = new Date().toISOString();
     const noteDoc = {

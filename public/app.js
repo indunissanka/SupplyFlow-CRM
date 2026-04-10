@@ -682,6 +682,7 @@ const accessOptions = [
   { id: "meetings", label: "Meetings", aliases: ["meeting", "meetings"] },
   { id: "tasks", label: "Tasks", aliases: ["task", "tasks"] },
   { id: "notes", label: "Notes", aliases: ["note", "notes"] },
+  { id: "ai", label: "AI Features", aliases: ["ai", "ai features", "artificial intelligence"] },
   { id: "settings", label: "Settings", aliases: ["setting", "settings"] }
 ];
 
@@ -881,7 +882,7 @@ function showAppShell() {
   if (!_aiPanelInitialized) {
     _aiPanelInitialized = true;
     setTimeout(() => {
-      initAiQaPanel();
+      if (canAccessAi()) initAiQaPanel();
       initGlobalSearch();
     }, 0);
   }
@@ -1426,16 +1427,22 @@ function resolveAccessSection(section) {
 }
 
 function canAccessSection(section) {
-  if (!section || section === "dashboard") return true;
+  if (!section || section === "dashboard" || section === "settings") return true;
   const allowed = getAllowedAccessList();
   return allowed.includes(resolveAccessSection(section));
+}
+
+function canAccessAi() {
+  if (currentRole === adminRole) return true;
+  if (!Array.isArray(currentAccessList) || currentAccessList.length === 0) return false;
+  return currentAccessList.includes("ai");
 }
 
 function applyAccessRestrictions() {
   const allowed = new Set(getAllowedAccessList());
   navItems.forEach((item) => {
     const section = item.dataset.section;
-    if (!section || section === "dashboard") return;
+    if (!section || section === "dashboard" || section === "settings") return;
     const accessId = resolveAccessSection(section);
     const canAccess = allowed.has(accessId);
     item.classList.toggle("hidden", !canAccess);
@@ -1445,6 +1452,8 @@ function applyAccessRestrictions() {
       item.removeAttribute("aria-disabled");
     }
   });
+  const aiFab = document.getElementById("ai-fab-btn");
+  if (aiFab) aiFab.style.display = canAccessAi() ? "" : "none";
 }
 
 function loadUserAccounts() {
@@ -4449,10 +4458,10 @@ async function renderQuotations() {
           <i data-lucide="plus"></i>
           New Quote
         </button>
-        <button class="btn ai-trigger-btn" id="btn-ai-draft-quote" title="Draft a quotation from plain text using AI">
+        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-draft-quote" title="Draft a quotation from plain text using AI">
           <i data-lucide="zap"></i>
           AI Draft
-        </button>
+        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -4574,10 +4583,10 @@ async function renderDocuments() {
           <i data-lucide="upload-cloud"></i>
           Upload Documents
         </button>
-        <button class="btn ai-trigger-btn" id="btn-ai-extract-pdf" title="Extract fields from a PDF using AI">
+        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-extract-pdf" title="Extract fields from a PDF using AI">
           <i data-lucide="zap"></i>
           Extract PDF
-        </button>
+        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -5186,10 +5195,10 @@ async function renderTasks() {
           <i data-lucide="plus"></i>
           New Task
         </button>
-        <button class="btn ai-trigger-btn" id="btn-ai-suggest-tasks" title="Let AI suggest follow-up tasks">
+        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-suggest-tasks" title="Let AI suggest follow-up tasks">
           <i data-lucide="zap"></i>
           Suggest Follow-ups
-        </button>
+        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -5242,10 +5251,10 @@ async function renderNotes() {
           <i data-lucide="plus"></i>
           Add Note
         </button>
-        <button class="btn ai-trigger-btn" id="btn-ai-smart-note" title="Create a structured note using AI">
+        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-smart-note" title="Create a structured note using AI">
           <i data-lucide="zap"></i>
           Smart Note
-        </button>
+        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -6186,6 +6195,7 @@ async function renderSettings() {
           <button class="tab active" data-tab="site-config">Site configuration</button>
           ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
+          ${!canManageUsers ? `<button class="tab" data-tab="user-ai-config">AI Configuration</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
@@ -6438,6 +6448,58 @@ async function renderSettings() {
           </div>
         </div>
 ` : ""}
+        ${!canManageUsers ? `
+        <div class="tab-content" id="user-ai-config">
+          <div class="panel" style="margin-bottom:16px">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="key"></i>
+                My API Key
+              </h3>
+              <div class="stat-label">Your personal Anthropic API key — private to your account and not shared with other users.</div>
+            </div>
+            <div style="padding:20px 0 8px">
+              <div style="margin-bottom:16px">
+                <div class="stat-label" style="margin-bottom:4px">Status</div>
+                <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                  <div id="user-ai-key-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                    <span style="color:var(--text-muted)">Loading…</span>
+                  </div>
+                  <button id="user-ai-key-toggle-btn" class="btn ghost small" type="button" style="display:none"></button>
+                </div>
+              </div>
+              <div style="margin-bottom:16px">
+                <label class="form-label" for="user-ai-key-input">Anthropic API Key</label>
+                <div style="display:flex;gap:8px;align-items:center;margin-top:6px">
+                  <input id="user-ai-key-input" type="password" class="form-input" placeholder="sk-ant-…" autocomplete="off" style="flex:1;min-width:0" />
+                  <button class="btn ghost small" id="user-ai-key-toggle-vis" type="button" title="Show/hide key">
+                    <i data-lucide="eye"></i>
+                  </button>
+                  <button class="btn primary" id="user-ai-key-save-btn" type="button">Save</button>
+                </div>
+              </div>
+              <p class="stat-label">Get your key at <strong>console.anthropic.com</strong> — your key is used only for your account.</p>
+            </div>
+          </div>
+          <div class="panel" id="user-admin-key-panel" style="display:none">
+            <div class="panel-header">
+              <h3 class="panel-title panel-title-icon">
+                <i data-lucide="shield"></i>
+                Admin Shared API
+              </h3>
+              <div class="stat-label">Your workspace admin has configured a shared AI key available to all users. You can disable it for your account and rely solely on your personal key.</div>
+            </div>
+            <div style="padding:20px 0 8px">
+              <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+                <div id="user-admin-key-status" style="display:flex;align-items:center;gap:8px;font-size:14px">
+                  <span style="color:var(--text-muted)">Loading…</span>
+                </div>
+                <button id="user-admin-key-toggle-btn" class="btn ghost small" type="button"></button>
+              </div>
+            </div>
+          </div>
+        </div>
+        ` : ""}
       </div>
     </div>
   `;
@@ -6540,6 +6602,126 @@ async function renderSettings() {
     // Also trigger status load when tab is clicked
     document.querySelector("[data-tab='ai-config']")?.addEventListener("click", loadAiStatus);
 
+  }
+
+  // User AI Config tab handlers (non-admin users)
+  if (!canManageUsers) {
+    const userAiKeyStatusEl = document.getElementById("user-ai-key-status");
+    const userAiKeyInput = document.getElementById("user-ai-key-input");
+    const userAiKeySaveBtn = document.getElementById("user-ai-key-save-btn");
+    const userAiKeyToggleVis = document.getElementById("user-ai-key-toggle-vis");
+    const userAiKeyToggleBtn = document.getElementById("user-ai-key-toggle-btn");
+    const userAdminKeyPanel = document.getElementById("user-admin-key-panel");
+    const userAdminKeyStatusEl = document.getElementById("user-admin-key-status");
+    const userAdminKeyToggleBtn = document.getElementById("user-admin-key-toggle-btn");
+
+    const loadUserAiStatus = async () => {
+      try {
+        const res = await apiFetch("/api/settings/user-ai-config");
+        const data = await res.json();
+
+        // Personal key card
+        if (userAiKeyStatusEl) {
+          if (data.configured) {
+            const dot = data.enabled
+              ? `<span style="color:var(--success,#16a34a)">&#9679;</span>`
+              : `<span style="color:var(--warning,#f59e0b)">&#9679;</span>`;
+            const label = data.enabled ? "<strong>Enabled</strong>" : "<strong>Disabled</strong>";
+            userAiKeyStatusEl.innerHTML = `${dot} ${label} <span class="stat-label">(${sanitizeText(data.preview || "")})</span>`;
+            if (userAiKeyToggleBtn) {
+              userAiKeyToggleBtn.style.display = "";
+              userAiKeyToggleBtn.textContent = data.enabled ? "Disable" : "Enable";
+              userAiKeyToggleBtn.className = data.enabled ? "btn ghost small" : "btn primary small";
+            }
+          } else {
+            userAiKeyStatusEl.innerHTML = `<span style="color:#94a3b8">&#9679;</span> <span class="stat-label">Not configured</span>`;
+            if (userAiKeyToggleBtn) userAiKeyToggleBtn.style.display = "none";
+          }
+        }
+
+        // Admin shared key card — only visible when admin has configured a shared key
+        if (userAdminKeyPanel) {
+          if (data.admin_configured) {
+            userAdminKeyPanel.style.display = "";
+            if (userAdminKeyStatusEl && userAdminKeyToggleBtn) {
+              if (data.use_admin_key) {
+                userAdminKeyStatusEl.innerHTML = `<span style="color:var(--success,#16a34a)">&#9679;</span> <strong>Using admin shared key</strong>`;
+                userAdminKeyToggleBtn.textContent = "Disable for my account";
+                userAdminKeyToggleBtn.className = "btn ghost small";
+              } else {
+                userAdminKeyStatusEl.innerHTML = `<span style="color:#94a3b8">&#9679;</span> <span class="stat-label">Admin key disabled for your account</span>`;
+                userAdminKeyToggleBtn.textContent = "Re-enable admin key";
+                userAdminKeyToggleBtn.className = "btn primary small";
+              }
+            }
+          } else {
+            userAdminKeyPanel.style.display = "none";
+          }
+        }
+      } catch (_) {
+        if (userAiKeyStatusEl) userAiKeyStatusEl.innerHTML = `<span class="stat-label">Unable to load status</span>`;
+      }
+    };
+    loadUserAiStatus();
+
+    userAiKeyToggleBtn?.addEventListener("click", async () => {
+      userAiKeyToggleBtn.disabled = true;
+      try {
+        const res = await apiFetch("/api/settings/user-ai-config/toggle", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Toggle failed");
+        showToast(`Personal AI key ${data.enabled ? "enabled" : "disabled"}`);
+        await loadUserAiStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        userAiKeyToggleBtn.disabled = false;
+      }
+    });
+
+    userAiKeyToggleVis?.addEventListener("click", () => {
+      if (!userAiKeyInput) return;
+      userAiKeyInput.type = userAiKeyInput.type === "password" ? "text" : "password";
+    });
+
+    userAiKeySaveBtn?.addEventListener("click", async () => {
+      const key = userAiKeyInput?.value.trim() || "";
+      if (!key) { showToast("Please enter an API key"); return; }
+      userAiKeySaveBtn.disabled = true; userAiKeySaveBtn.textContent = "Saving…";
+      try {
+        const res = await apiFetch("/api/settings/user-ai-config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ anthropic_api_key: key })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Save failed");
+        showToast("API key saved");
+        if (userAiKeyInput) userAiKeyInput.value = "";
+        await loadUserAiStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        userAiKeySaveBtn.disabled = false; userAiKeySaveBtn.textContent = "Save";
+      }
+    });
+
+    userAdminKeyToggleBtn?.addEventListener("click", async () => {
+      userAdminKeyToggleBtn.disabled = true;
+      try {
+        const res = await apiFetch("/api/settings/user-ai-config/admin-key-toggle", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Toggle failed");
+        showToast(data.use_admin_key ? "Admin shared key re-enabled for your account" : "Admin shared key disabled for your account");
+        await loadUserAiStatus();
+      } catch (err) {
+        showToast("Error: " + err.message);
+      } finally {
+        userAdminKeyToggleBtn.disabled = false;
+      }
+    });
+
+    document.querySelector("[data-tab='user-ai-config']")?.addEventListener("click", loadUserAiStatus);
   }
 
   const passwordForm = document.getElementById("password-form");
@@ -6656,9 +6838,9 @@ async function renderSettings() {
     if (!item) return;
     const nameElement = item.querySelector(".privilege-name");
     const userName = nameElement?.textContent?.trim() || "User";
-    const userId = item.dataset.id ? Number(item.dataset.id) : NaN;
+    const userId = item.dataset.id || "";
     const email = item.dataset.email ? normalizeEmail(item.dataset.email) : "";
-    const user = Number.isFinite(userId)
+    const user = userId
       ? privilegedUsers.find((entry) => entry.id === userId)
       : privilegedUsers.find((entry) => entry.email === email);
 
@@ -6700,7 +6882,7 @@ async function renderSettings() {
         showToast("Name and role are required");
         return;
       }
-      if (!user || !Number.isFinite(userId)) return;
+      if (!user || !!!userId) return;
       try {
         const updated = await updateUserOnServer(userId, { name, role });
         if (updated) {
@@ -6725,7 +6907,7 @@ async function renderSettings() {
         showToast("Only admins can remove users");
         return;
       }
-      if (!Number.isFinite(userId)) return;
+      if (!!!userId) return;
       try {
         await deleteUserOnServer(userId);
         privilegedUsers = privilegedUsers.filter((entry) => entry.id !== userId);
@@ -6743,7 +6925,7 @@ async function renderSettings() {
         showToast("Only admins can update access");
         return;
       }
-      if (!user || !Number.isFinite(userId)) return;
+      if (!user || !!!userId) return;
       try {
         const updated = await updateUserOnServer(userId, { enabled: !user.enabled });
         if (updated) {
@@ -6764,7 +6946,7 @@ async function renderSettings() {
       }
       const accessId = target.dataset.access;
       if (!accessId) return;
-      if (!user || !Number.isFinite(userId)) return;
+      if (!user || !!!userId) return;
       const list = Array.isArray(user.accessList) ? [...user.accessList] : parseAccessList(user.access || "");
       const next = list.includes(accessId)
         ? list.filter((id) => id !== accessId)
@@ -6788,7 +6970,7 @@ async function renderSettings() {
         showToast("Only admins can reset passwords");
         return;
       }
-      if (!Number.isFinite(userId)) return;
+      if (!!!userId) return;
       try {
         await updateUserPasswordOnServer(userId, tempPassword);
         showToast(`${userName} password reset: ${tempPassword}`);
@@ -13243,6 +13425,7 @@ function initAiQaPanel() {
 
   const fab = document.createElement("button");
   fab.className = "ai-fab";
+  fab.id = "ai-fab-btn";
   fab.title = "Ask AI about your data";
   fab.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>`;
   document.body.appendChild(fab);
