@@ -9415,7 +9415,8 @@ async function renderOrderPreview(record) {
   const shownKeys = new Set(["id","reference","status","company_name","contact_name","currency",
     "total_amount","created_at","updated_at","company_id","contact_id","product_id","owner_email",
     "quotation_id","quote_id","quotationId","quotation","quote",
-    "invoice_id","invoice_ids","invoice_links","carrier","tracking_number","eta","etd_date","factory_exit_date"]);
+    "invoice_id","invoice_ids","invoice_links","carrier","tracking_number","eta","etd_date","factory_exit_date",
+    "shipping_schedule_id"]);
   const extraFields = Object.entries(record)
     .filter(([k]) => !shownKeys.has(k) && record[k] != null && record[k] !== "")
     .map(([k, v]) => `
@@ -10199,6 +10200,7 @@ function formatPreviewLabel(key, record, tableKey) {
     etc_date: "ETC",
     etd_date: "ETD",
     eta: "ETA",
+    shipping_schedule_label: "Shipping Schedule",
     
     // Common fields
     tags: "Tags",

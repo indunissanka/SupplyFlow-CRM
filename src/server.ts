@@ -810,11 +810,20 @@ async function enrichOrderWithShipping(db: Db, ownerEmail: string, order: any): 
     { _id: oid, owner_email: ownerEmail },
     { projection: { status: 1, production_date: 1, processing_start_date: 1,
                     booking_date: 1, cargo_closing_date: 1, etc_date: 1,
-                    etd_date: 1, eta: 1, delivery_date: 1 } }
+                    etd_date: 1, eta: 1, delivery_date: 1, reference: 1, carrier: 1 } }
   );
   if (!sched) return order;
   const computed = computeShippingMilestoneStatus(sched) ?? (sched.status as string) ?? 'Pending';
-  return { ...order, status: computed };
+  const schedParts = [
+    (sched as any).reference || null,
+    (sched as any).carrier || null,
+    (sched as any).etd_date ? `ETD ${(sched as any).etd_date}` :
+      ((sched as any).eta ? `ETA ${(sched as any).eta}` : null)
+  ].filter(Boolean);
+  const shipping_schedule_label = schedParts.length
+    ? schedParts.join(' · ')
+    : `Shipment #${order.shipping_schedule_id}`;
+  return { ...order, status: computed, shipping_schedule_label };
 }
 
 // ── Shipping schedules: enrich with company/order/invoice names ───────────────
