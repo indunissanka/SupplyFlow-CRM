@@ -6196,7 +6196,7 @@ async function renderSettings() {
           ${canManageUsers ? `<button class="tab" data-tab="add-user">Add user</button>` : ""}
           <button class="tab" data-tab="change-password">Change password</button>
           ${!canManageUsers ? `<button class="tab" data-tab="user-ai-config">AI Configuration</button>` : ""}
-          ${canManageUsers ? `<button class="tab" data-tab="backups">Backups</button>` : ""}
+          <button class="tab" data-tab="backups">Backups</button>
           ${canManageUsers ? `<button class="tab" data-tab="users-privilege">Users with privilege</button>` : ""}
           ${canManageUsers ? `<button class="tab" data-tab="ai-config">AI Configuration</button>` : ""}
         </div>
@@ -6370,7 +6370,6 @@ async function renderSettings() {
             </form>
           </div>
         </div>
-        ${canManageUsers ? `
         <div class="tab-content" id="backups">
           <div class="panel backup-panel">
             <div class="panel-header">
@@ -6398,7 +6397,6 @@ async function renderSettings() {
             </div>
           </div>
         </div>
-        ` : ""}
         ${canManageUsers ? `
         <div class="tab-content" id="users-privilege">
           <div class="panel privilege-panel">
@@ -7114,17 +7112,15 @@ async function renderSettings() {
   });
 
   loadDbStatus();
-  if (canManageUsers) {
-    document.getElementById("backup-create-btn")?.addEventListener("click", createBackupNow);
-    document.getElementById("backup-upload-input")?.addEventListener("change", (e) => {
-      const input = e.target;
-      if (input instanceof HTMLInputElement && input.files?.[0]) {
-        uploadAndRestoreBackup(input.files[0]);
-        input.value = "";
-      }
-    });
-    loadBackupList();
-  }
+  document.getElementById("backup-create-btn")?.addEventListener("click", createBackupNow);
+  document.getElementById("backup-upload-input")?.addEventListener("change", (e) => {
+    const input = e.target;
+    if (input instanceof HTMLInputElement && input.files?.[0]) {
+      uploadAndRestoreBackup(input.files[0]);
+      input.value = "";
+    }
+  });
+  loadBackupList();
 }
 
 async function fetchCompaniesList() {

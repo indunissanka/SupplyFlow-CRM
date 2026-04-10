@@ -592,7 +592,7 @@ function safeBackupFilename(filename: string): string | null {
 
 // GET /api/backup/list
 app.get('/api/backup/list', async (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   try {
     const files = fs.readdirSync(BACKUP_DIR).filter(f => f.endsWith('.tar.gz'));
     const backups = files.map(f => {
@@ -607,7 +607,7 @@ app.get('/api/backup/list', async (req: Request, res: Response) => {
 
 // POST /api/backup/create
 app.post('/api/backup/create', async (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   try {
     const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}"`, { timeout: 120000 });
     res.json({ ok: true, log: stdout || stderr });
@@ -619,7 +619,7 @@ app.post('/api/backup/create', async (req: Request, res: Response) => {
 
 // GET /api/backup/download/:filename
 app.get('/api/backup/download/:filename', (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
   const filePath = path.join(BACKUP_DIR, filename);
@@ -629,7 +629,7 @@ app.get('/api/backup/download/:filename', (req: Request, res: Response) => {
 
 // DELETE /api/backup/:filename
 app.delete('/api/backup/:filename', (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
   const filePath = path.join(BACKUP_DIR, filename);
@@ -644,7 +644,7 @@ app.delete('/api/backup/:filename', (req: Request, res: Response) => {
 
 // POST /api/backup/restore/:filename
 app.post('/api/backup/restore/:filename', async (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
   const filePath = path.join(BACKUP_DIR, filename);
@@ -679,7 +679,7 @@ const _backupUpload = (multer as any)({
   fileFilter: (_req: any, file: any, cb: any) => { cb(null, file.originalname.endsWith('.tar.gz')); }
 });
 app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (req: Request, res: Response) => {
-  if ((req as any).currentUser?.role !== adminRole) return res.status(403).json({ error: 'Admin access required' });
+  if (!(req as any).currentUser) return res.status(403).json({ error: 'Authentication required' });
   const file = (req as any).file as Express.Multer.File | undefined;
   if (!file) return res.status(400).json({ error: 'No file uploaded or file is not a .tar.gz' });
   const filename = safeBackupFilename(file.filename);
