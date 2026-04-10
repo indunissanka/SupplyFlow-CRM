@@ -567,6 +567,8 @@ app.post('/api/backup/create', async (req, res) => {
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
+    if (cu.role !== 'admin')
+        return res.status(403).json({ error: 'Admin access required' });
     const dir = userBackupDir(cu.email);
     try {
         const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
@@ -614,6 +616,8 @@ app.post('/api/backup/restore/:filename', async (req, res) => {
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
+    if (cu.role !== 'admin')
+        return res.status(403).json({ error: 'Admin access required' });
     const filename = safeBackupFilename(String(req.params.filename));
     if (!filename)
         return res.status(400).json({ error: 'Invalid filename' });
@@ -658,6 +662,8 @@ app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (re
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
+    if (cu.role !== 'admin')
+        return res.status(403).json({ error: 'Admin access required' });
     const file = req.file;
     if (!file)
         return res.status(400).json({ error: 'No file uploaded or file is not a .tar.gz' });

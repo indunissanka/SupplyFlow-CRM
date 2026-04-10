@@ -617,6 +617,7 @@ app.get('/api/backup/list', async (req: Request, res: Response) => {
 app.post('/api/backup/create', async (req: Request, res: Response) => {
   const cu = (req as any).currentUser;
   if (!cu) return res.status(403).json({ error: 'Authentication required' });
+  if (cu.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const dir = userBackupDir(cu.email);
   try {
     const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
@@ -658,6 +659,7 @@ app.delete('/api/backup/:filename', (req: Request, res: Response) => {
 app.post('/api/backup/restore/:filename', async (req: Request, res: Response) => {
   const cu = (req as any).currentUser;
   if (!cu) return res.status(403).json({ error: 'Authentication required' });
+  if (cu.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const filename = safeBackupFilename(String(req.params.filename));
   if (!filename) return res.status(400).json({ error: 'Invalid filename' });
   const filePath = path.join(userBackupDir(cu.email), filename);
@@ -699,6 +701,7 @@ const _backupUpload = (multer as any)({
 app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (req: Request, res: Response) => {
   const cu = (req as any).currentUser;
   if (!cu) return res.status(403).json({ error: 'Authentication required' });
+  if (cu.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
   const file = (req as any).file as Express.Multer.File | undefined;
   if (!file) return res.status(400).json({ error: 'No file uploaded or file is not a .tar.gz' });
   const filename = safeBackupFilename(file.filename);
