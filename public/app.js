@@ -9571,10 +9571,13 @@ async function renderQuotationPreview(record) {
     record.exchange_rate ? `<span class="odv-chip">Rate: ${sanitizeText(String(record.exchange_rate))}</span>` : "",
   ].filter(Boolean).join("");
 
+  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
+
   return `
     <div class="odv">
       <div class="odv-hero">
         <div class="odv-hero-left">
+          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
           <div class="odv-ref">${sanitizeText(record.reference || `Quotation #${record.id}`)}</div>
           <div class="odv-title">${sanitizeText(record.title || "Quotation")}</div>
         </div>
