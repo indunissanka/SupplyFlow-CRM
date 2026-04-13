@@ -9456,10 +9456,13 @@ async function renderOrderPreview(record) {
       <span>${quotationId ? "No line items found for the linked quotation." : "No quotation linked to this order."}</span>
     </div>`;
 
+  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
+
   return `
     <div class="odv">
       <div class="odv-hero">
         <div class="odv-hero-left">
+          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
           <div class="odv-ref">${sanitizeText(record.reference || `Order #${record.id}`)}</div>
           <div class="odv-parties">
             ${record.company_name ? `<span><i data-lucide="building-2"></i>${sanitizeText(record.company_name)}</span>` : ""}
