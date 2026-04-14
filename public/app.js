@@ -2260,7 +2260,7 @@ const formConfigs = {
       { name: "meeting_title", label: "Meeting Title", required: true, placeholder: "e.g. Quarterly Review" },
       { name: "company_id", label: "Customer / Company", type: "select", options: ["-- Select company --"] },
       { name: "contact_person", label: "Contact Person", placeholder: "Full name" },
-      { name: "meeting_type", label: "Meeting Type", type: "select", options: ["Office Meeting", "Customer Visit", "Online Meeting", "Phone Call"] },
+      { name: "meeting_type", label: "Meeting Type", type: "select", options: ["Office Meeting", "Customer Visit", "Online Meeting", "Phone Call", "Hotel", "Coffee Shop", "Restaurant", "Conference Center", "Trade Show", "Factory Visit"] },
       { name: "meeting_date", label: "Meeting Date", type: "date", required: true },
       { name: "meeting_time", label: "Meeting Time", type: "time" },
       { name: "duration", label: "Duration (optional)", placeholder: "e.g. 1 hour" },
@@ -5386,6 +5386,12 @@ function meetingTypeIcon(type) {
   if (type === "Online Meeting") return "video";
   if (type === "Phone Call") return "phone";
   if (type === "Customer Visit") return "map-pin";
+  if (type === "Hotel") return "hotel";
+  if (type === "Coffee Shop") return "coffee";
+  if (type === "Restaurant") return "utensils";
+  if (type === "Conference Center") return "landmark";
+  if (type === "Trade Show") return "presentation";
+  if (type === "Factory Visit") return "factory";
   return "users";
 }
 
