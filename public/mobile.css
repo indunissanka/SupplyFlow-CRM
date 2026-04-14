@@ -166,6 +166,11 @@
 }
 
 @media (max-width: 1024px), (hover: none) and (pointer: coarse) {
+  /* Raise AI FAB above the fixed bottom nav (~64px tall) */
+  .ai-fab {
+    bottom: 80px;
+  }
+
   /* Show bottom nav on mobile */
   .mobile-bottom-nav {
     display: flex;

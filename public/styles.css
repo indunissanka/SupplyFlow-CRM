@@ -3637,7 +3637,8 @@ body.salesperson-mode .sales-empty {
 .ai-fab {
   position: fixed;
   bottom: 24px;
-  right: 24px;
+  left: 24px;
+  right: auto;
   width: 52px;
   height: 52px;
   border-radius: 50%;
@@ -3657,7 +3658,8 @@ body.salesperson-mode .sales-empty {
 .ai-panel-body {
   position: fixed;
   bottom: 88px;
-  right: 24px;
+  left: 24px;
+  right: auto;
   width: 420px;
   max-height: 560px;
   background: var(--surface, #fff);
@@ -3667,7 +3669,7 @@ body.salesperson-mode .sales-empty {
   z-index: 900;
   flex-direction: column;
   overflow: hidden;
-  transition: width .2s, max-height .2s, bottom .2s, right .2s, border-radius .2s;
+  transition: width .2s, max-height .2s, bottom .2s, left .2s, border-radius .2s;
 }
 .ai-panel-body.ai-panel-expanded {
   width: calc(100vw - 48px);
