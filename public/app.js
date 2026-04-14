@@ -8780,6 +8780,11 @@ function renderRecordPreview(tableKey, record) {
       if (record.entity_type === "company" && record.company_name) relatedInfo = record.company_name;
       else if (record.entity_type && record.entity_id) relatedInfo = `${record.entity_type} #${record.entity_id}`;
       break;
+    case "meetings":
+      title = record.meeting_title || `Meeting #${record.id}`;
+      subtitle = [record.meeting_type, record.meeting_date].filter(Boolean).join(" · ");
+      if (record.company_name) relatedInfo = record.company_name;
+      break;
     default:
       title = record.name || record.title || record.reference || `${capitalize(tableKey)} #${record.id || ""}`;
       subtitle = "";
@@ -8834,6 +8839,13 @@ function renderRecordPreview(tableKey, record) {
       { title: "Note", icon: "📝", keys: ["body", "author"] },
       { title: "Related", icon: "🔗", keys: ["entity_type", "entity_id", "company_name"] },
       { title: "Tags", icon: "🏷️", keys: ["tags"] },
+      { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
+    ],
+    meetings: [
+      { title: "Meeting Details", icon: "📅", keys: ["meeting_title", "meeting_type", "status", "meeting_date", "meeting_time", "duration"] },
+      { title: "Participants", icon: "👥", keys: ["company_name", "contact_person"] },
+      { title: "Location & Link", icon: "📍", keys: ["location", "meeting_link"] },
+      { title: "Follow-up", icon: "✅", keys: ["next_action", "notes"] },
       { title: "Timestamps", icon: "🕐", keys: ["created_at", "updated_at"] },
     ],
   };
@@ -10139,6 +10151,13 @@ function formatPreviewValue(val, key, record) {
     }
   }
   
+  // Meeting link — render as clickable anchor
+  if (key === "meeting_link" && typeof val === "string" && val.trim()) {
+    const href = escapeHtml(val.trim());
+    const label = escapeHtml(val.trim().replace(/^https?:\/\//, "").slice(0, 60) + (val.length > 60 ? "…" : ""));
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="preview-link">${label}</a>`;
+  }
+
   // Handle related entity display
   if (key === "related_id" && record.related_type && val) {
     if (record.related_type === "company" && record.company_name) {
@@ -10215,6 +10234,15 @@ function formatPreviewLabel(key, record, tableKey) {
     eta: "ETA",
     shipping_schedule_label: "Shipping Schedule",
     
+    // Meeting fields
+    meeting_title: "Meeting Title",
+    meeting_type: "Meeting Type",
+    meeting_date: "Date",
+    meeting_time: "Time",
+    meeting_link: "Meeting Link",
+    contact_person: "Contact Person",
+    next_action: "Next Action",
+
     // Common fields
     tags: "Tags",
     status: "Status",
