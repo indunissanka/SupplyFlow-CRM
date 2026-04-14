@@ -6385,11 +6385,11 @@ async function renderSettings() {
               <div class="stat-label">MongoDB snapshots — auto-backup runs daily at 02:00, kept for 7 days</div>
             </div>
             <div class="backup-toolbar">
-              ${canManageUsers ? `<button type="button" class="btn primary" id="backup-create-btn">
+              <button type="button" class="btn primary" id="backup-create-btn">
                 <i data-lucide="plus-circle"></i>
                 Create Backup Now
               </button>
-              <label class="btn ghost small backup-upload-label" title="Upload a .tar.gz backup file and restore it">
+              ${canManageUsers ? `<label class="btn ghost small backup-upload-label" title="Upload a .tar.gz backup file and restore it">
                 <i data-lucide="upload"></i> Upload & Restore
                 <input type="file" id="backup-upload-input" accept=".tar.gz" style="display:none">
               </label>` : ""}
