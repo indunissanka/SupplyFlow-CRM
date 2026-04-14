@@ -567,7 +567,7 @@ app.post('/api/backup/create', async (req, res) => {
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
-    if (cu.role !== 'admin')
+    if (cu.role !== adminRole)
         return res.status(403).json({ error: 'Admin access required' });
     const dir = userBackupDir(cu.email);
     try {
@@ -616,7 +616,7 @@ app.post('/api/backup/restore/:filename', async (req, res) => {
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
-    if (cu.role !== 'admin')
+    if (cu.role !== adminRole)
         return res.status(403).json({ error: 'Admin access required' });
     const filename = safeBackupFilename(String(req.params.filename));
     if (!filename)
@@ -662,7 +662,7 @@ app.post('/api/backup/upload-restore', _backupUpload.single('backup'), async (re
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
-    if (cu.role !== 'admin')
+    if (cu.role !== adminRole)
         return res.status(403).json({ error: 'Admin access required' });
     const file = req.file;
     if (!file)
@@ -2596,14 +2596,14 @@ const server = app.listen(port, () => {
             const scriptPath = path.resolve(process.cwd(), 'scripts/backup-mongodb.sh');
             const autoDir = path.join(BACKUP_DIR, '_auto');
             fs.mkdirSync(autoDir, { recursive: true });
-            exec(`bash "${scriptPath}" "${autoDir}"`, (err, stdout, stderr) => {
+            exec(`sh "${scriptPath}" "${autoDir}"`, (err, stdout, stderr) => {
                 if (err)
                     console.error('[auto-backup] Error:', stderr || err.message);
                 else
                     console.log('[auto-backup]', stdout.trim().split('\n').pop());
             });
             setInterval(() => {
-                exec(`bash "${scriptPath}" "${autoDir}"`, (err, stdout, stderr) => {
+                exec(`sh "${scriptPath}" "${autoDir}"`, (err, stdout, stderr) => {
                     if (err)
                         console.error('[auto-backup] Error:', stderr || err.message);
                     else
