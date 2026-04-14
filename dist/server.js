@@ -339,7 +339,18 @@ app.delete('/api/auth/users/:id', async (req, res) => {
     const oid = toMongoId(p(req.params.id));
     if (!oid)
         return res.status(400).json({ error: 'Invalid id' });
+    const user = await db.collection('users').findOne({ _id: oid });
+    if (!user)
+        return res.status(404).json({ error: 'User not found' });
     await db.collection('users').deleteOne({ _id: oid });
+    try {
+        fs.rmSync(userUploadsDir(user.email), { recursive: true, force: true });
+    }
+    catch (_) { }
+    try {
+        fs.rmSync(userBackupDir(user.email), { recursive: true, force: true });
+    }
+    catch (_) { }
     res.json({ ok: true });
 });
 app.post('/api/auth/users/:id/password', async (req, res) => {
@@ -1217,10 +1228,17 @@ app.put('/api/quotations/:id', async (req, res) => {
 // ── File upload (must be before generic POST /api/:table) ─────────────────────
 import multer from 'multer';
 const _uploadsDir = path.resolve(process.cwd(), 'uploads');
+function userUploadsDir(email) {
+    const safe = email.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const dir = path.join(_uploadsDir, safe);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+}
 const _multerStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => {
-        fs.mkdirSync(_uploadsDir, { recursive: true });
-        cb(null, _uploadsDir);
+    destination: (req, _file, cb) => {
+        const email = req.ownerEmail || req.currentUser?.email;
+        const dir = email ? userUploadsDir(email) : _uploadsDir;
+        cb(null, dir);
     },
     filename: (_req, file, cb) => {
         const uid = crypto.randomUUID();
@@ -1253,7 +1271,8 @@ app.post('/api/upload', _upload.array('file', 20), async (req, res) => {
     try {
         const results = [];
         for (const file of files) {
-            const storageKey = `uploads/${file.filename}`;
+            const safeEmail = ownerEmail.replace('@', '_at_').replace(/[^a-zA-Z0-9._-]/g, '_');
+            const storageKey = `uploads/${safeEmail}/${file.filename}`;
             const docTitle = files.length === 1 ? title : `${title} — ${file.originalname}`;
             const doc = await enrichWithNames(db, ownerEmail, {
                 title: docTitle,
