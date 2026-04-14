@@ -568,13 +568,51 @@ app.post('/api/backup/create', async (req, res) => {
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
     const dir = userBackupDir(cu.email);
-    try {
-        const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
-        res.json({ ok: true, log: stdout || stderr });
+    if (cu.role === adminRole) {
+        // Admin: full mongodump of entire database
+        try {
+            const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
+            res.json({ ok: true, log: stdout || stderr });
+        }
+        catch (err) {
+            console.error('Backup create failed', err);
+            res.status(500).json({ error: err.message || 'Backup failed' });
+        }
     }
-    catch (err) {
-        console.error('Backup create failed', err);
-        res.status(500).json({ error: err.message || 'Backup failed' });
+    else {
+        // Regular user: export only their own records (filtered by owner_email)
+        const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 15);
+        const tmpDir = path.join(dir, `_tmp_${stamp}`);
+        const archive = path.join(dir, `${stamp}.tar.gz`);
+        try {
+            fs.mkdirSync(tmpDir, { recursive: true });
+            const db = req.db;
+            const tables = [...allowedTables];
+            let totalDocs = 0;
+            for (const table of tables) {
+                const rows = await db.collection(table).find({ owner_email: cu.email }).toArray();
+                fs.writeFileSync(path.join(tmpDir, `${table}.json`), JSON.stringify(rows));
+                totalDocs += rows.length;
+            }
+            fs.writeFileSync(path.join(tmpDir, '_meta.json'), JSON.stringify({
+                owner_email: cu.email,
+                created_at: new Date().toISOString(),
+                type: 'user-export',
+                tables
+            }));
+            await execAsync(`tar -czf "${archive}" -C "${dir}" "_tmp_${stamp}"`, { timeout: 60000 });
+            res.json({ ok: true, log: `Exported ${totalDocs} records across ${tables.length} collections.` });
+        }
+        catch (err) {
+            console.error('User backup export failed', err);
+            res.status(500).json({ error: err.message || 'Backup failed' });
+        }
+        finally {
+            try {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
+            }
+            catch (_) { }
+        }
     }
 });
 // GET /api/backup/download/:filename
