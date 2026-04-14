@@ -567,8 +567,6 @@ app.post('/api/backup/create', async (req, res) => {
     const cu = req.currentUser;
     if (!cu)
         return res.status(403).json({ error: 'Authentication required' });
-    if (cu.role !== adminRole)
-        return res.status(403).json({ error: 'Admin access required' });
     const dir = userBackupDir(cu.email);
     try {
         const { stdout, stderr } = await execAsync(`sh "${BACKUP_SCRIPT}" "${dir}"`, { timeout: 120000 });
