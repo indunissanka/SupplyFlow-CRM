@@ -1826,7 +1826,7 @@ const formConfigs = {
     ],
     transform(values) {
       return {
-        company_id: num(values.company_id),
+        company_id: num(values.company_id) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
         first_name: values.first_name,
         last_name: values.last_name,
         email: values.email,

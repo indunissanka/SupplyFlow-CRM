@@ -1115,6 +1115,7 @@ makeEnrichedListRoute('invoices');
 makeEnrichedListRoute('orders');
 makeEnrichedListRoute('documents');
 makeEnrichedListRoute('sample_shipments');
+makeEnrichedListRoute('contacts');
 
 // Quotations GET — enriched with company/contact names + product_names from items
 app.get('/api/quotations', async (req: Request, res: Response) => {
