@@ -1874,6 +1874,8 @@ const formConfigs = {
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact --"] },
       { name: "quotation_id", label: "Quotation (optional)", type: "select", options: ["-- Select quotation --"] },
+      { name: "inspection_charges", label: "Inspection charges", type: "number", step: "0.01", placeholder: "0.00" },
+      { name: "tax_rate", label: "Tax rate (%)", type: "number", step: "0.01", placeholder: "0" },
       { name: "shipping_schedule_id", label: "Shipping Schedule (optional)", type: "select", options: ["-- Link a shipping schedule --"] },
       { name: "invoice_links", label: "Link existing invoices (optional)", type: "select", multiple: true, options: [] },
       { name: "tags", label: "Tags (optional)", type: "select", multiple: true, options: [] }
@@ -1905,11 +1907,15 @@ const formConfigs = {
           ? [values.invoice_links]
           : [];
       const safeId = (v) => num(v) ?? (v && !String(v).startsWith("--") ? v : null);
+      const inspectionCharges = num(values.inspection_charges) || 0;
+      const taxRate = parsePercent(values.tax_rate) || 0;
       const payload = {
         company_id: safeId(values.company_id),
         contact_id: safeId(values.contact_id),
         quotation_id: safeId(values.quotation_id),
         shipping_schedule_id: safeId(values.shipping_schedule_id),
+        inspection_charges: inspectionCharges,
+        tax_rate: taxRate,
         total_amount: 0,
         currency: values.currency || "USD",
         reference: orderTitle || values.reference || undefined,
@@ -7341,7 +7347,8 @@ async function fetchQuotationsList() {
         company_id: row.company_id,
         amount: row.amount,
         currency: row.currency,
-        tax_rate: row.tax_rate
+        tax_rate: row.tax_rate,
+        inspection_charges: row.inspection_charges ?? 0
       })));
       if (data.rows.length < limit) break;
       offset += limit;
@@ -11389,6 +11396,11 @@ function openForm(key, options = {}) {
     quoteHint.textContent = "Link the order back to a quote.";
     quoteSection.appendChild(quoteHint);
 
+    const pricingRow = document.createElement("div");
+    pricingRow.className = "order-row order-row--two";
+    if (labels.inspection_charges) pricingRow.appendChild(labels.inspection_charges);
+    if (labels.tax_rate) pricingRow.appendChild(labels.tax_rate);
+
     const quoteLinesSection = document.createElement("div");
     quoteLinesSection.className = "order-quote-lines";
     quoteLinesSection.innerHTML = `
@@ -11417,7 +11429,7 @@ function openForm(key, options = {}) {
     tagHint.textContent = "Use Ctrl/Cmd + click to assign multiple tags.";
     tagSection.appendChild(tagHint);
 
-    form.append(metaRow, partyRow, schedSection, quoteSection, quoteLinesSection, invoiceSection, tagSection, actions);
+    form.append(metaRow, partyRow, schedSection, quoteSection, quoteLinesSection, pricingRow, invoiceSection, tagSection, actions);
 
     const orderTitleInput = overlay.querySelector('input[name="order_title"]');
     if (orderTitleInput && !orderTitleInput.value) {
@@ -11431,8 +11443,25 @@ function openForm(key, options = {}) {
     const contactSelect = overlay.querySelector('select[name="contact_id"]');
     const quotationSelect = overlay.querySelector('select[name="quotation_id"]');
     const invoiceSelect = overlay.querySelector('select[name="invoice_links"]');
+    const orderTaxInput = overlay.querySelector('input[name="tax_rate"]');
+    const orderInspectionInput = overlay.querySelector('input[name="inspection_charges"]');
     const quoteLinesBody = quoteLinesSection.querySelector("[data-order-quote-lines]");
     let quotationLookup = new Map();
+
+    if (orderTaxInput && initialValues?.tax_rate != null) orderTaxInput.value = initialValues.tax_rate;
+    if (orderInspectionInput && initialValues?.inspection_charges != null) orderInspectionInput.value = initialValues.inspection_charges;
+
+    const applyQuoteFields = (qid) => {
+      if (!qid) return;
+      const quote = quotationLookup.get(String(qid));
+      if (!quote) return;
+      if (orderTaxInput && (orderTaxInput.value === "" || orderTaxInput.value === "0")) {
+        orderTaxInput.value = quote.tax_rate ?? "";
+      }
+      if (orderInspectionInput && (orderInspectionInput.value === "" || orderInspectionInput.value === "0")) {
+        orderInspectionInput.value = quote.inspection_charges ?? "";
+      }
+    };
 
     const computeLineTotal = (item) => computeQuoteLineTotal(item);
 
@@ -11562,9 +11591,14 @@ function openForm(key, options = {}) {
       if (initialValues?.quotation_id) {
         quotationSelect.value = String(initialValues.quotation_id);
         renderQuoteLines(quotationSelect.value);
+        applyQuoteFields(quotationSelect.value);
       }
     });
-    quotationSelect?.addEventListener("change", () => renderQuoteLines(quotationSelect.value));
+    quotationSelect?.addEventListener("change", () => {
+      const qid = quotationSelect.value;
+      renderQuoteLines(qid);
+      applyQuoteFields(qid);
+    });
     fetchInvoicesList().then((invoices) => {
       if (!invoiceSelect) return;
       const initialInvoiceLinks = (() => {
