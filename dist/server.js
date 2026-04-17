@@ -2486,41 +2486,42 @@ app.get('/api/data-quality', async (req, res) => {
 app.get('/api/country-stats', async (req, res) => {
     const ownerEmail = req.ownerEmail;
     const db = req.db;
-    const { start, end } = req.query;
+    const { startDate, endDate } = parseAnalyticsDateRange(req.query);
+    const startStr = startDate.toISOString().slice(0, 10);
+    const endStr = endDate.toISOString().slice(0, 10) + 'T23:59:59.999Z';
     try {
-        // Build companyId → country map
+        // Build companyName → country map (company_name is denormalized on invoices/quotations)
         const companies = await db.collection('companies').find({ owner_email: ownerEmail }).toArray();
-        const countryMap = new Map();
+        const nameCountryMap = new Map();
         for (const c of companies) {
-            if (c.country)
-                countryMap.set(String(c._id), c.country);
+            if (c.country && c.name)
+                nameCountryMap.set(String(c.name), c.country);
         }
-        // Sales by country (paid invoices)
-        const invFilter = { owner_email: ownerEmail, status: 'Paid' };
-        if (start)
-            invFilter.invoice_date = { ...(invFilter.invoice_date || {}), $gte: start };
-        if (end)
-            invFilter.invoice_date = { ...(invFilter.invoice_date || {}), $lte: end };
-        const invoices = await db.collection('invoices').find(invFilter).toArray();
+        // Sales by country — all invoices in date range, grouped by company country
+        const invoices = await db.collection('invoices').find({
+            owner_email: ownerEmail,
+            created_at: { $gte: startStr, $lte: endStr }
+        }).toArray();
         const salesMap = new Map();
         for (const inv of invoices) {
-            const country = countryMap.get(String(inv.company_id)) || 'Unknown';
+            const country = nameCountryMap.get(String(inv.company_name || '')) || 'Unknown';
             salesMap.set(country, (salesMap.get(country) || 0) + (Number(inv.total_amount) || 0));
         }
         const salesByCountry = [...salesMap.entries()]
             .map(([country, total]) => ({ country, total }))
             .sort((a, b) => b.total - a.total).slice(0, 10);
-        // Products by country (quotation_items via quotations)
-        const quoteFilter = { owner_email: ownerEmail, status: { $nin: ['Cancelled'] } };
-        if (start)
-            quoteFilter.created_at = { ...(quoteFilter.created_at || {}), $gte: start };
-        if (end)
-            quoteFilter.created_at = { ...(quoteFilter.created_at || {}), $lte: end };
-        const quotes = await db.collection('quotations').find(quoteFilter).toArray();
+        // Products by country — quotation_items via quotation.company_name
+        const quotes = await db.collection('quotations').find({
+            owner_email: ownerEmail,
+            status: { $nin: ['Cancelled'] },
+            created_at: { $gte: startStr, $lte: endStr }
+        }).toArray();
         const quoteCountryMap = new Map();
         for (const q of quotes) {
-            const country = countryMap.get(String(q.company_id)) || 'Unknown';
-            quoteCountryMap.set(String(q._id), country);
+            const country = nameCountryMap.get(String(q.company_name || '')) || 'Unknown';
+            quoteCountryMap.set(q._id.toString(), country);
+            if (q.legacy_id != null)
+                quoteCountryMap.set(String(q.legacy_id), country);
         }
         const items = await db.collection('quotation_items').find({ owner_email: ownerEmail }).toArray();
         const prodMap = new Map();
