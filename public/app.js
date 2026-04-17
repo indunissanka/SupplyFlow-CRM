@@ -7186,7 +7186,7 @@ async function fetchCompaniesList() {
       if (data.rows.length < limit) break;
       offset += limit;
     }
-    if (all.length) return all.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    if (all.length) return [...new Map(all.map(c => [c.id, c])).values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   } catch (err) {
     console.debug("Fallback companies", err);
   }
@@ -7210,7 +7210,7 @@ async function fetchContactsList() {
       if (data.rows.length < limit) break;
       offset += limit;
     }
-    return all.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+    return [...new Map(all.map(c => [c.id, c])).values()].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   } catch (err) {
     console.debug("Fallback contacts", err);
   }
