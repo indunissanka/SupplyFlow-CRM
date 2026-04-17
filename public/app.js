@@ -1933,6 +1933,7 @@ const formConfigs = {
       { name: "customer_name", label: "Customer name", placeholder: "Autofilled from contact/company" },
       { name: "currency", label: "Currency", placeholder: "USD" },
       { name: "exchange_rate", label: "USD to NTD rate", type: "number", step: "0.0001", placeholder: "32.50" },
+      { name: "inspection_charges", label: "Inspection charges", type: "number", step: "0.01", placeholder: "0.00" },
       { name: "tax_rate", label: "Tax rate (%)", type: "number", step: "0.01", placeholder: "0" },
       { name: "valid_until", label: "Valid until", type: "date" },
       { name: "notes", label: "Notes / Terms", type: "textarea", placeholder: "Payment terms, delivery timelines, or special notes." },
@@ -1959,6 +1960,7 @@ const formConfigs = {
         valid_until: values.valid_until,
         reference: values.reference || undefined,
         title: values.title,
+        inspection_charges: num(values.inspection_charges) || 0,
         tax_rate: parsePercent(values.tax_rate),
         notes: values.notes,
         bank_charge_method: values.bank_charge_method,
@@ -1969,8 +1971,9 @@ const formConfigs = {
 
       const items = Array.isArray(values.items) ? values.items : [];
       const subtotal = items.reduce((sum, item) => sum + resolveQuoteLineTotal(item), 0);
+      const inspectionCharges = payload.inspection_charges || 0;
       const tax = subtotal * (parsePercent(payload.tax_rate) / 100);
-      const grandTotal = subtotal + tax;
+      const grandTotal = subtotal + inspectionCharges + tax;
       payload.amount = Number.isFinite(grandTotal) ? grandTotal : 0;
 
       if (payload.bank_charge_method) {
@@ -8135,6 +8138,7 @@ async function openPreviewModal(tableKey, record) {
         contact_name: record.contact_name || "",
         customer_name: record.customer_name || "",
         currency: record.currency || "USD",
+        inspection_charges: record.inspection_charges,
         tax_rate: record.tax_rate,
         bank_charge_method: record.bank_charge_method,
         notes: record.notes,
@@ -9548,9 +9552,10 @@ async function renderQuotationPreview(record) {
   const currency = record.currency || "USD";
   const statusTone = statusToneFront(record.status || "Draft");
   const subtotal = items.reduce((sum, item) => sum + resolveQuoteLineTotal(item), 0);
+  const inspectionCharges = Number(record.inspection_charges) || 0;
   const taxRate = parsePercent(record.tax_rate);
   const tax = subtotal * (taxRate / 100);
-  const total = subtotal + tax;
+  const total = subtotal + inspectionCharges + tax;
   let bankMethod = record.bank_charge_method || "";
   if (!bankMethod && record.notes) {
     const match = String(record.notes).match(/bank charge method:\s*(.+)/i);
@@ -9668,6 +9673,7 @@ async function renderQuotationPreview(record) {
       <div class="odv-section">
         <div class="odv-totals">
           <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(subtotal, currency)}</strong></div>
+          ${inspectionCharges ? `<div class="odv-total-row"><span>Inspection charges</span><strong>${formatCurrency(inspectionCharges, currency)}</strong></div>` : ""}
           <div class="odv-total-row"><span>Tax${taxRate ? ` (${taxRate}%)` : ""}</span><strong>${formatCurrency(tax, currency)}</strong></div>
           <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(total || record.amount || 0, currency)}</strong></div>
         </div>
