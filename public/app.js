@@ -9443,7 +9443,8 @@ async function renderOrderPreview(record) {
   }).join("");
 
   const totals = calculateQuoteTotals(lineTotals, taxRate);
-  const computedTotal = Number(totals.total) || 0;
+  const inspectionCharges = Number(matchedQuote?.inspection_charges) || 0;
+  const computedTotal = (Number(totals.total) || 0) + inspectionCharges;
   const displayTotal = Number(record.total_amount) || computedTotal;
 
   const tone = statusToneFront(record.status || "");
@@ -9505,8 +9506,9 @@ async function renderOrderPreview(record) {
       </div>
       <div class="odv-totals">
         <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal || 0, currency)}</strong></div>
+        ${inspectionCharges ? `<div class="odv-total-row"><span>Inspection charges</span><strong>${formatCurrency(inspectionCharges, currency)}</strong></div>` : ""}
         ${taxRate ? `<div class="odv-total-row"><span>Tax (${taxRate}%)</span><strong>${formatCurrency(totals.tax || 0, currency)}</strong></div>` : ""}
-        <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(totals.total || 0, currency)}</strong></div>
+        <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(computedTotal, currency)}</strong></div>
       </div>
     </div>` : `
     <div class="odv-section odv-no-items">
