@@ -1925,7 +1925,7 @@ const formConfigs = {
     fields: [
       { name: "reference", label: "Quote # (auto-generated if empty)", placeholder: "QT-20260318-143045" },
       { name: "title", label: "Title", placeholder: "e.g. Q1 supply proposal" },
-      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Rejected"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected"] },
       { name: "company_id", label: "Company", type: "select", options: ["-- Select company --"] },
       { name: "company_id_manual", label: "Company ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "contact_id", label: "Contact", type: "select", options: ["-- Select contact --"] },
@@ -4119,6 +4119,7 @@ async function renderPricing() {
     const previewButton = `<button class="btn ghost small" data-action="preview" data-entity="quotation_items"><i data-lucide="eye"></i>Preview</button>`;
     const quotationStatus = item.quotation_status || "";
     const statusTone = quotationStatus === "Accepted" ? "success"
+      : quotationStatus === "Order Confirmed" ? "success"
       : quotationStatus === "Rejected" ? "danger"
       : quotationStatus === "Draft" ? "warning"
       : quotationStatus === "Sent" ? "info"
