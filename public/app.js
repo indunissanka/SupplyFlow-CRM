@@ -9476,7 +9476,7 @@ async function renderOrderPreview(record) {
   const totals = calculateQuoteTotals(lineTotals, taxRate);
   const inspectionCharges = Number(matchedQuote?.inspection_charges) || 0;
   const computedTotal = (Number(totals.total) || 0) + inspectionCharges;
-  const displayTotal = Number(record.total_amount) || computedTotal;
+  const displayTotal = Number(record.total_amount) || computedTotal || Number(matchedQuote?.amount) || 0;
 
   const tone = statusToneFront(record.status || "");
   const statusBadge = record.status
@@ -9541,14 +9541,15 @@ async function renderOrderPreview(record) {
       <span>${quotationId ? "No line items found for the linked quotation." : "No quotation linked to this order."}</span>
     </div>`;
 
-  const financialSection = (computedTotal > 0 || totals.subtotal > 0 || inspectionCharges > 0) ? `
+  const quoteAmount = Number(matchedQuote?.amount) || 0;
+  const financialSection = (computedTotal > 0 || totals.subtotal > 0 || inspectionCharges > 0 || quoteAmount > 0) ? `
     <div class="odv-section">
       <div class="odv-section-title"><i data-lucide="calculator"></i> Financial Summary</div>
       <div class="odv-totals">
-        <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal || 0, currency)}</strong></div>
+        ${totals.subtotal > 0 ? `<div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal, currency)}</strong></div>` : ""}
         ${inspectionCharges ? `<div class="odv-total-row"><span>Inspection charges</span><strong>${formatCurrency(inspectionCharges, currency)}</strong></div>` : ""}
-        ${taxRate ? `<div class="odv-total-row"><span>Tax (${taxRate}%)</span><strong>${formatCurrency(totals.tax || 0, currency)}</strong></div>` : ""}
-        <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(computedTotal, currency)}</strong></div>
+        ${taxRate && totals.tax > 0 ? `<div class="odv-total-row"><span>Tax (${taxRate}%)</span><strong>${formatCurrency(totals.tax, currency)}</strong></div>` : ""}
+        <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(displayTotal, currency)}</strong></div>
       </div>
     </div>` : "";
 
