@@ -7244,18 +7244,24 @@ async function fetchProductsList() {
 
 async function fetchOrdersList() {
   try {
-    const res = await apiFetch("/api/orders");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/orders?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({
-          id: row.id,
-          reference: row.reference,
-          company_id: row.company_id,
-          company: row.company_name || row.company
-        })).sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({
+        id: row.id,
+        reference: row.reference,
+        company_id: row.company_id,
+        company: row.company_name || row.company
+      })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    return all;
   } catch (err) {
     console.debug("Fallback orders", err);
   }
@@ -7264,42 +7270,54 @@ async function fetchOrdersList() {
 
 async function fetchShippingSchedulesList() {
   try {
-    const res = await apiFetch("/api/shipping_schedules");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/shipping_schedules?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map(r => ({
-          id: r.id || r._id,
-          label: [
-            r.company_name,
-            r.order_reference,
-            r.etd_date ? `ETD ${r.etd_date}` : (r.eta ? `ETA ${r.eta}` : null)
-          ].filter(Boolean).join(" · ") || `Shipment #${r.id || r._id}`
-        }));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map(r => ({
+        id: r.id || r._id,
+        label: [
+          r.company_name,
+          r.order_reference,
+          r.etd_date ? `ETD ${r.etd_date}` : (r.eta ? `ETA ${r.eta}` : null)
+        ].filter(Boolean).join(" · ") || `Shipment #${r.id || r._id}`
+      })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    return all;
   } catch(e) { console.debug("Fallback shipping schedules", e); }
   return [];
 }
 
 async function fetchInvoicesList() {
   try {
-    const res = await apiFetch("/api/invoices");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/invoices?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({
-          id: row.id,
-          reference: row.reference,
-          company_id: row.company_id,
-          company: row.company_name || row.company,
-          total_amount: row.total_amount,
-          currency: row.currency,
-          created_at: row.created_at,
-          due_date: row.due_date
-        })).sort((a, b) => (a.reference || "").localeCompare(b.reference || ""));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({
+        id: row.id,
+        reference: row.reference,
+        company_id: row.company_id,
+        company: row.company_name || row.company,
+        total_amount: row.total_amount,
+        currency: row.currency,
+        created_at: row.created_at,
+        due_date: row.due_date
+      })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    return all;
   } catch (err) {
     console.debug("Fallback invoices", err);
   }
@@ -7308,21 +7326,27 @@ async function fetchInvoicesList() {
 
 async function fetchQuotationsList() {
   try {
-    const res = await apiFetch("/api/quotations");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const res = await apiFetch(`/api/quotations?limit=${limit}&offset=${offset}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({
-          id: row.id,
-          reference: row.reference,
-          title: row.title,
-          company_id: row.company_id,
-          amount: row.amount,
-          currency: row.currency,
-          tax_rate: row.tax_rate
-        })).sort((a, b) => (a.reference || a.title || "").localeCompare(b.reference || b.title || ""));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({
+        id: row.id,
+        reference: row.reference,
+        title: row.title,
+        company_id: row.company_id,
+        amount: row.amount,
+        currency: row.currency,
+        tax_rate: row.tax_rate
+      })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    return all;
   } catch (err) {
     console.debug("Fallback quotations", err);
   }
@@ -7332,24 +7356,31 @@ async function fetchQuotationsList() {
 async function fetchDocumentsList() {
   try {
     const bypass = cacheBypassTables.has("documents");
-    const url = bypass ? "/api/documents?cache=0" : "/api/documents";
-    const res = await apiFetch(url);
-    if (bypass) cacheBypassTables.delete("documents");
-    if (res.ok) {
+    const all = [];
+    let offset = 0;
+    const limit = 200;
+    while (true) {
+      const cacheParam = bypass ? "&cache=0" : "";
+      const res = await apiFetch(`/api/documents?limit=${limit}&offset=${offset}${cacheParam}`);
+      if (!res.ok) break;
       const data = await res.json();
-      if (Array.isArray(data.rows)) {
-        return data.rows.map((row) => ({
-          id: row.id,
-          title: row.title,
-          storage_key: row.storage_key || row.key,
-          content_type: row.content_type,
-          company_id: row.company_id,
-          contact_id: row.contact_id,
-          doc_type_id: row.doc_type_id,
-          invoice_id: row.invoice_id || row.invoiceId
-        })).sort((a, b) => (a.title || a.storage_key || "").localeCompare(b.title || b.storage_key || ""));
-      }
+      if (!Array.isArray(data.rows) || !data.rows.length) break;
+      all.push(...data.rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        storage_key: row.storage_key || row.key,
+        content_type: row.content_type,
+        company_id: row.company_id,
+        contact_id: row.contact_id,
+        doc_type_id: row.doc_type_id,
+        invoice_id: row.invoice_id || row.invoiceId,
+        created_at: row.created_at
+      })));
+      if (data.rows.length < limit) break;
+      offset += limit;
     }
+    if (bypass) cacheBypassTables.delete("documents");
+    return all;
   } catch (err) {
     console.debug("Fallback documents", err);
   }
