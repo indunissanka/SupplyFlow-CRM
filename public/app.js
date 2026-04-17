@@ -7770,6 +7770,7 @@ function renderPaginatedTable(columns, rows, tableKey = "", includeActions = tru
   const rowIndices = Array.isArray(recordIndices) && recordIndices.length === rows.length
     ? recordIndices
     : rows.map((_, idx) => idx);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
   const state = {
     columns,
     rows,
@@ -7779,7 +7780,7 @@ function renderPaginatedTable(columns, rows, tableKey = "", includeActions = tru
     tableKey,
     includeActions,
     pageSize,
-    currentPage: 1,
+    currentPage: Math.min(paginationState.get(tableKey)?.currentPage || 1, totalPages),
     searchQuery: ""
   };
   paginationState.set(tableKey, state);
