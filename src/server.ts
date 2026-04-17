@@ -2618,7 +2618,7 @@ app.get('/api/country-stats', async (req: Request, res: Response) => {
     // Products by country — quotation_items via quotation.company_name
     const quotes = await db.collection('quotations').find({
       owner_email: ownerEmail,
-      status: { $nin: ['Cancelled'] },
+      status: { $nin: ['Cancelled', 'Rejected'] },
       created_at: { $gte: startStr, $lte: endStr }
     }).toArray();
     const quoteCountryMap = new Map<string, string>();
