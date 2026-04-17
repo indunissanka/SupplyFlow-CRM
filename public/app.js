@@ -9452,7 +9452,7 @@ async function renderOrderPreview(record) {
 
   const items = quotationId ? await getQuotationItems(quotationId) : [];
   const currency = (record.currency || matchedQuote?.currency || "USD").toUpperCase();
-  const taxRate = parsePercent(matchedQuote?.tax_rate);
+  const taxRate = parsePercent(record.tax_rate ?? matchedQuote?.tax_rate);
 
   const lineTotals = [];
   const lineRows = items.map((item) => {
@@ -9481,9 +9481,11 @@ async function renderOrderPreview(record) {
   }).join("");
 
   const totals = calculateQuoteTotals(lineTotals, taxRate);
-  const inspectionCharges = Number(matchedQuote?.inspection_charges) || 0;
+  const inspectionCharges = Number(record.inspection_charges ?? matchedQuote?.inspection_charges) || 0;
   const computedTotal = (Number(totals.total) || 0) + inspectionCharges;
-  const displayTotal = Number(record.total_amount) || computedTotal || Number(matchedQuote?.amount) || 0;
+  // Prefer computed total (from line items + tax + inspection) so the financial summary is consistent.
+  // Fall back to stored total or quotation amount only when no line items are available.
+  const displayTotal = computedTotal || Number(record.total_amount) || Number(matchedQuote?.amount) || 0;
 
   const tone = statusToneFront(record.status || "");
   const statusBadge = record.status
