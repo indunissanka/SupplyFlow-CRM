@@ -3566,11 +3566,11 @@ async function renderAnalytics() {
     const productsByCountry = countryStats.productsByCountry || [];
     if (salesByCountry.length) {
       initAnalyticsChart("chart-sales-country",
-        buildAnalyticsBarOption(salesByCountry.map(d => d.country), salesByCountry.map(d => d.total), "Revenue"));
+        buildAnalyticsBarOption(salesByCountry.map(d => ({ label: d.country, value: d.total })), "Revenue", "#6366f1"));
     }
     if (productsByCountry.length) {
       initAnalyticsChart("chart-products-country",
-        buildAnalyticsBarOption(productsByCountry.map(d => d.label), productsByCountry.map(d => d.total), "Revenue"));
+        buildAnalyticsBarOption(productsByCountry.map(d => ({ label: d.label, value: d.total })), "Revenue", "#f59e0b"));
     }
 
     const quality = dataQualityPayload.data || {};
