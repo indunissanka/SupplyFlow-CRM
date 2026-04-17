@@ -11630,6 +11630,10 @@ function openForm(key, options = {}) {
         <strong data-quote-subtotal>${formatCurrency(0, "USD")}</strong>
       </div>
       <div>
+        <span>Inspection charges</span>
+        <strong data-quote-inspection>${formatCurrency(0, "USD")}</strong>
+      </div>
+      <div>
         <span>Tax estimate</span>
         <strong data-quote-tax>${formatCurrency(0, "USD")}</strong>
       </div>
@@ -11641,7 +11645,7 @@ function openForm(key, options = {}) {
 
     const notesSection = document.createElement("div");
     notesSection.className = "quote-section quote-notes";
-    ["tax_rate", "bank_charge_method", "notes", "tags", "attachment_key"].forEach((name) => {
+    ["inspection_charges", "tax_rate", "bank_charge_method", "notes", "tags", "attachment_key"].forEach((name) => {
       if (labels[name]) notesSection.appendChild(labels[name]);
     });
 
@@ -11652,6 +11656,7 @@ function openForm(key, options = {}) {
     const currencyInput = form.querySelector('input[name="currency"]');
     const exchangeRateInput = form.querySelector('input[name="exchange_rate"]');
     const taxInput = form.querySelector('input[name="tax_rate"]');
+    const inspectionInput = form.querySelector('input[name="inspection_charges"]');
     const bankSelect = form.querySelector('select[name="bank_charge_method"]');
     const attachmentSelect = form.querySelector('select[name="attachment_key"]');
     const customerInput = form.querySelector('input[name="customer_name"]');
@@ -11660,6 +11665,7 @@ function openForm(key, options = {}) {
     if (currencyInput && !currencyInput.value) currencyInput.value = initialValues?.currency || "USD";
     if (exchangeRateInput && initialValues?.exchange_rate !== undefined) exchangeRateInput.value = initialValues.exchange_rate;
     if (taxInput && initialValues?.tax_rate !== undefined) taxInput.value = initialValues.tax_rate;
+    if (inspectionInput && initialValues?.inspection_charges !== undefined) inspectionInput.value = initialValues.inspection_charges;
     if (statusSelect && initialValues?.status) statusSelect.value = initialValues.status;
     if (bankSelect) populateBankChargeSelect(bankSelect, initialValues?.bank_charge_method);
     if (attachmentSelect) {
@@ -11728,6 +11734,7 @@ function openForm(key, options = {}) {
     const addLineBtn = lineSection.querySelector("#add-line");
     const summaryFields = {
       subtotal: summarySection.querySelector("[data-quote-subtotal]"),
+      inspection: summarySection.querySelector("[data-quote-inspection]"),
       tax: summarySection.querySelector("[data-quote-tax]"),
       total: summarySection.querySelector("[data-quote-total]")
     };
@@ -11740,13 +11747,17 @@ function openForm(key, options = {}) {
       return parsePercent(taxInput.value);
     };
 
+    const readInspectionCharges = () => Number(inspectionInput?.value) || 0;
+
     const updateSummary = () => {
       const items = gatherQuoteLineItems(form);
       const totals = calculateQuoteTotals(items, readTaxRate());
+      const inspectionCharges = readInspectionCharges();
       const currency = (currencyInput?.value || "USD").toUpperCase();
       summaryFields.subtotal.textContent = formatCurrency(totals.subtotal, currency);
+      if (summaryFields.inspection) summaryFields.inspection.textContent = formatCurrency(inspectionCharges, currency);
       summaryFields.tax.textContent = formatCurrency(totals.tax, currency);
-      summaryFields.total.textContent = formatCurrency(totals.total, currency);
+      summaryFields.total.textContent = formatCurrency(totals.total + inspectionCharges, currency);
       return totals;
     };
 
@@ -11874,6 +11885,7 @@ function openForm(key, options = {}) {
       updateSummary();
     });
     currencyInput?.addEventListener("input", updateSummary);
+    inspectionInput?.addEventListener("input", updateSummary);
 
     const submitBtn = actions?.querySelector('button[type="submit"]');
     const printBtn = document.createElement("button");
