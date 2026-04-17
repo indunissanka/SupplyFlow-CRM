@@ -1949,7 +1949,7 @@ app.get('/api/files/*', (req: Request, res: Response) => {
 });
 
 // Routes registered later (analytics) need to be skipped here
-const analyticsRouteNames = new Set(['kpis', 'timeseries', 'breakdown', 'forecast', 'data-quality']);
+const analyticsRouteNames = new Set(['kpis', 'timeseries', 'breakdown', 'forecast', 'data-quality', 'country-stats']);
 
 // GET orders — custom route to enrich status from linked shipping schedule
 app.get('/api/orders', async (req: Request, res: Response) => {
@@ -2582,6 +2582,63 @@ app.get('/api/data-quality', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('Data quality error', err);
     res.status(500).json({ error: 'Failed to load data quality' });
+  }
+});
+
+// ── GET /api/country-stats ────────────────────────────────────────────────────
+app.get('/api/country-stats', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  const { start, end } = req.query as Record<string, string>;
+
+  try {
+    // Build companyId → country map
+    const companies = await db.collection('companies').find({ owner_email: ownerEmail }).toArray();
+    const countryMap = new Map<string, string>();
+    for (const c of companies) {
+      if (c.country) countryMap.set(String(c._id), c.country);
+    }
+
+    // Sales by country (paid invoices)
+    const invFilter: Record<string, any> = { owner_email: ownerEmail, status: 'Paid' };
+    if (start) invFilter.invoice_date = { ...(invFilter.invoice_date || {}), $gte: start };
+    if (end)   invFilter.invoice_date = { ...(invFilter.invoice_date || {}), $lte: end };
+    const invoices = await db.collection('invoices').find(invFilter).toArray();
+    const salesMap = new Map<string, number>();
+    for (const inv of invoices) {
+      const country = countryMap.get(String(inv.company_id)) || 'Unknown';
+      salesMap.set(country, (salesMap.get(country) || 0) + (Number(inv.total_amount) || 0));
+    }
+    const salesByCountry = [...salesMap.entries()]
+      .map(([country, total]) => ({ country, total }))
+      .sort((a, b) => b.total - a.total).slice(0, 10);
+
+    // Products by country (quotation_items via quotations)
+    const quoteFilter: Record<string, any> = { owner_email: ownerEmail, status: { $nin: ['Cancelled'] } };
+    if (start) quoteFilter.created_at = { ...(quoteFilter.created_at || {}), $gte: start };
+    if (end)   quoteFilter.created_at = { ...(quoteFilter.created_at || {}), $lte: end };
+    const quotes = await db.collection('quotations').find(quoteFilter).toArray();
+    const quoteCountryMap = new Map<string, string>();
+    for (const q of quotes) {
+      const country = countryMap.get(String(q.company_id)) || 'Unknown';
+      quoteCountryMap.set(String(q._id), country);
+    }
+    const items = await db.collection('quotation_items').find({ owner_email: ownerEmail }).toArray();
+    const prodMap = new Map<string, number>();
+    for (const item of items) {
+      const country = quoteCountryMap.get(String(item.quotation_id));
+      if (!country) continue;
+      const key = `${item.product_name || 'Unknown'} (${country})`;
+      prodMap.set(key, (prodMap.get(key) || 0) + (Number(item.line_total) || 0));
+    }
+    const productsByCountry = [...prodMap.entries()]
+      .map(([label, total]) => ({ label, total }))
+      .sort((a, b) => b.total - a.total).slice(0, 10);
+
+    res.json({ salesByCountry, productsByCountry });
+  } catch (err) {
+    console.error('Error fetching country stats', err);
+    res.status(500).json({ error: 'Failed to load country stats' });
   }
 });
 

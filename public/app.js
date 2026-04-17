@@ -3344,6 +3344,25 @@ async function renderAnalytics() {
     <div class="panel">
       <div class="panel-header">
         <h3 class="panel-title panel-title-icon">
+          <i data-lucide="globe"></i>
+          Geographic Breakdown
+        </h3>
+        <div class="stat-label">Sales revenue and top products by company country</div>
+      </div>
+      <div class="analytics-grid">
+        <div class="analytics-card">
+          <div class="analytics-card-title">Sales by Country</div>
+          <div class="analytics-chart" id="chart-sales-country"></div>
+        </div>
+        <div class="analytics-card">
+          <div class="analytics-card-title">Top Products by Country</div>
+          <div class="analytics-chart" id="chart-products-country"></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">
+        <h3 class="panel-title panel-title-icon">
           <i data-lucide="notebook"></i>
           Data quality
         </h3>
@@ -3407,7 +3426,8 @@ async function renderAnalytics() {
       fetchAnalyticsJson("/api/forecast", { ...baseParams, metric: "shipping", grain: "month", horizon: 12 }),
       fetchAnalyticsJson("/api/data-quality", {}),
       fetchAnalyticsJson("/api/breakdown", { ...baseParams, entity: "company_name", source: "invoices", metric: "revenue" }),
-      fetchAnalyticsJson("/api/invoice-aging", {})
+      fetchAnalyticsJson("/api/invoice-aging", {}),
+      fetchAnalyticsJson("/api/country-stats", baseParams)
     ]);
     const ok = (i, fallback) => settled[i].status === "fulfilled" ? settled[i].value : (console.warn("Analytics call", i, "failed:", settled[i].reason), fallback);
     const kpis = ok(0, {});
@@ -3423,6 +3443,7 @@ async function renderAnalytics() {
     const dataQualityPayload = ok(10, { data: {} });
     const companiesRevenue = ok(11, { data: [] });
     const invoiceAging = ok(12, { data: [] });
+    const countryStats = ok(13, {});
 
     const currency = analyticsState.currency || "USD";
 
@@ -3540,6 +3561,17 @@ async function renderAnalytics() {
       "analytics-forecast-shipping",
       buildAnalyticsForecastOption(forecastShipping, "Shipping", "#f97316")
     );
+
+    const salesByCountry = countryStats.salesByCountry || [];
+    const productsByCountry = countryStats.productsByCountry || [];
+    if (salesByCountry.length) {
+      initAnalyticsChart("chart-sales-country",
+        buildAnalyticsBarOption(salesByCountry.map(d => d.country), salesByCountry.map(d => d.total), "Revenue"));
+    }
+    if (productsByCountry.length) {
+      initAnalyticsChart("chart-products-country",
+        buildAnalyticsBarOption(productsByCountry.map(d => d.label), productsByCountry.map(d => d.total), "Revenue"));
+    }
 
     const quality = dataQualityPayload.data || {};
     const qualitySlot = document.getElementById("analytics-quality");
