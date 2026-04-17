@@ -9504,17 +9504,22 @@ async function renderOrderPreview(record) {
           <tbody>${lineRows}</tbody>
         </table>
       </div>
+    </div>` : `
+    <div class="odv-section odv-no-items">
+      <i data-lucide="inbox"></i>
+      <span>${quotationId ? "No line items found for the linked quotation." : "No quotation linked to this order."}</span>
+    </div>`;
+
+  const financialSection = (computedTotal > 0 || totals.subtotal > 0 || inspectionCharges > 0) ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="calculator"></i> Financial Summary</div>
       <div class="odv-totals">
         <div class="odv-total-row"><span>Subtotal</span><strong>${formatCurrency(totals.subtotal || 0, currency)}</strong></div>
         ${inspectionCharges ? `<div class="odv-total-row"><span>Inspection charges</span><strong>${formatCurrency(inspectionCharges, currency)}</strong></div>` : ""}
         ${taxRate ? `<div class="odv-total-row"><span>Tax (${taxRate}%)</span><strong>${formatCurrency(totals.tax || 0, currency)}</strong></div>` : ""}
         <div class="odv-total-row odv-total-final"><span>Total</span><strong>${formatCurrency(computedTotal, currency)}</strong></div>
       </div>
-    </div>` : `
-    <div class="odv-section odv-no-items">
-      <i data-lucide="inbox"></i>
-      <span>${quotationId ? "No line items found for the linked quotation." : "No quotation linked to this order."}</span>
-    </div>`;
+    </div>` : "";
 
   const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
 
@@ -9537,6 +9542,7 @@ async function renderOrderPreview(record) {
       </div>
       ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
       ${itemsSection}
+      ${financialSection}
       ${extraFields ? `
       <div class="odv-section">
         <div class="odv-section-title"><i data-lucide="info"></i> Details</div>
