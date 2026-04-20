@@ -1199,7 +1199,8 @@ const defaultSiteConfig = {
   invoiceName: "",
   invoiceAddress: "",
   invoicePhone: "",
-  showFooter: true
+  showFooter: true,
+  logoUrl: ""
 };
 
 function normalizeBoolean(value, fallback) {
@@ -1299,6 +1300,22 @@ function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
   if (brandTitle) {
     brandTitle.textContent = siteConfigState.siteName;
+  }
+  const brandEl = document.querySelector(".brand");
+  if (brandEl) {
+    let logoEl = brandEl.querySelector(".brand-logo");
+    const logoSrc = siteConfigState.logoUrl ? getFileUrl(siteConfigState.logoUrl) : "";
+    if (logoSrc) {
+      if (!logoEl) {
+        logoEl = document.createElement("img");
+        logoEl.className = "brand-logo";
+        brandEl.insertBefore(logoEl, brandEl.firstChild);
+      }
+      logoEl.src = logoSrc;
+      logoEl.alt = siteConfigState.siteName || "Logo";
+    } else if (logoEl) {
+      logoEl.remove();
+    }
   }
   const loginTitle = document.querySelector(".login-title");
   if (loginTitle) {
@@ -6310,6 +6327,21 @@ async function renderSettings() {
                 <span>Invoice company phone</span>
                 <input name="invoicePhone" type="text" placeholder="Primary invoice contact" value="${siteConfigState.invoicePhone}" />
               </label>
+              <div class="logo-upload-row">
+                <span>Company logo</span>
+                <div class="logo-upload-controls">
+                  ${siteConfigState.logoUrl ? `<img class="logo-preview-thumb" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo preview" />` : `<div class="logo-preview-thumb logo-preview-empty"><i data-lucide="image"></i></div>`}
+                  <div class="logo-upload-actions">
+                    <label class="btn ghost small logo-file-label">
+                      <i data-lucide="upload"></i>
+                      Upload logo
+                      <input type="file" id="logo-file-input" accept="image/*" style="display:none" />
+                    </label>
+                    ${siteConfigState.logoUrl ? `<button type="button" class="btn ghost small danger" id="logo-remove-btn"><i data-lucide="trash-2"></i> Remove</button>` : ""}
+                  </div>
+                  <div class="stat-label" id="logo-upload-status"></div>
+                </div>
+              </div>
               <label class="toggle-row">
                 <span>Display footer on all pages</span>
                 <input name="showFooter" type="checkbox" ${siteConfigState.showFooter ? "checked" : ""} />
@@ -7164,6 +7196,42 @@ async function renderSettings() {
       console.warn("Unable to sync site config", error);
       showToast("Saved locally. Unable to sync settings.");
     }
+  });
+
+  const logoInput = document.getElementById("logo-file-input");
+  logoInput?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const statusEl = document.getElementById("logo-upload-status");
+    if (statusEl) statusEl.textContent = "Uploading…";
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("title", "Company Logo");
+      const res = await apiFetch("/api/upload", { method: "POST", body: fd });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      const key = data.files?.[0]?.key;
+      if (!key) throw new Error("No key returned");
+      siteConfigState = { ...siteConfigState, logoUrl: key };
+      persistSiteConfigState(siteConfigState);
+      applySiteConfig();
+      await saveSiteConfigToServer(siteConfigState);
+      showToast("Logo uploaded");
+      renderSection("settings");
+    } catch (err) {
+      if (statusEl) statusEl.textContent = "Upload failed";
+      showToast("Logo upload failed");
+    }
+  });
+
+  document.getElementById("logo-remove-btn")?.addEventListener("click", async () => {
+    siteConfigState = { ...siteConfigState, logoUrl: "" };
+    persistSiteConfigState(siteConfigState);
+    applySiteConfig();
+    await saveSiteConfigToServer(siteConfigState);
+    showToast("Logo removed");
+    renderSection("settings");
   });
 
   loadDbStatus();
@@ -8428,10 +8496,12 @@ async function renderInvoicePreview(record) {
     <div class="odv">
       <div class="odv-hero">
         <div class="odv-hero-left">
+          ${siteConfigState.baseCompany || siteConfigState.invoiceName ? `<div class="odv-base-company">${sanitizeText(siteConfigState.invoiceName || siteConfigState.baseCompany)}</div>` : ""}
           <div class="odv-ref">${sanitizeText(record.reference || `Invoice #${record.id}`)}</div>
           <div class="odv-title">Invoice</div>
         </div>
         <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
           <span class="badge ${tone}">${sanitizeText(record.status || "Unpaid")}</span>
           <div class="odv-amount">${formatCurrency(totalAmt, currency)}</div>
         </div>
@@ -8540,10 +8610,12 @@ async function renderPricingItemPreview(record) {
     <div class="odv">
       <div class="odv-hero">
         <div class="odv-hero-left">
+          ${siteConfigState.baseCompany ? `<div class="odv-base-company">${sanitizeText(siteConfigState.baseCompany)}</div>` : ""}
           <div class="odv-ref">${sanitizeText(reference)}</div>
           <div class="odv-title">${sanitizeText(title || "Pricing detail")} &middot; ${sanitizeText(lineCount)}</div>
         </div>
         <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
           ${statusBadge}
           <span style="color:#94a3b8;font-size:12px;font-weight:600;">${sanitizeText(currency)}</span>
         </div>
@@ -9577,6 +9649,7 @@ async function renderOrderPreview(record) {
           <div class="odv-hero-badges">${statusBadge}</div>
         </div>
         <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
           <div class="odv-amount">${formatCurrency(displayTotal, currency)}</div>
           <div class="odv-currency">${currency}</div>
         </div>
@@ -9693,6 +9766,7 @@ async function renderQuotationPreview(record) {
           <div class="odv-title">${sanitizeText(record.title || "Quotation")}</div>
         </div>
         <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
           <span class="badge ${statusTone}">${sanitizeText(record.status || "Draft")}</span>
           <div class="odv-amount">${formatCurrency(total || record.amount || 0, currency)}</div>
         </div>

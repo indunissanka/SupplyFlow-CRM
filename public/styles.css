@@ -67,6 +67,55 @@ button {
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.4px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  max-height: 36px;
+  max-width: 100px;
+  object-fit: contain;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.logo-upload-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.logo-upload-row > span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #64748b);
+}
+.logo-upload-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.logo-preview-thumb {
+  width: 80px;
+  height: 48px;
+  object-fit: contain;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 6px;
+  background: #f8fafc;
+  padding: 4px;
+}
+.logo-preview-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+}
+.logo-upload-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.logo-file-label {
+  cursor: pointer;
 }
 
 .nav {
@@ -3254,7 +3303,8 @@ body.salesperson-mode .sales-empty {
 .odv-parties svg { width: 13px; height: 13px; opacity: 0.7; }
 .odv-hero-badges { display: flex; gap: 6px; flex-wrap: wrap; }
 .odv-hero-badges .badge { font-size: 11px; padding: 3px 9px; }
-.odv-hero-right { text-align: right; flex-shrink: 0; }
+.odv-hero-right { text-align: right; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.odv-logo { max-height: 52px; max-width: 140px; object-fit: contain; border-radius: 6px; background: rgba(255,255,255,0.08); padding: 4px 8px; }
 .odv-amount {
   font-size: 28px;
   font-weight: 800;
