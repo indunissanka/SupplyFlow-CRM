@@ -1300,6 +1300,7 @@ function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
   if (brandTitle) {
     brandTitle.textContent = siteConfigState.siteName;
+    brandTitle.style.display = siteConfigState.logoUrl ? "none" : "";
   }
   const brandEl = document.querySelector(".brand");
   if (brandEl) {
@@ -6287,8 +6288,8 @@ async function renderSettings() {
                 <div class="active-theme-pill">${siteConfigState.activeTheme}</div>
               </div>
               <label>
-                <span>Site name</span>
-                <input name="siteName" type="text" value="${siteConfigState.siteName}" required />
+                <span>Site name${siteConfigState.logoUrl ? ' <span class="form-hint">(optional — hidden when logo is set)</span>' : ''}</span>
+                <input name="siteName" type="text" value="${siteConfigState.siteName}" ${siteConfigState.logoUrl ? "" : "required"} placeholder="${siteConfigState.logoUrl ? "Hidden when logo is set" : "e.g. SL CRM"}" />
               </label>
               <label>
                 <span>Base company</span>
