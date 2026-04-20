@@ -877,7 +877,11 @@ async function enrichOrderWithShipping(db: Db, ownerEmail: string, order: any): 
                     etd_date: 1, eta: 1, delivery_date: 1, reference: 1, carrier: 1 } }
   );
   if (!sched) return order;
-  const computed = computeShippingMilestoneStatus(sched) ?? (sched.status as string) ?? 'Pending';
+  const schedComputed = computeShippingMilestoneStatus(sched) ?? (sched.status as string) ?? 'Pending';
+  // Never go backward: take whichever status has the higher rank
+  const schedRank  = shippingStatusRank[schedComputed] ?? 0;
+  const orderRank  = shippingStatusRank[order.status as string] ?? 0;
+  const status = schedRank >= orderRank ? schedComputed : (order.status as string);
   const schedParts = [
     (sched as any).reference || null,
     (sched as any).carrier || null,
@@ -887,7 +891,7 @@ async function enrichOrderWithShipping(db: Db, ownerEmail: string, order: any): 
   const shipping_schedule_label = schedParts.length
     ? schedParts.join(' · ')
     : `Shipment #${order.shipping_schedule_id}`;
-  return { ...order, status: computed, shipping_schedule_label };
+  return { ...order, status, shipping_schedule_label };
 }
 
 // ── Shipping schedules: enrich with company/order/invoice names ───────────────
@@ -1970,6 +1974,18 @@ app.get('/api/orders', async (req: Request, res: Response) => {
   }
 });
 
+// GET single order — custom route to enrich status from linked shipping schedule
+app.get('/api/orders/:id', async (req: Request, res: Response) => {
+  const ownerEmail = (req as any).ownerEmail;
+  const db: Db = (req as any).db;
+  const oid = toMongoId(p(req.params.id));
+  if (!oid) return res.status(400).json({ error: 'Invalid id' });
+  const doc = await db.collection('orders').findOne({ _id: oid, owner_email: ownerEmail });
+  if (!doc) return res.status(404).json({ error: 'Not found' });
+  const enriched = await enrichOrderWithShipping(db, ownerEmail, serializeDoc(doc));
+  res.json({ row: enriched });
+});
+
 // PUT orders — custom route to enrich status after update
 app.put('/api/orders/:id', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
@@ -2787,6 +2803,36 @@ async function syncShippingMilestonesForUser(db: Db, ownerEmail: string): Promis
     if (orderBulk.length) {
       await db.collection('orders').bulkWrite(orderBulk, { ordered: false });
     }
+  }
+
+  // Step 3: catch orders linked via order.shipping_schedule_id that were missed in Steps 1–2
+  // (i.e. the schedule has no order_id set but the order points at the schedule)
+  const linkedOrders = await db.collection('orders').find(
+    { owner_email: ownerEmail, shipping_schedule_id: { $exists: true, $ne: null } },
+    { projection: { _id: 1, status: 1, shipping_schedule_id: 1 } }
+  ).toArray();
+
+  const step3Bulk: any[] = [];
+  for (const order of linkedOrders) {
+    const orderId = String(order._id);
+    // Already handled in Steps 1–2
+    if (orderStatusMap.has(orderId)) continue;
+    const schedOid = toMongoId(String(order.shipping_schedule_id));
+    if (!schedOid) continue;
+    const sched = await db.collection('shipping_schedules').findOne(
+      { _id: schedOid, owner_email: ownerEmail },
+      { projection: { status: 1, production_date: 1, processing_start_date: 1,
+                       booking_date: 1, cargo_closing_date: 1, etc_date: 1,
+                       etd_date: 1, eta: 1, delivery_date: 1 } }
+    );
+    if (!sched) continue;
+    const computedStatus = computeShippingMilestoneStatus(sched as any);
+    const effectiveStatus: string = computedStatus ?? (sched.status as string) ?? 'Pending';
+    applyOrderUpdate(order, effectiveStatus, step3Bulk);
+  }
+  if (step3Bulk.length) {
+    await db.collection('orders').bulkWrite(step3Bulk, { ordered: false });
+    console.log(`[milestones] Step 3 updated ${step3Bulk.length} order(s) via order-side link for ${ownerEmail}`);
   }
 }
 
