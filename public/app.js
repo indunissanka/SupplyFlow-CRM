@@ -6332,11 +6332,11 @@ async function renderSettings() {
                 <div class="logo-upload-controls">
                   ${siteConfigState.logoUrl ? `<img class="logo-preview-thumb" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo preview" />` : `<div class="logo-preview-thumb logo-preview-empty"><i data-lucide="image"></i></div>`}
                   <div class="logo-upload-actions">
-                    <label class="btn ghost small logo-file-label">
+                    <input type="file" id="logo-file-input" accept="image/*" style="display:none" />
+                    <button type="button" class="btn ghost small" id="logo-upload-btn">
                       <i data-lucide="upload"></i>
                       Upload logo
-                      <input type="file" id="logo-file-input" accept="image/*" style="display:none" />
-                    </label>
+                    </button>
                     ${siteConfigState.logoUrl ? `<button type="button" class="btn ghost small danger" id="logo-remove-btn"><i data-lucide="trash-2"></i> Remove</button>` : ""}
                   </div>
                   <div class="stat-label" id="logo-upload-status"></div>
@@ -7196,6 +7196,10 @@ async function renderSettings() {
       console.warn("Unable to sync site config", error);
       showToast("Saved locally. Unable to sync settings.");
     }
+  });
+
+  document.getElementById("logo-upload-btn")?.addEventListener("click", () => {
+    document.getElementById("logo-file-input")?.click();
   });
 
   const logoInput = document.getElementById("logo-file-input");
