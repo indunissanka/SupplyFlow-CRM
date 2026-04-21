@@ -2952,24 +2952,19 @@ async function renderDashboard() {
 
   const activityFeed = document.getElementById("activity-feed");
   if (activityFeed) {
-    activityFeed.innerHTML = `
-      <div class="activity-feed">
-        ${activity
-          .map(
-            (item) => `
-              <div class="activity-item">
-                <div class="activity-header">
-                  <span class="activity-tag" style="background:${soften(item.color)};color:${item.color}">${item.tag}</span>
-                  <span class="activity-time">Just now</span>
-                </div>
-                <div class="activity-title">${item.title}</div>
-                ${item.author ? `<div class="activity-author">by ${item.author}</div>` : ""}
-              </div>
-            `
-          )
-          .join("")}
-      </div>
-    `;
+    const activityItems = activity.length
+      ? activity.map((item) => `
+          <div class="activity-item">
+            <div class="activity-header">
+              <span class="activity-tag" style="background:${soften(item.color || "#2563eb")};color:${item.color || "#2563eb"}">${escapeHtml(item.tag || "")}</span>
+              <span class="activity-time">Just now</span>
+            </div>
+            <div class="activity-title">${escapeHtml(item.title || "")}</div>
+            ${item.author ? `<div class="activity-author">by ${escapeHtml(item.author)}</div>` : ""}
+          </div>
+        `).join("")
+      : '<div class="empty">No recent activity.</div>';
+    activityFeed.innerHTML = `<div class="activity-feed">${activityItems}</div>`;
   }
 
   // Populate Upcoming Meetings widget

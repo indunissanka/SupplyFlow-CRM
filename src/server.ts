@@ -415,16 +415,15 @@ app.put('/api/settings/site-config', async (req: Request, res: Response) => {
 app.get('/api/dashboard', async (req: Request, res: Response) => {
   const ownerEmail = (req as any).ownerEmail;
   const db: Db = (req as any).db;
+  syncShippingMilestonesForUser(db, ownerEmail).catch(err => console.warn('[dashboard] Shipping sync error', err));
   try {
-    await syncShippingMilestonesForUser(db, ownerEmail);
-
-    const [companies, contacts, orders, quotations, invoices, tasks] = await Promise.all([
+    const [companies, contacts, openOrders, quotations, invoices, tasksOpen] = await Promise.all([
       db.collection('companies').countDocuments({ owner_email: ownerEmail }),
       db.collection('contacts').countDocuments({ owner_email: ownerEmail }),
-      db.collection('orders').countDocuments({ owner_email: ownerEmail }),
+      db.collection('orders').countDocuments({ owner_email: ownerEmail, status: { $nin: ['Completed', 'Cancelled', 'Delivered'] } }),
       db.collection('quotations').countDocuments({ owner_email: ownerEmail }),
       db.collection('invoices').countDocuments({ owner_email: ownerEmail }),
-      db.collection('tasks').countDocuments({ owner_email: ownerEmail })
+      db.collection('tasks').countDocuments({ owner_email: ownerEmail, status: { $ne: 'Done' } })
     ]);
 
     // Pipeline data: recent orders + unpaid invoices
@@ -499,10 +498,15 @@ app.get('/api/dashboard', async (req: Request, res: Response) => {
     const unpaidAmount = unpaidAgg.length ? (unpaidAgg[0] as any).total || 0 : 0;
 
     res.json({
-      stats: { companies, contacts, orders, quotations, invoices, tasks },
+      stats: { companies, contacts, openOrders, quotations, invoices, tasksOpen },
       pipeline,
       pipelineSummary: { quotations: quotationPipeline, orders: activeOrderCount, unpaidAmount },
-      activity: recentTasks.map(serializeDoc)
+      activity: recentTasks.map((t: any) => ({
+        title: t.title || 'Task',
+        tag: t.status || 'task',
+        color: '#2563eb',
+        author: t.assignee || '',
+      })),
     });
   } catch (err) {
     console.error('Dashboard error', err);
