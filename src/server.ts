@@ -1055,6 +1055,20 @@ const enrichWithNames = async (db: Db, ownerEmail: string, doc: any): Promise<an
     if (product) enriched.product_name = (product as any).name;
   }
 
+  if (doc.invoice_id && !doc.invoice_reference) {
+    const oid = toMongoId(String(doc.invoice_id));
+    const invoice = oid
+      ? await db.collection('invoices').findOne(
+          { _id: oid, owner_email: ownerEmail },
+          { projection: { reference: 1 } }
+        )
+      : await db.collection('invoices').findOne(
+          { legacy_id: doc.invoice_id, owner_email: ownerEmail },
+          { projection: { reference: 1 } }
+        );
+    if (invoice) enriched.invoice_reference = (invoice as any).reference;
+  }
+
   return enriched;
 };
 
