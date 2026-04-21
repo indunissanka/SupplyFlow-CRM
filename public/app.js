@@ -8121,6 +8121,27 @@ async function openPreviewModal(tableKey, record) {
       console.warn("Pricing preview fell back", err);
       content = renderRecordPreview(tableKey, record);
     }
+  } else if (tableKey === "contacts") {
+    try {
+      content = renderContactPreview(record);
+    } catch (err) {
+      console.warn("Contact preview fell back", err);
+      content = renderRecordPreview(tableKey, record);
+    }
+  } else if (tableKey === "products") {
+    try {
+      content = renderProductPreview(record);
+    } catch (err) {
+      console.warn("Product preview fell back", err);
+      content = renderRecordPreview(tableKey, record);
+    }
+  } else if (tableKey === "companies") {
+    try {
+      content = renderCompanyPreview(record);
+    } catch (err) {
+      console.warn("Company preview fell back", err);
+      content = renderRecordPreview(tableKey, record);
+    }
   }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -8143,6 +8164,7 @@ async function openPreviewModal(tableKey, record) {
     </div>
   `;
   document.body.appendChild(overlay);
+  lucide?.createIcons({ context: overlay });
   if (tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "invoices" || tableKey === "orders") {
     overlay.querySelector(".modal")?.classList.add("modal-xlarge");
   }
@@ -9667,6 +9689,220 @@ async function renderOrderPreview(record) {
         <div class="odv-section-title"><i data-lucide="info"></i> Details</div>
         <div class="odv-extra-grid">${extraFields}</div>
       </div>` : ""}
+    </div>`;
+}
+
+// ─── Contact Preview ──────────────────────────────────────────────────────────
+function renderContactPreview(record) {
+  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
+  const fullName = `${record.first_name || ""} ${record.last_name || ""}`.trim()
+    || `Contact #${record.id}`;
+  const tone = statusToneFront(record.status || "");
+  const statusBadge = record.status
+    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
+    : "";
+  const primaryVal = record.email || record.phone || "";
+
+  const chips = [];
+  if (record.created_at) chips.push({ icon: "calendar", label: "Created", val: formatPreviewValue(record.created_at, "created_at", record) });
+  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated", val: formatPreviewValue(record.updated_at, "updated_at", record) });
+  if (record.email)      chips.push({ icon: "mail",     label: "Email",   val: sanitizeText(record.email) });
+  if (record.phone)      chips.push({ icon: "phone",    label: "Phone",   val: sanitizeText(record.phone) });
+  const chipsHtml = chips.map(c => `
+    <div class="odv-chip">
+      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
+      <span class="odv-chip-val">${c.val}</span>
+    </div>`).join("");
+
+  const contactInfoRows = [
+    record.role  ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("role",  record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.role)}</span></div>` : "",
+    record.email ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("email", record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.email)}</span></div>` : "",
+    record.phone ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("phone", record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.phone)}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const contactInfoSection = contactInfoRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="user"></i> Contact Info</div>
+      <div class="odv-extra-grid">${contactInfoRows}</div>
+    </div>` : "";
+
+  const companySection = record.company_name ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="building-2"></i> Company</div>
+      <div class="odv-extra-grid">
+        <div class="odv-extra-row">
+          <span class="odv-extra-label">Company</span>
+          <span class="odv-extra-val">${sanitizeText(record.company_name)}</span>
+        </div>
+      </div>
+    </div>` : "";
+
+  const noteTagRows = [
+    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
+    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const notesTagsSection = noteTagRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
+      <div class="odv-extra-grid">${noteTagRows}</div>
+    </div>` : "";
+
+  return `
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
+          <div class="odv-ref">${sanitizeText(fullName)}</div>
+          <div class="odv-parties">
+            ${record.company_name ? `<span><i data-lucide="building-2"></i>${sanitizeText(record.company_name)}</span>` : ""}
+            ${record.role         ? `<span><i data-lucide="briefcase"></i>${sanitizeText(record.role)}</span>`         : ""}
+          </div>
+          <div class="odv-hero-badges">${statusBadge}</div>
+        </div>
+        <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
+          ${primaryVal ? `<div class="odv-amount" style="font-size:16px;letter-spacing:0;">${sanitizeText(primaryVal)}</div>` : ""}
+        </div>
+      </div>
+      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
+      ${contactInfoSection}
+      ${companySection}
+      ${notesTagsSection}
+    </div>`;
+}
+
+// ─── Product Preview ───────────────────────────────────────────────────────────
+function renderProductPreview(record) {
+  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
+  const productName = record.name || `Product #${record.id}`;
+  const currency = (record.currency || "USD").toUpperCase();
+  const price = Number(record.price) || 0;
+  const tone = statusToneFront(record.status || "");
+  const statusBadge = record.status
+    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
+    : "";
+
+  const chips = [];
+  if (record.created_at) chips.push({ icon: "calendar", label: "Created",  val: formatPreviewValue(record.created_at, "created_at", record) });
+  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated",  val: formatPreviewValue(record.updated_at, "updated_at", record) });
+  if (record.sku)        chips.push({ icon: "barcode",  label: "SKU",      val: sanitizeText(record.sku) });
+  if (record.currency)   chips.push({ icon: "coins",    label: "Currency", val: sanitizeText(currency) });
+  const chipsHtml = chips.map(c => `
+    <div class="odv-chip">
+      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
+      <span class="odv-chip-val">${c.val}</span>
+    </div>`).join("");
+
+  const detailRows = [
+    record.description ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Description</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.description))}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const detailsSection = detailRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="package"></i> Product Details</div>
+      <div class="odv-extra-grid">${detailRows}</div>
+    </div>` : "";
+
+  const noteTagRows = [
+    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
+    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const notesTagsSection = noteTagRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
+      <div class="odv-extra-grid">${noteTagRows}</div>
+    </div>` : "";
+
+  return `
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
+          <div class="odv-ref">${sanitizeText(productName)}</div>
+          <div class="odv-parties">
+            ${record.category ? `<span><i data-lucide="folder"></i>${sanitizeText(record.category)}</span>` : ""}
+            ${record.sku      ? `<span><i data-lucide="barcode"></i>SKU: ${sanitizeText(record.sku)}</span>` : ""}
+          </div>
+          <div class="odv-hero-badges">${statusBadge}</div>
+        </div>
+        <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
+          ${price ? `<div class="odv-amount">${formatCurrency(price, currency)}</div>` : ""}
+          ${price ? `<div class="odv-currency">${currency}</div>` : ""}
+        </div>
+      </div>
+      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
+      ${detailsSection}
+      ${notesTagsSection}
+    </div>`;
+}
+
+// ─── Company Preview ───────────────────────────────────────────────────────────
+function renderCompanyPreview(record) {
+  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
+  const companyName = record.name || `Company #${record.id}`;
+  const tone = statusToneFront(record.status || "");
+  const statusBadge = record.status
+    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
+    : "";
+  const heroRightVal = record.phone || record.email || "";
+
+  const chips = [];
+  if (record.created_at) chips.push({ icon: "calendar", label: "Created", val: formatPreviewValue(record.created_at, "created_at", record) });
+  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated", val: formatPreviewValue(record.updated_at, "updated_at", record) });
+  if (record.phone)      chips.push({ icon: "phone",    label: "Phone",   val: sanitizeText(record.phone) });
+  if (record.email)      chips.push({ icon: "mail",     label: "Email",   val: sanitizeText(record.email) });
+  if (record.website)    chips.push({ icon: "globe",    label: "Website", val: sanitizeText(record.website) });
+  const chipsHtml = chips.map(c => `
+    <div class="odv-chip">
+      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
+      <span class="odv-chip-val">${c.val}</span>
+    </div>`).join("");
+
+  const addressRows = [
+    record.address           ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Address</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.address))}</span></div>` : "",
+    record.receiving_address ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Receiving Address</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.receiving_address))}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const addressSection = addressRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="map-pin"></i> Address &amp; Details</div>
+      <div class="odv-extra-grid">${addressRows}</div>
+    </div>` : "";
+
+  const noteTagRows = [
+    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
+    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
+  ].filter(Boolean).join("");
+
+  const notesTagsSection = noteTagRows ? `
+    <div class="odv-section">
+      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
+      <div class="odv-extra-grid">${noteTagRows}</div>
+    </div>` : "";
+
+  return `
+    <div class="odv">
+      <div class="odv-hero">
+        <div class="odv-hero-left">
+          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
+          <div class="odv-ref">${sanitizeText(companyName)}</div>
+          <div class="odv-parties">
+            ${record.industry ? `<span><i data-lucide="layers"></i>${sanitizeText(record.industry)}</span>` : ""}
+            ${record.website  ? `<span><i data-lucide="globe"></i>${sanitizeText(record.website)}</span>`  : ""}
+          </div>
+          <div class="odv-hero-badges">${statusBadge}</div>
+        </div>
+        <div class="odv-hero-right">
+          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
+          ${heroRightVal ? `<div class="odv-amount" style="font-size:15px;letter-spacing:0;">${sanitizeText(heroRightVal)}</div>` : ""}
+        </div>
+      </div>
+      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
+      ${addressSection}
+      ${notesTagsSection}
     </div>`;
 }
 

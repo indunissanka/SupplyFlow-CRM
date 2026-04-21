@@ -42,7 +42,8 @@
       "Bash(kill 1671096)",
       "Bash(curl -s http://localhost:3010/)",
       "Bash(nginx -t)",
-      "Bash(grep -n \"const adminRole\\\\|adminRole =\" \"c:\\\\\\\\Users\\\\\\\\mark\\\\\\\\OneDrive\\\\\\\\Apps\\\\\\\\TCM\\\\\\\\SupplyFlow-CRM\\\\\\\\src\\\\\\\\server.ts\")"
+      "Bash(grep -n \"const adminRole\\\\|adminRole =\" \"c:\\\\\\\\Users\\\\\\\\mark\\\\\\\\OneDrive\\\\\\\\Apps\\\\\\\\TCM\\\\\\\\SupplyFlow-CRM\\\\\\\\src\\\\\\\\server.ts\")",
+      "Read(//c/Users/mark/OneDrive/Apps/SLCRM/frontend/src/components/**)"
     ],
     "additionalDirectories": [
       "/home/ubuntu/myapps/SupplyFlow-CRM"
