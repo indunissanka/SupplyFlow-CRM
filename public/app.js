@@ -7613,9 +7613,9 @@ async function loadTableFromApi(table, mapper, fallbackRows, options = {}) {
   return [];
 }
 
-async function loadLookupTable(table, fallbackRows) {
+async function loadLookupTable(table, fallbackRows, query = "") {
   try {
-    const res = await apiFetch(`/api/${table}`);
+    const res = await apiFetch(`/api/${table}${query ? "?" + query : ""}`);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.rows) && data.rows.length) {
@@ -7636,7 +7636,7 @@ async function ensureLookupTablesReady() {
   if (lookupTablesReadyPromise) return lookupTablesReadyPromise;
   lookupTablesReadyPromise = Promise.all([
     loadLookupTable("doc_types", fallback.doc_types),
-    loadLookupTable("tags", fallback.tags)
+    loadLookupTable("tags", fallback.tags, "limit=200")
   ]).catch((err) => {
     console.warn("Lookup preload failed", err);
     lookupTablesReadyPromise = null;
@@ -12911,6 +12911,8 @@ function openOrderPrintView(record, items, matchedQuote) {
   if (record.etd_date) metaItems.push({ label: "ETD", val: String(record.etd_date) });
   const metaHtml = metaItems.map(m => `<div><strong>${m.label}</strong><span>${m.val}</span></div>`).join("");
   const notesHtml = record.notes ? `<section class="notes-section"><strong>Notes</strong><p>${sanitizeText(record.notes).replace(/\n/g,"<br>")}</p></section>` : "";
+  const resolvedTags = resolveTagList(record.tags || matchedQuote?.tags);
+  const tagsHtml = resolvedTags.length ? `<section class="notes-section" style="margin-top:12px"><strong>Tags</strong><p>${sanitizeText(resolvedTags.join(", "))}</p></section>` : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>${sanitizeText(record.reference || `Order #${record.id}`)} | Order Print</title>
@@ -12972,6 +12974,7 @@ function openOrderPrintView(record, items, matchedQuote) {
         <div class="total-final"><span>Total</span><span>${fmt(totals.total || 0)}</span></div>
       </div>` : ""}
       ${notesHtml}
+      ${tagsHtml}
     </div>
     <div class="footer">Printed from CRM For All · ${new Date().toLocaleDateString()}</div>
   </div>
