@@ -11463,6 +11463,53 @@ function openForm(key, options = {}) {
         });
     }
   }
+  if (key === "documents") {
+    const companySelect = overlay.querySelector('select[name="company_id"]');
+    const contactSelect = overlay.querySelector('select[name="contact_id"]');
+    const invoiceSelect = overlay.querySelector('select[name="invoice_id"]');
+    const docTypeSelect = overlay.querySelector('select[name="doc_type_id"]');
+    const initialCompanyId = initialValues?.company_id ? String(initialValues.company_id) : "";
+    const initialContactId = initialValues?.contact_id ? String(initialValues.contact_id) : "";
+    const initialInvoiceId = initialValues?.invoice_id ? String(initialValues.invoice_id) : "";
+    const initialDocTypeId = initialValues?.doc_type_id ? String(initialValues.doc_type_id) : "";
+
+    if (companySelect) {
+      fetchCompaniesList().then((companies) => {
+        companySelect.innerHTML =
+          `${i18nPlaceholderOption("-- Select company --")}` +
+          companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+        if (initialCompanyId) companySelect.value = initialCompanyId;
+      }).catch(() => {});
+    }
+
+    if (contactSelect) {
+      fetchContactsList().then((contacts) => {
+        contactSelect.innerHTML =
+          `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
+          contacts.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
+        if (initialContactId) contactSelect.value = initialContactId;
+      }).catch(() => {});
+    }
+
+    if (invoiceSelect) {
+      fetchInvoicesList().then((invoices) => {
+        invoiceSelect.innerHTML =
+          `${i18nPlaceholderOption("-- Select invoice --")}` +
+          invoices.map((inv) => `<option value="${inv.id}">${escapeHtml(inv.reference || String(inv.id))}</option>`).join("");
+        if (initialInvoiceId) invoiceSelect.value = initialInvoiceId;
+      }).catch(() => {});
+    }
+
+    if (docTypeSelect) {
+      ensureLookupTablesReady().then(() => {
+        const docTypes = tableRecords.doc_types || fallback.doc_types || [];
+        docTypeSelect.innerHTML =
+          `${i18nPlaceholderOption("-- Select document type --")}` +
+          docTypes.map((dt) => `<option value="${dt.id}">${escapeHtml(dt.name)}</option>`).join("");
+        if (initialDocTypeId) docTypeSelect.value = initialDocTypeId;
+      }).catch(() => {});
+    }
+  }
   if (key === "invoices") {
     const modal = overlay.querySelector(".modal");
     modal?.classList.add("modal-large");
