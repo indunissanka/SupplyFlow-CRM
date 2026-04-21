@@ -4645,10 +4645,6 @@ async function renderDocuments() {
           <i data-lucide="upload-cloud"></i>
           Upload Documents
         </button>
-        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-extract-pdf" title="Extract fields from a PDF using AI">
-          <i data-lucide="zap"></i>
-          Extract PDF
-        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -5057,7 +5053,6 @@ async function renderDocuments() {
     updateSelectAllState(visibleItems);
   });
   applyFilters();
-  document.getElementById("btn-ai-extract-pdf")?.addEventListener("click", openAiExtractPdfModal);
 }
 
 function computeShippingStatus(record) {
@@ -13743,75 +13738,6 @@ function openAiDraftQuoteModal() {
       showToast("AI error: " + err.message);
       btn.disabled = false; btn.textContent = "Generate Draft";
     }
-  });
-}
-
-// Feature 2: Extract PDF
-async function openAiExtractPdfModal() {
-  let docs = [];
-  try {
-    const res = await apiFetch("/api/documents?limit=50");
-    const data = await res.json();
-    docs = (data.rows || []).filter((d) => d.storage_key && (d.storage_key.endsWith(".pdf") || (d.content_type || "").includes("pdf")));
-  } catch (_) {}
-
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal modal-large">
-      <div class="modal-header">
-        <h3>&#9889; Extract PDF</h3>
-        <button class="btn-close" aria-label="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <p class="stat-label" style="margin-bottom:12px">Select a PDF document to extract structured fields.</p>
-        <select id="ai-extract-pdf-select" class="form-input" style="width:100%">
-          <option value="">&#8212; Select a document &#8212;</option>
-          ${docs.map((d) => `<option value="${sanitizeText(d.storage_key)}">${sanitizeText(d.title || d.storage_key)}</option>`).join("")}
-        </select>
-        <div id="ai-extract-result" style="display:none;margin-top:16px"></div>
-      </div>
-      <div class="form-actions">
-        <button class="btn primary" id="ai-extract-run">Extract</button>
-        <button class="btn primary" id="ai-extract-create-quote" style="display:none">Create Quotation</button>
-        <button class="btn" data-close>Cancel</button>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(overlay);
-  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
-  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
-
-  let extracted = null;
-
-  overlay.querySelector("#ai-extract-run").addEventListener("click", async () => {
-    const fileKey = overlay.querySelector("#ai-extract-pdf-select").value;
-    if (!fileKey) { showToast("Please select a document"); return; }
-    const btn = overlay.querySelector("#ai-extract-run");
-    btn.disabled = true; btn.textContent = "Extracting...";
-    try {
-      const data = await aiPost("/api/ai/extract-doc", { file_key: fileKey });
-      extracted = data.extracted || {};
-      const result = overlay.querySelector("#ai-extract-result");
-      result.style.display = "block";
-      result.innerHTML = `<pre style="background:var(--surface-alt,#f5f5f5);padding:12px;border-radius:6px;overflow:auto;font-size:12px;max-height:300px">${sanitizeText(JSON.stringify(extracted, null, 2))}</pre>`;
-      overlay.querySelector("#ai-extract-create-quote").style.display = "inline-flex";
-    } catch (err) {
-      showToast("Extract error: " + err.message);
-    } finally {
-      btn.disabled = false; btn.textContent = "Extract";
-    }
-  });
-
-  overlay.querySelector("#ai-extract-create-quote").addEventListener("click", () => {
-    if (!extracted) return;
-    overlay.remove();
-    openForm("quotations", { initialValues: {
-      company_name: extracted.company_name || "",
-      notes: extracted.notes || "",
-      currency: extracted.currency || "USD",
-    }});
-    showToast("Draft loaded from PDF &#8212; review and save");
   });
 }
 
