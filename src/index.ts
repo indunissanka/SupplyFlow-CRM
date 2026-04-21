@@ -1641,10 +1641,30 @@ app.get("/api/dashboard", async (c) => {
       const readDb = getReadSession(c.env.DB, true);
       const stats = await getStats(readDb, ownerEmail);
       const pipeline = await getPipeline(readDb, ownerEmail);
+      const pipelineSummary = await getPipelineSummary(readDb, ownerEmail);
       const activity = await getActivity(readDb, ownerEmail);
-      return { stats, pipeline, activity };
+      return { stats, pipeline, pipelineSummary, activity };
     }
   });
+});
+
+app.get("/api/meetings/upcoming", async (c) => {
+  const ownerEmail = c.get("ownerEmail");
+  const db = getReadSession(c.env.DB);
+  const today = new Date();
+  today.setUTCHours(0, 0, 0, 0);
+  const in8 = new Date(today);
+  in8.setUTCDate(today.getUTCDate() + 8);
+  const todayStr = today.toISOString().slice(0, 10);
+  const in8Str = in8.toISOString().slice(0, 10);
+  const rows = await db
+    .prepare(
+      `SELECT * FROM meetings WHERE owner_email = ? AND meeting_date >= ? AND meeting_date < ?
+       ORDER BY meeting_date ASC, meeting_time ASC`
+    )
+    .bind(ownerEmail, todayStr, in8Str)
+    .all();
+  return c.json({ rows: rows.results ?? [] });
 });
 
 app.get("/api/backup/manifest", async (c) => {
@@ -3852,7 +3872,7 @@ async function getStats(db: D1Queryable, ownerEmail: string) {
   const output: Record<string, number> = {};
   results.forEach((res, index) => {
     const row = res.results?.[0] as { count: number } | undefined;
-    const key = tables[index] === "orders" ? "openOrders" : tables[index];
+    const key = tables[index] === "orders" ? "openOrders" : tables[index] === "tasks" ? "tasksOpen" : tables[index];
     output[key] = row?.count ?? 0;
   });
   return output;
@@ -4534,10 +4554,10 @@ async function attachTags(db: D1Database, ownerEmail: string, entityType: string
 }
 
 async function getPipeline(db: D1Queryable, ownerEmail: string) {
-  const [orders, invoices] = await db.batch<{ ref: string; account: string; amount: number; status: string }>([
+  const [orders, invoices] = await db.batch<{ id: number; ref: string; account: string; amount: number; currency: string; status: string; date: string }>([
     db
       .prepare(
-        `SELECT o.reference AS ref, c.name AS account, o.total_amount AS amount, o.status
+        `SELECT o.id, o.reference AS ref, c.name AS account, o.total_amount AS amount, o.currency, o.status, o.updated_at AS date
          FROM orders o
          LEFT JOIN companies c ON c.id = o.company_id AND c.owner_email = ?
          WHERE o.owner_email = ?
@@ -4547,7 +4567,7 @@ async function getPipeline(db: D1Queryable, ownerEmail: string) {
       .bind(ownerEmail, ownerEmail),
     db
       .prepare(
-        `SELECT i.reference AS ref, c.name AS account, i.total_amount AS amount, i.status
+        `SELECT i.id, i.reference AS ref, c.name AS account, i.total_amount AS amount, i.currency, i.status, i.updated_at AS date
          FROM invoices i
          LEFT JOIN companies c ON c.id = i.company_id AND c.owner_email = ?
          WHERE i.owner_email = ?
@@ -4558,35 +4578,57 @@ async function getPipeline(db: D1Queryable, ownerEmail: string) {
   ]);
 
   const parseAmount = (value: unknown) => {
-    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value === "number") return Number.isFinite(value) ? value : 0;
     if (typeof value === "string") {
       const cleaned = value.trim().replace(/[^0-9.-]+/g, "");
       const parsed = Number(cleaned);
-      return Number.isFinite(parsed) ? parsed : null;
+      return Number.isFinite(parsed) ? parsed : 0;
     }
-    return null;
+    return 0;
   };
 
-  const formatAmount = (amount?: number | string | null) => {
-    const numeric = parseAmount(amount);
-    return numeric !== null ? `$${numeric.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : "$0";
-  };
+  const orderItems = (orders.results ?? []).map((entry) => ({
+    id: entry.id,
+    type: "order",
+    ref: entry.ref,
+    account: entry.account ?? "Unknown",
+    amount: parseAmount(entry.amount),
+    currency: entry.currency ?? "USD",
+    status: entry.status ?? "Open",
+    statusType: statusTone(entry.status ?? "Open"),
+    date: entry.date ?? "",
+  }));
 
-  const combined = [...(orders.results ?? []), ...(invoices.results ?? [])]
-    .slice(0, 6)
-    .map((entry) => ({
-      ref: entry.ref,
-            account: entry.account ?? "Unknown",
-      amount: formatAmount(entry.amount),
-      status: entry.status ?? "Open",
-      statusType: statusTone(entry.status ?? "Open")
-    }));
+  const invoiceItems = (invoices.results ?? []).map((entry) => ({
+    id: entry.id,
+    type: "invoice",
+    ref: entry.ref,
+    account: entry.account ?? "Unknown",
+    amount: parseAmount(entry.amount),
+    currency: entry.currency ?? "USD",
+    status: entry.status ?? "Open",
+    statusType: statusTone(entry.status ?? "Open"),
+    date: entry.date ?? "",
+  }));
 
-  if (!combined.length) {
-    return [];
-  }
+  const combined = [...orderItems, ...invoiceItems]
+    .sort((a, b) => (b.date > a.date ? 1 : -1))
+    .slice(0, 8);
 
   return combined;
+}
+
+async function getPipelineSummary(db: D1Queryable, ownerEmail: string) {
+  const [quotationsRow, ordersRow, unpaidRow] = await db.batch([
+    db.prepare(`SELECT COUNT(*) as count FROM quotations WHERE owner_email = ? AND status IN ('Draft','Sent')`).bind(ownerEmail),
+    db.prepare(`SELECT COUNT(*) as count FROM orders WHERE owner_email = ? AND status NOT IN ('Completed','Cancelled','Delivered')`).bind(ownerEmail),
+    db.prepare(`SELECT SUM(CAST(total_amount AS REAL)) as total FROM invoices WHERE owner_email = ? AND status IN ('Unpaid','Open','Overdue')`).bind(ownerEmail),
+  ]);
+  return {
+    quotations: (quotationsRow.results?.[0] as any)?.count ?? 0,
+    orders: (ordersRow.results?.[0] as any)?.count ?? 0,
+    unpaidAmount: (unpaidRow.results?.[0] as any)?.total ?? 0,
+  };
 }
 
 async function getActivity(db: D1Queryable, ownerEmail: string) {
@@ -4606,10 +4648,10 @@ async function getActivity(db: D1Queryable, ownerEmail: string) {
   }
 
   return notes.results.map((note) => ({
-    title: note.body,
-    tag: note.entity_type,
+    title: note.body || "",
+    tag: note.entity_type || "note",
     color: "#2563eb",
-    author: note.author
+    author: note.author || "",
   }));
 }
 
