@@ -306,6 +306,7 @@ const translations = {
     "Select Files (multiple allowed)": "Select Files (multiple allowed)",
     "Select an order or invoice": "Select an order or invoice",
     "Sent": "Sent",
+    "Rescinded": "Rescinded",
     "Shared": "Shared",
     "Shipment details, vessel, port info, etc.": "Shipment details, vessel, port info, etc.",
     "Shipped": "Shipped",
@@ -483,6 +484,7 @@ const translations = {
     "1": "1",
     "Accepted": "已接受",
     "Rejected": "已拒絕",
+    "Rescinded": "已撤銷",
     "Acme Corp": "Acme Corp",
     "Active": "啟用",
     "Add Company": "新增公司",
@@ -1949,7 +1951,7 @@ const formConfigs = {
     fields: [
       { name: "reference", label: "Quote # (auto-generated if empty)", placeholder: "QT-20260318-143045" },
       { name: "title", label: "Title", placeholder: "e.g. Q1 supply proposal" },
-      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected", "Rescinded"] },
       { name: "company_id", label: "Company", type: "select", options: ["-- Select company --"] },
       { name: "company_id_manual", label: "Company ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "contact_id", label: "Contact", type: "select", options: ["-- Select contact --"] },
@@ -4143,6 +4145,7 @@ async function renderPricing() {
     const statusTone = quotationStatus === "Accepted" ? "success"
       : quotationStatus === "Order Confirmed" ? "success"
       : quotationStatus === "Rejected" ? "danger"
+      : quotationStatus === "Rescinded" ? "danger"
       : quotationStatus === "Draft" ? "warning"
       : quotationStatus === "Sent" ? "info"
       : "";
@@ -4476,7 +4479,7 @@ async function renderQuotations() {
   const quotationRowMapper = (r) => {
     if (r.reference && seenQuotationRefs.has(r.reference)) return null;
     if (r.reference) seenQuotationRefs.add(r.reference);
-    const tone = r.status === "Accepted" ? "success" : r.status === "Rejected" ? "danger" : r.status === "Draft" ? "warning" : "info";
+    const tone = r.status === "Accepted" ? "success" : (r.status === "Rejected" || r.status === "Rescinded") ? "danger" : r.status === "Draft" ? "warning" : "info";
     const companyName = r.company_name || "-";
     const productNames = r.product_names || r.product_name || "-";
     return [
@@ -4493,7 +4496,7 @@ async function renderQuotations() {
     "quotations",
     quotationRowMapper,
     fallback.quotations.map((row) => {
-      const tone = row[4] === "Accepted" ? "success" : row[4] === "Rejected" ? "danger" : row[4] === "Draft" ? "warning" : "info";
+      const tone = row[4] === "Accepted" ? "success" : (row[4] === "Rejected" || row[4] === "Rescinded") ? "danger" : row[4] === "Draft" ? "warning" : "info";
       const hasProducts = Array.isArray(row) && row.length >= 7;
       const productCell = hasProducts ? row[2] : "-";
       const companyCell = hasProducts ? row[3] : row[1];
@@ -10706,7 +10709,7 @@ function orderPreviewKeys(keys) {
 function statusToneFront(status) {
   const s = (status || "").toLowerCase();
   if (s.includes("paid") || s.includes("completed") || s.includes("active")) return "success";
-  if (s.includes("rejected") || s.includes("overdue")) return "danger";
+  if (s.includes("rejected") || s.includes("overdue") || s.includes("rescind")) return "danger";
   if (s.includes("pending") || s.includes("draft")) return "warning";
   return "info";
 }
