@@ -8141,6 +8141,7 @@ async function openPreviewModal(tableKey, record) {
   const canDelete = Boolean(record?.id);
   const showPrint = tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "orders";
   const showScheduleMeeting = tableKey === "companies";
+  const showCopy = tableKey === "shipping_schedules";
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
@@ -8151,6 +8152,7 @@ async function openPreviewModal(tableKey, record) {
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
         ${showScheduleMeeting ? `<button class="btn" data-schedule-meeting><i data-lucide="calendar-plus"></i> Schedule Meeting</button>` : ""}
+        ${showCopy ? `<button class="btn ghost" data-copy-shipping>Copy Details</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
@@ -8185,6 +8187,35 @@ async function openPreviewModal(tableKey, record) {
           contactInput.value = record.contact_name;
         }
       });
+    });
+  }
+  if (showCopy) {
+    overlay.querySelector("[data-copy-shipping]")?.addEventListener("click", () => {
+      const lines = [];
+      lines.push("Shipping Schedule");
+      lines.push(`Status: ${record.status || computeShippingStatus(record) || "—"}`);
+      if (record.company_name || record.company) lines.push(`Company: ${record.company_name || record.company}`);
+      if (record.order_reference || record.order_id) lines.push(`Order: ${record.order_reference || "#" + record.order_id}`);
+      if (record.invoice_reference || record.invoice_id) lines.push(`Invoice: ${record.invoice_reference || "#" + record.invoice_id}`);
+      if (record.carrier) lines.push(`Carrier: ${record.carrier}`);
+      if (record.tracking_number) lines.push(`Tracking: ${record.tracking_number}`);
+      lines.push("");
+      lines.push("Schedule:");
+      const dateFields = [
+        ["Production Date",  record.production_date || record.processing_start_date],
+        ["Booking Date",     record.booking_date],
+        ["Cargo Closing",    record.cargo_closing_date || record.etc_date],
+        ["ETD (Departure)",  record.etd_date],
+        ["ETA (Arrival)",    record.eta],
+        ["Delivery Date",    record.delivery_date],
+      ];
+      dateFields.forEach(([label, val]) => {
+        if (val) lines.push(`${label}: ${new Date(val).toLocaleDateString()}`);
+      });
+      if (record.notes) { lines.push(""); lines.push(`Notes: ${record.notes}`); }
+      navigator.clipboard.writeText(lines.join("\n"))
+        .then(() => showToast("Copied to clipboard"))
+        .catch(() => showToast("Copy failed — try selecting text manually"));
     });
   }
   if (tableKey === "orders" || tableKey === "sample_shipments") {
