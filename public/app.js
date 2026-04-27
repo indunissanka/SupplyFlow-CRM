@@ -1953,9 +1953,7 @@ const formConfigs = {
       { name: "title", label: "Title", placeholder: "e.g. Q1 supply proposal" },
       { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected", "Rescinded"] },
       { name: "company_id", label: "Company", type: "select", options: ["-- Select company --"] },
-      { name: "company_id_manual", label: "Company ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "contact_id", label: "Contact", type: "select", options: ["-- Select contact --"] },
-      { name: "contact_id_manual", label: "Contact ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "customer_name", label: "Customer name", placeholder: "Autofilled from contact/company" },
       { name: "currency", label: "Currency", placeholder: "USD" },
       { name: "exchange_rate", label: "USD to NTD rate", type: "number", step: "0.0001", placeholder: "32.50" },
@@ -1968,11 +1966,8 @@ const formConfigs = {
       { name: "attachment_key", label: "Choose document (optional)", type: "select", options: ["-- Select document --"] }
     ],
     submit: async (values) => {
-      const manualCompanyId = num(values.company_id_manual);
-      const manualContactId = num(values.contact_id_manual);
-      // Use raw string for MongoDB ObjectIds; fall back to manual integer ids
-      const companyId = manualCompanyId ?? (values.company_id && values.company_id !== "-- Select company --" ? values.company_id : null);
-      const contactId = manualContactId ?? (values.contact_id && values.contact_id !== "-- Select contact --" ? values.contact_id : null);
+      const companyId = values.company_id && values.company_id !== "-- Select company --" ? values.company_id : null;
+      const contactId = values.contact_id && values.contact_id !== "-- Select contact --" ? values.contact_id : null;
       // Clean up customer_name — strip placeholder text
       const rawCustomer = values.customer_name || "";
       const customerName = rawCustomer.startsWith("-- Select") ? "" : rawCustomer;
@@ -12084,7 +12079,7 @@ function openForm(key, options = {}) {
 
     const customerSection = document.createElement("div");
     customerSection.className = "quote-section quote-customer";
-    ["company_id", "company_id_manual", "contact_id", "contact_id_manual", "customer_name", "currency", "exchange_rate"].forEach((name) => {
+    ["company_id", "contact_id", "customer_name", "currency", "exchange_rate"].forEach((name) => {
       if (labels[name]) customerSection.appendChild(labels[name]);
     });
 
@@ -12565,8 +12560,8 @@ function openForm(key, options = {}) {
             currency: values.currency || "USD",
             exchange_rate: num(values.exchange_rate),
             amount: Number.isFinite(totals.total) ? totals.total + (num(values.inspection_charges) || 0) : initialValues.amount || 0,
-            company_id: num(values.company_id_manual) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
-            contact_id: num(values.contact_id_manual) ?? (values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null),
+            company_id: values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null,
+            contact_id: values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null,
             tags: values.tags,
             items
           };
@@ -12694,8 +12689,6 @@ function buildQuotePreviewPayload(form) {
   const totals = calculateQuoteTotals(items, taxRate);
   const companySelect = form.querySelector('select[name="company_id"]');
   const contactSelect = form.querySelector('select[name="contact_id"]');
-  const manualCompanyId = Number(values.company_id_manual) || undefined;
-  const manualContactId = Number(values.contact_id_manual) || undefined;
   const currency = values.currency || "USD";
   const tagsSelect = form.querySelector('select[name="tags"]');
   const selectedTagNames = tagsSelect
@@ -12709,8 +12702,8 @@ function buildQuotePreviewPayload(form) {
     title: values.title || "",
     status: values.status || "",
     valid_until: values.valid_until || "",
-    company: manualCompanyId ? `Company #${manualCompanyId}` : companySelect?.selectedOptions[0]?.textContent || "",
-    contact: manualContactId ? `Contact #${manualContactId}` : contactSelect?.selectedOptions[0]?.textContent || "",
+    company: companySelect?.selectedOptions[0]?.textContent || "",
+    contact: contactSelect?.selectedOptions[0]?.textContent || "",
     customer: values.customer_name || "",
     currency,
     exchange_rate: num(values.exchange_rate),
