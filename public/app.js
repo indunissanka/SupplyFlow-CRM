@@ -2014,7 +2014,7 @@ const formConfigs = {
     endpoint: "/api/invoices",
     fields: [
       { name: "reference", label: "Invoice number (auto-generated if empty)", placeholder: "INV-20260318-143045" },
-      { name: "attachment_key", label: "Choose documents (optional)", type: "select", multiple: true, options: ["-- Select document --"] },
+      { name: "attachment_key", label: "Attach documents (optional — select one or more)", type: "select", multiple: true, options: ["-- Select document --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact (optional) --"] },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
       { name: "customer_name", label: "Customer name (auto-filled if contact/company selected)", placeholder: "Customer name" },
@@ -2044,7 +2044,7 @@ const formConfigs = {
       };
 
       const result = await submitJson("/api/invoices", payload);
-      const invoiceId = result?.id;
+      const invoiceId = result?.row?.id || result?.id;
       if (invoiceId && attachmentKeys.length) {
         const linked = await syncInvoiceDocuments(invoiceId, attachmentKeys);
         if (!linked) {
@@ -11640,10 +11640,40 @@ function openForm(key, options = {}) {
         }
       }
 
+      const selectedSummary = document.createElement("div");
+      selectedSummary.className = "attachment-selected-summary";
+      if (insertParent) {
+        const refNode = attachmentLabel ? attachmentLabel.nextSibling : null;
+        insertParent.insertBefore(selectedSummary, refNode);
+      }
+
       let attachmentDocsCache = [];
       const selectedAttachmentKeys = new Set(normalizeSelectValues(initialValues?.attachment_key));
 
       const formatDocumentLabel = (doc) => (doc.title || doc.storage_key || `Document #${doc.id || ""}`).trim();
+
+      const updateSelectedSummary = () => {
+        if (!selectedAttachmentKeys.size) {
+          selectedSummary.innerHTML = "";
+          return;
+        }
+        const chips = Array.from(selectedAttachmentKeys).map((key) => {
+          const doc = attachmentDocsCache.find((d) => d.storage_key === key);
+          const label = doc ? formatDocumentLabel(doc) : key;
+          return `<span class="attachment-chip">${sanitizeText(label)}<button type="button" class="attachment-chip-remove" data-key="${key}" aria-label="Remove">&times;</button></span>`;
+        });
+        selectedSummary.innerHTML = `<div class="attachment-chip-list">${chips.join("")}</div>`;
+        selectedSummary.querySelectorAll(".attachment-chip-remove").forEach((btn) => {
+          btn.addEventListener("click", () => {
+            const key = btn.dataset.key;
+            selectedAttachmentKeys.delete(key);
+            Array.from(attachmentSelect.options).forEach((opt) => {
+              if (opt.value === key) opt.selected = false;
+            });
+            updateSelectedSummary();
+          });
+        });
+      };
 
       const renderDocumentOptions = (docs) => {
         const optionHtml = docs
@@ -11678,6 +11708,7 @@ function openForm(key, options = {}) {
             })
           : attachmentDocsCache;
         renderDocumentOptions(matches);
+        updateSelectedSummary();
       };
 
       docSearchInput.addEventListener("input", applyDocumentFilter);
@@ -11688,6 +11719,7 @@ function openForm(key, options = {}) {
           .map((opt) => opt.value)
           .filter(Boolean)
           .forEach((value) => selectedAttachmentKeys.add(value));
+        updateSelectedSummary();
       });
 
       fetchDocumentsList()
