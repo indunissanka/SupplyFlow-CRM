@@ -150,14 +150,17 @@ app.use((req, res, next) => {
 // MongoDB connection middleware
 app.use(async (req, res, next) => {
     try {
+        console.log('[DEBUG] Attempting MongoDB connection for path:', req.path);
         const db = await getMongoDB();
         req.db = db;
         req.dbQueryable = createMongoDBQueryable(db);
+        console.log('[DEBUG] MongoDB connection successful');
         next();
     }
     catch (error) {
-        console.error('MongoDB connection error:', error);
-        res.status(500).json({ error: 'Database connection failed' });
+        console.error('[DEBUG] MongoDB connection error:', error);
+        console.error('[DEBUG] Error details:', error instanceof Error ? error.message : String(error));
+        res.status(500).json({ error: 'Database connection failed', detail: error instanceof Error ? error.message : String(error) });
     }
 });
 // ── Health check ──────────────────────────────────────────────────────────────
@@ -386,15 +389,17 @@ app.put('/api/settings/site-config', async (req, res) => {
 app.get('/api/dashboard', async (req, res) => {
     const ownerEmail = req.ownerEmail;
     const db = req.db;
+    console.log('[DEBUG] Dashboard API called for user:', ownerEmail);
     try {
+        console.log('[DEBUG] Starting syncShippingMilestonesForUser...');
         await syncShippingMilestonesForUser(db, ownerEmail);
-        const [companies, contacts, orders, quotations, invoices, tasks] = await Promise.all([
+        console.log('[DEBUG] syncShippingMilestonesForUser completed');
+        const [companies, contacts, quotations, invoices, tasksOpen] = await Promise.all([
             db.collection('companies').countDocuments({ owner_email: ownerEmail }),
             db.collection('contacts').countDocuments({ owner_email: ownerEmail }),
-            db.collection('orders').countDocuments({ owner_email: ownerEmail }),
             db.collection('quotations').countDocuments({ owner_email: ownerEmail }),
             db.collection('invoices').countDocuments({ owner_email: ownerEmail }),
-            db.collection('tasks').countDocuments({ owner_email: ownerEmail })
+            db.collection('tasks').countDocuments({ owner_email: ownerEmail, status: { $ne: 'Done' } })
         ]);
         // Pipeline data: recent orders + unpaid invoices
         const [recentOrders, recentInvoices, quotationPipeline, unpaidAgg, activeOrderCount, recentTasks] = await Promise.all([
@@ -463,15 +468,28 @@ app.get('/api/dashboard', async (req, res) => {
             .slice(0, 8);
         const unpaidAmount = unpaidAgg.length ? unpaidAgg[0].total || 0 : 0;
         res.json({
-            stats: { companies, contacts, orders, quotations, invoices, tasks },
+            stats: { companies, contacts, openOrders: activeOrderCount, quotations, invoices, tasksOpen },
             pipeline,
             pipelineSummary: { quotations: quotationPipeline, orders: activeOrderCount, unpaidAmount },
-            activity: recentTasks.map(serializeDoc)
+            activity: recentTasks.map((task) => {
+                const t = serializeDoc(task);
+                const statusColors = {
+                    'To Do': '#6366f1', 'In Progress': '#f59e0b', 'Done': '#16a34a',
+                    'Blocked': '#ef4444', 'Review': '#0ea5e9'
+                };
+                return {
+                    title: t.title || 'Untitled task',
+                    tag: t.status || 'Task',
+                    color: statusColors[t.status] || '#8b5cf6',
+                    author: t.assigned_to || null
+                };
+            })
         });
     }
     catch (err) {
-        console.error('Dashboard error', err);
-        res.status(500).json({ error: 'Internal error' });
+        console.error('[DEBUG] Dashboard error - Full details:', err);
+        console.error('[DEBUG] Error stack:', err instanceof Error ? err.stack : 'No stack trace');
+        res.status(500).json({ error: 'Internal error', detail: err instanceof Error ? err.message : String(err) });
     }
 });
 // ── Search ────────────────────────────────────────────────────────────────────
@@ -852,11 +870,7 @@ async function enrichOrderWithShipping(db, ownerEmail, order) {
             etd_date: 1, eta: 1, delivery_date: 1, reference: 1, carrier: 1 } });
     if (!sched)
         return order;
-    const schedComputed = computeShippingMilestoneStatus(sched) ?? sched.status ?? 'Pending';
-    // Never go backward: take whichever status has the higher rank
-    const schedRank = shippingStatusRank[schedComputed] ?? 0;
-    const orderRank = shippingStatusRank[order.status] ?? 0;
-    const status = schedRank >= orderRank ? schedComputed : order.status;
+    const computed = computeShippingMilestoneStatus(sched) ?? sched.status ?? 'Pending';
     const schedParts = [
         sched.reference || null,
         sched.carrier || null,
@@ -866,7 +880,7 @@ async function enrichOrderWithShipping(db, ownerEmail, order) {
     const shipping_schedule_label = schedParts.length
         ? schedParts.join(' · ')
         : `Shipment #${order.shipping_schedule_id}`;
-    return { ...order, status, shipping_schedule_label };
+    return { ...order, status: computed, shipping_schedule_label };
 }
 // ── Shipping schedules: enrich with company/order/invoice names ───────────────
 const enrichShippingSchedule = async (db, ownerEmail, doc) => {
@@ -1893,19 +1907,6 @@ app.get('/api/orders', async (req, res) => {
         res.status(500).json({ error: 'Internal server error' });
     }
 });
-// GET single order — custom route to enrich status from linked shipping schedule
-app.get('/api/orders/:id', async (req, res) => {
-    const ownerEmail = req.ownerEmail;
-    const db = req.db;
-    const oid = toMongoId(p(req.params.id));
-    if (!oid)
-        return res.status(400).json({ error: 'Invalid id' });
-    const doc = await db.collection('orders').findOne({ _id: oid, owner_email: ownerEmail });
-    if (!doc)
-        return res.status(404).json({ error: 'Not found' });
-    const enriched = await enrichOrderWithShipping(db, ownerEmail, serializeDoc(doc));
-    res.json({ row: enriched });
-});
 // PUT orders — custom route to enrich status after update
 app.put('/api/orders/:id', async (req, res) => {
     const ownerEmail = req.ownerEmail;
@@ -2572,7 +2573,7 @@ async function seedAdminUser() {
         if (await usersCol.countDocuments() > 0)
             return;
         const email = normalizeEmail(process.env.ADMIN_EMAIL || 'admin@example.com');
-        const password = process.env.ADMIN_PASSWORD || 'admin123';
+        const password = process.env.ADMIN_PASSWORD || 'changeme';
         const salt = randomToken();
         const hash = await hashPassword(password, salt);
         await usersCol.insertOne({
@@ -2594,117 +2595,105 @@ async function seedAdminUser() {
     }
 }
 async function syncShippingMilestonesForUser(db, ownerEmail) {
-    const col = db.collection('shipping_schedules');
-    const docs = await col.find({ owner_email: ownerEmail }, { projection: { _id: 1, status: 1, order_id: 1,
-            production_date: 1, processing_start_date: 1,
-            booking_date: 1, cargo_closing_date: 1, etc_date: 1,
-            etd_date: 1, eta: 1, delivery_date: 1 } }).toArray();
-    if (!docs.length)
-        return;
-    const nowIso = new Date().toISOString();
-    // Step 1: advance shipping schedule statuses and build order→status map
-    const scheduleBulk = [];
-    // Maps order_id string → highest effective shipping status
-    const orderStatusMap = new Map();
-    for (const doc of docs) {
-        const computedStatus = computeShippingMilestoneStatus(doc);
-        const currentRank = shippingStatusRank[doc.status] ?? 0;
-        const computedRank = computedStatus ? (shippingStatusRank[computedStatus] ?? 0) : 0;
-        const effectiveStatus = computedRank > currentRank ? computedStatus : doc.status;
-        if (computedStatus && computedRank > currentRank) {
-            scheduleBulk.push({ updateOne: {
-                    filter: { _id: doc._id, owner_email: ownerEmail },
-                    update: { $set: { status: computedStatus, updated_at: nowIso } },
-                } });
+    console.log('[DEBUG] syncShippingMilestonesForUser called for:', ownerEmail);
+    try {
+        const col = db.collection('shipping_schedules');
+        console.log('[DEBUG] Querying shipping_schedules collection...');
+        const docs = await col.find({ owner_email: ownerEmail }, { projection: { _id: 1, status: 1, order_id: 1,
+                production_date: 1, processing_start_date: 1,
+                booking_date: 1, cargo_closing_date: 1, etc_date: 1,
+                etd_date: 1, eta: 1, delivery_date: 1 } }).toArray();
+        if (!docs.length) {
+            console.log('[DEBUG] No shipping schedules found for user');
+            return;
         }
-        // Track the highest effective status for each linked order
-        if (doc.order_id && effectiveStatus) {
-            const orderId = String(doc.order_id);
-            const existing = orderStatusMap.get(orderId);
-            const existingRank = existing ? (shippingStatusRank[existing] ?? 0) : 0;
-            if ((shippingStatusRank[effectiveStatus] ?? 0) > existingRank) {
-                orderStatusMap.set(orderId, effectiveStatus);
-            }
-        }
-    }
-    if (scheduleBulk.length) {
-        await col.bulkWrite(scheduleBulk, { ordered: false });
-        console.log(`[milestones] Updated ${scheduleBulk.length} shipping schedule(s) for ${ownerEmail}`);
-    }
-    // Step 2: cascade the highest shipping status to each linked order
-    if (orderStatusMap.size) {
-        // Separate order_id values: valid ObjectIds vs legacy integer IDs
-        const objectIdEntries = [];
-        const legacyIdEntries = [];
-        for (const orderId of orderStatusMap.keys()) {
-            const oid = toMongoId(orderId);
-            if (oid) {
-                objectIdEntries.push([oid, orderId]);
-            }
-            else {
-                const legacyId = parseInt(orderId, 10);
-                if (!isNaN(legacyId))
-                    legacyIdEntries.push([legacyId, orderId]);
-            }
-        }
-        const applyOrderUpdate = (order, newStatus, bulk) => {
-            const currentOrderRank = shippingStatusRank[order.status] ?? 0;
-            const newStatusRank = shippingStatusRank[newStatus] ?? 0;
-            // Update if rank advances OR same rank but status name differs (e.g. renamed legacy values)
-            if (newStatusRank > currentOrderRank || (newStatusRank === currentOrderRank && newStatus !== order.status)) {
-                bulk.push({ updateOne: {
-                        filter: { _id: order._id },
-                        update: { $set: { status: newStatus, updated_at: nowIso } },
+        const nowIso = new Date().toISOString();
+        // Step 1: advance shipping schedule statuses and build order→status map
+        const scheduleBulk = [];
+        // Maps order_id string → highest effective shipping status
+        const orderStatusMap = new Map();
+        for (const doc of docs) {
+            const computedStatus = computeShippingMilestoneStatus(doc);
+            const currentRank = shippingStatusRank[doc.status] ?? 0;
+            const computedRank = computedStatus ? (shippingStatusRank[computedStatus] ?? 0) : 0;
+            const effectiveStatus = computedRank > currentRank ? computedStatus : doc.status;
+            if (computedStatus && computedRank > currentRank) {
+                scheduleBulk.push({ updateOne: {
+                        filter: { _id: doc._id, owner_email: ownerEmail },
+                        update: { $set: { status: computedStatus, updated_at: nowIso } },
                     } });
             }
-        };
-        const orderBulk = [];
-        if (objectIdEntries.length) {
-            const orders = await db.collection('orders').find({ _id: { $in: objectIdEntries.map(([oid]) => oid) }, owner_email: ownerEmail }, { projection: { _id: 1, status: 1 } }).toArray();
-            for (const order of orders) {
-                const newStatus = orderStatusMap.get(String(order._id));
-                if (newStatus)
-                    applyOrderUpdate(order, newStatus, orderBulk);
+            // Track the highest effective status for each linked order
+            if (doc.order_id && effectiveStatus) {
+                const orderId = String(doc.order_id);
+                const existing = orderStatusMap.get(orderId);
+                const existingRank = existing ? (shippingStatusRank[existing] ?? 0) : 0;
+                if ((shippingStatusRank[effectiveStatus] ?? 0) > existingRank) {
+                    orderStatusMap.set(orderId, effectiveStatus);
+                }
             }
         }
-        if (legacyIdEntries.length) {
-            const orders = await db.collection('orders').find({ legacy_id: { $in: legacyIdEntries.map(([lid]) => lid) }, owner_email: ownerEmail }, { projection: { _id: 1, legacy_id: 1, status: 1 } }).toArray();
-            for (const order of orders) {
-                const pair = legacyIdEntries.find(([lid]) => lid === Number(order.legacy_id));
-                if (!pair)
-                    continue;
-                const newStatus = orderStatusMap.get(pair[1]);
-                if (newStatus)
-                    applyOrderUpdate(order, newStatus, orderBulk);
+        if (scheduleBulk.length) {
+            await col.bulkWrite(scheduleBulk, { ordered: false });
+            console.log(`[milestones] Updated ${scheduleBulk.length} shipping schedule(s) for ${ownerEmail}`);
+        }
+        // Step 2: cascade the highest shipping status to each linked order
+        if (orderStatusMap.size) {
+            // Separate order_id values: valid ObjectIds vs legacy integer IDs
+            const objectIdEntries = [];
+            const legacyIdEntries = [];
+            for (const orderId of orderStatusMap.keys()) {
+                const oid = toMongoId(orderId);
+                if (oid) {
+                    objectIdEntries.push([oid, orderId]);
+                }
+                else {
+                    const legacyId = parseInt(orderId, 10);
+                    if (!isNaN(legacyId))
+                        legacyIdEntries.push([legacyId, orderId]);
+                }
+            }
+            const applyOrderUpdate = (order, newStatus, bulk) => {
+                const currentOrderRank = shippingStatusRank[order.status] ?? 0;
+                const newStatusRank = shippingStatusRank[newStatus] ?? 0;
+                // Update if rank advances OR same rank but status name differs (e.g. renamed legacy values)
+                if (newStatusRank > currentOrderRank || (newStatusRank === currentOrderRank && newStatus !== order.status)) {
+                    bulk.push({ updateOne: {
+                            filter: { _id: order._id },
+                            update: { $set: { status: newStatus, updated_at: nowIso } },
+                        } });
+                }
+            };
+            const orderBulk = [];
+            if (objectIdEntries.length) {
+                const orders = await db.collection('orders').find({ _id: { $in: objectIdEntries.map(([oid]) => oid) }, owner_email: ownerEmail }, { projection: { _id: 1, status: 1 } }).toArray();
+                for (const order of orders) {
+                    const newStatus = orderStatusMap.get(String(order._id));
+                    if (newStatus)
+                        applyOrderUpdate(order, newStatus, orderBulk);
+                }
+            }
+            if (legacyIdEntries.length) {
+                const orders = await db.collection('orders').find({ legacy_id: { $in: legacyIdEntries.map(([lid]) => lid) }, owner_email: ownerEmail }, { projection: { _id: 1, legacy_id: 1, status: 1 } }).toArray();
+                for (const order of orders) {
+                    const pair = legacyIdEntries.find(([lid]) => lid === Number(order.legacy_id));
+                    if (!pair)
+                        continue;
+                    const newStatus = orderStatusMap.get(pair[1]);
+                    if (newStatus)
+                        applyOrderUpdate(order, newStatus, orderBulk);
+                }
+            }
+            if (orderBulk.length) {
+                await db.collection('orders').bulkWrite(orderBulk, { ordered: false });
+                console.log('[DEBUG] Updated', orderBulk.length, 'order(s) with shipping statuses');
             }
         }
-        if (orderBulk.length) {
-            await db.collection('orders').bulkWrite(orderBulk, { ordered: false });
-        }
+        console.log('[DEBUG] syncShippingMilestonesForUser completed successfully');
     }
-    // Step 3: catch orders linked via order.shipping_schedule_id that were missed in Steps 1–2
-    // (i.e. the schedule has no order_id set but the order points at the schedule)
-    const linkedOrders = await db.collection('orders').find({ owner_email: ownerEmail, shipping_schedule_id: { $exists: true, $ne: null } }, { projection: { _id: 1, status: 1, shipping_schedule_id: 1 } }).toArray();
-    const step3Bulk = [];
-    for (const order of linkedOrders) {
-        const orderId = String(order._id);
-        if (orderStatusMap.has(orderId))
-            continue;
-        const schedOid = toMongoId(String(order.shipping_schedule_id));
-        if (!schedOid)
-            continue;
-        const sched = await db.collection('shipping_schedules').findOne({ _id: schedOid, owner_email: ownerEmail }, { projection: { status: 1, production_date: 1, processing_start_date: 1,
-                booking_date: 1, cargo_closing_date: 1, etc_date: 1,
-                etd_date: 1, eta: 1, delivery_date: 1 } });
-        if (!sched)
-            continue;
-        const computedStatus = computeShippingMilestoneStatus(sched);
-        const effectiveStatus = computedStatus ?? sched.status ?? 'Pending';
-        applyOrderUpdate(order, effectiveStatus, step3Bulk);
-    }
-    if (step3Bulk.length) {
-        await db.collection('orders').bulkWrite(step3Bulk, { ordered: false });
-        console.log(`[milestones] Step 3 updated ${step3Bulk.length} order(s) via order-side link for ${ownerEmail}`);
+    catch (err) {
+        console.error('[DEBUG] Error in syncShippingMilestonesForUser:', err);
+        throw err;
     }
 }
 async function syncAllShippingMilestones() {

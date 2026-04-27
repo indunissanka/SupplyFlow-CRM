@@ -306,7 +306,6 @@ const translations = {
     "Select Files (multiple allowed)": "Select Files (multiple allowed)",
     "Select an order or invoice": "Select an order or invoice",
     "Sent": "Sent",
-    "Rescinded": "Rescinded",
     "Shared": "Shared",
     "Shipment details, vessel, port info, etc.": "Shipment details, vessel, port info, etc.",
     "Shipped": "Shipped",
@@ -484,7 +483,6 @@ const translations = {
     "1": "1",
     "Accepted": "已接受",
     "Rejected": "已拒絕",
-    "Rescinded": "已撤銷",
     "Acme Corp": "Acme Corp",
     "Active": "啟用",
     "Add Company": "新增公司",
@@ -881,6 +879,7 @@ function showAppShell() {
   appShell?.classList.remove("hidden");
   updateUserDisplay();
   applyRoleRestrictions();
+  startAutoRefresh();
   if (!_aiPanelInitialized) {
     _aiPanelInitialized = true;
     setTimeout(() => {
@@ -902,6 +901,7 @@ function updateUserDisplay() {
 }
 
 function handleLogout() {
+  stopAutoRefresh();
   safeLocalStorageRemove(authTokenKey);
   safeLocalStorageRemove(authJwtKey);
   safeLocalStorageRemove(authRoleKey);
@@ -1093,6 +1093,67 @@ function setSectionTitleForSection(section) {
 }
 let currentSection = "dashboard";
 const cacheBypassTables = new Set();
+
+// ── Auto-refresh ───────────────────────────────────────────────────────────────
+const AUTO_REFRESH_INTERVAL = 60_000; // 1 minute
+let _autoRefreshTimer = null;
+let _lastRefreshTime = null;
+let _isRefreshing = false;
+const _noRefreshSections = new Set(["settings"]);
+
+function _setRefreshIndicator(state) {
+  const el = document.getElementById("refresh-indicator");
+  if (!el) return;
+  if (state === "active") {
+    el.classList.add("active");
+    el.classList.remove("syncing");
+  } else if (state === "syncing") {
+    el.classList.add("active", "syncing");
+  } else {
+    el.classList.remove("active", "syncing");
+  }
+}
+
+async function _doAutoRefresh() {
+  if (document.visibilityState === "hidden") return;
+  if (document.querySelector(".modal-overlay")) return;
+  if (_noRefreshSections.has(currentSection)) return;
+  if (_isRefreshing) return;
+  _isRefreshing = true;
+  _setRefreshIndicator("syncing");
+  try {
+    await renderSection(currentSection);
+  } catch (e) {
+    console.debug("Auto-refresh error", e);
+  } finally {
+    _isRefreshing = false;
+    _setRefreshIndicator("active");
+  }
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh();
+  _autoRefreshTimer = setInterval(_doAutoRefresh, AUTO_REFRESH_INTERVAL);
+  _setRefreshIndicator("active");
+}
+
+function stopAutoRefresh() {
+  if (_autoRefreshTimer) {
+    clearInterval(_autoRefreshTimer);
+    _autoRefreshTimer = null;
+  }
+  _isRefreshing = false;
+  _setRefreshIndicator("off");
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && _autoRefreshTimer) {
+    const staleMs = _lastRefreshTime ? Date.now() - _lastRefreshTime : Infinity;
+    if (staleMs > AUTO_REFRESH_INTERVAL) {
+      _doAutoRefresh();
+    }
+  }
+});
 
 const fallback = {
   companies: [],
@@ -1302,7 +1363,8 @@ function applySiteConfig() {
   const brandTitle = document.querySelector(".brand-title");
   if (brandTitle) {
     brandTitle.textContent = siteConfigState.siteName;
-    brandTitle.style.display = siteConfigState.logoUrl ? "none" : "";
+    const hideTitle = siteConfigState.logoUrl && !siteConfigState.siteName;
+    brandTitle.style.display = hideTitle ? "none" : "";
   }
   const brandEl = document.querySelector(".brand");
   if (brandEl) {
@@ -1337,7 +1399,7 @@ function applySiteConfig() {
     }
   }
   const titleEl = document.querySelector("title");
-  if (titleEl) {
+  if (titleEl && siteConfigState.siteName) {
     titleEl.textContent = siteConfigState.siteName;
   }
 }
@@ -1951,9 +2013,11 @@ const formConfigs = {
     fields: [
       { name: "reference", label: "Quote # (auto-generated if empty)", placeholder: "QT-20260318-143045" },
       { name: "title", label: "Title", placeholder: "e.g. Q1 supply proposal" },
-      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected", "Rescinded"] },
+      { name: "status", label: "Status", type: "select", options: ["Draft", "Sent", "Accepted", "Order Confirmed", "Rejected"] },
       { name: "company_id", label: "Company", type: "select", options: ["-- Select company --"] },
+      { name: "company_id_manual", label: "Company ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "contact_id", label: "Contact", type: "select", options: ["-- Select contact --"] },
+      { name: "contact_id_manual", label: "Contact ID (manual)", type: "number", placeholder: "Enter ID" },
       { name: "customer_name", label: "Customer name", placeholder: "Autofilled from contact/company" },
       { name: "currency", label: "Currency", placeholder: "USD" },
       { name: "exchange_rate", label: "USD to NTD rate", type: "number", step: "0.0001", placeholder: "32.50" },
@@ -1966,8 +2030,11 @@ const formConfigs = {
       { name: "attachment_key", label: "Choose document (optional)", type: "select", options: ["-- Select document --"] }
     ],
     submit: async (values) => {
-      const companyId = values.company_id && values.company_id !== "-- Select company --" ? values.company_id : null;
-      const contactId = values.contact_id && values.contact_id !== "-- Select contact --" ? values.contact_id : null;
+      const manualCompanyId = num(values.company_id_manual);
+      const manualContactId = num(values.contact_id_manual);
+      // Use raw string for MongoDB ObjectIds; fall back to manual integer ids
+      const companyId = manualCompanyId ?? (values.company_id && values.company_id !== "-- Select company --" ? values.company_id : null);
+      const contactId = manualContactId ?? (values.contact_id && values.contact_id !== "-- Select contact --" ? values.contact_id : null);
       // Clean up customer_name — strip placeholder text
       const rawCustomer = values.customer_name || "";
       const customerName = rawCustomer.startsWith("-- Select") ? "" : rawCustomer;
@@ -2009,7 +2076,7 @@ const formConfigs = {
     endpoint: "/api/invoices",
     fields: [
       { name: "reference", label: "Invoice number (auto-generated if empty)", placeholder: "INV-20260318-143045" },
-      { name: "attachment_key", label: "Attach documents (optional — select one or more)", type: "select", multiple: true, options: ["-- Select document --"] },
+      { name: "attachment_key", label: "Choose documents (optional)", type: "select", multiple: true, options: ["-- Select document --"] },
       { name: "contact_id", label: "Contact (optional)", type: "select", options: ["-- Select contact (optional) --"] },
       { name: "company_id", label: "Company (optional)", type: "select", options: ["-- Select company (optional) --"] },
       { name: "customer_name", label: "Customer name (auto-filled if contact/company selected)", placeholder: "Customer name" },
@@ -2039,7 +2106,7 @@ const formConfigs = {
       };
 
       const result = await submitJson("/api/invoices", payload);
-      const invoiceId = result?.row?.id || result?.id;
+      const invoiceId = result?.id;
       if (invoiceId && attachmentKeys.length) {
         const linked = await syncInvoiceDocuments(invoiceId, attachmentKeys);
         if (!linked) {
@@ -2485,6 +2552,7 @@ function initNavigation() {
     });
   });
   initBottomNav();
+  console.log('initNavigation: calling renderSection dashboard, authenticated=', safeLocalStorageGet(authTokenKey));
   renderSection("dashboard");
 }
 
@@ -2543,6 +2611,7 @@ async function renderSection(section) {
   }
 
   await renderer();
+  _lastRefreshTime = Date.now();
   applyTranslations(sectionContent);
   attachFormHandlers();
   decorateFormIcons(sectionContent);
@@ -2715,6 +2784,7 @@ function renderPipelineList(items, summary) {
 }
 
 async function renderDashboard() {
+  console.log('renderDashboard: start');
   setSectionTitleForSection("dashboard");
   sectionContent.innerHTML = `
     <div class="page-header">
@@ -2949,19 +3019,24 @@ async function renderDashboard() {
 
   const activityFeed = document.getElementById("activity-feed");
   if (activityFeed) {
-    const activityItems = activity.length
-      ? activity.map((item) => `
-          <div class="activity-item">
-            <div class="activity-header">
-              <span class="activity-tag" style="background:${soften(item.color || "#2563eb")};color:${item.color || "#2563eb"}">${escapeHtml(item.tag || "")}</span>
-              <span class="activity-time">Just now</span>
-            </div>
-            <div class="activity-title">${escapeHtml(item.title || "")}</div>
-            ${item.author ? `<div class="activity-author">by ${escapeHtml(item.author)}</div>` : ""}
-          </div>
-        `).join("")
-      : '<div class="empty">No recent activity.</div>';
-    activityFeed.innerHTML = `<div class="activity-feed">${activityItems}</div>`;
+    activityFeed.innerHTML = `
+      <div class="activity-feed">
+        ${activity
+          .map(
+            (item) => `
+              <div class="activity-item">
+                <div class="activity-header">
+                  <span class="activity-tag" style="background:${soften(item.color)};color:${item.color}">${item.tag}</span>
+                  <span class="activity-time">Just now</span>
+                </div>
+                <div class="activity-title">${item.title}</div>
+                ${item.author ? `<div class="activity-author">by ${item.author}</div>` : ""}
+              </div>
+            `
+          )
+          .join("")}
+      </div>
+    `;
   }
 
   // Populate Upcoming Meetings widget
@@ -4140,7 +4215,6 @@ async function renderPricing() {
     const statusTone = quotationStatus === "Accepted" ? "success"
       : quotationStatus === "Order Confirmed" ? "success"
       : quotationStatus === "Rejected" ? "danger"
-      : quotationStatus === "Rescinded" ? "danger"
       : quotationStatus === "Draft" ? "warning"
       : quotationStatus === "Sent" ? "info"
       : "";
@@ -4474,7 +4548,7 @@ async function renderQuotations() {
   const quotationRowMapper = (r) => {
     if (r.reference && seenQuotationRefs.has(r.reference)) return null;
     if (r.reference) seenQuotationRefs.add(r.reference);
-    const tone = r.status === "Accepted" ? "success" : (r.status === "Rejected" || r.status === "Rescinded") ? "danger" : r.status === "Draft" ? "warning" : "info";
+    const tone = r.status === "Accepted" ? "success" : r.status === "Rejected" ? "danger" : r.status === "Draft" ? "warning" : "info";
     const companyName = r.company_name || "-";
     const productNames = r.product_names || r.product_name || "-";
     return [
@@ -4491,7 +4565,7 @@ async function renderQuotations() {
     "quotations",
     quotationRowMapper,
     fallback.quotations.map((row) => {
-      const tone = row[4] === "Accepted" ? "success" : (row[4] === "Rejected" || row[4] === "Rescinded") ? "danger" : row[4] === "Draft" ? "warning" : "info";
+      const tone = row[4] === "Accepted" ? "success" : row[4] === "Rejected" ? "danger" : row[4] === "Draft" ? "warning" : "info";
       const hasProducts = Array.isArray(row) && row.length >= 7;
       const productCell = hasProducts ? row[2] : "-";
       const companyCell = hasProducts ? row[3] : row[1];
@@ -4643,6 +4717,10 @@ async function renderDocuments() {
           <i data-lucide="upload-cloud"></i>
           Upload Documents
         </button>
+        ${canAccessAi() ? `<button class="btn ai-trigger-btn" id="btn-ai-extract-pdf" title="Extract fields from a PDF using AI">
+          <i data-lucide="zap"></i>
+          Extract PDF
+        </button>` : ""}
       </div>
     </div>
     <div class="panel">
@@ -5051,6 +5129,7 @@ async function renderDocuments() {
     updateSelectAllState(visibleItems);
   });
   applyFilters();
+  document.getElementById("btn-ai-extract-pdf")?.addEventListener("click", openAiExtractPdfModal);
 }
 
 function computeShippingStatus(record) {
@@ -6276,8 +6355,8 @@ async function renderSettings() {
                 <div class="active-theme-pill">${siteConfigState.activeTheme}</div>
               </div>
               <label>
-                <span>Site name${siteConfigState.logoUrl ? ' <span class="form-hint">(optional — hidden when logo is set)</span>' : ''}</span>
-                <input name="siteName" type="text" value="${siteConfigState.siteName}" ${siteConfigState.logoUrl ? "" : "required"} placeholder="${siteConfigState.logoUrl ? "Hidden when logo is set" : "e.g. SL CRM"}" />
+                <span>Site name</span>
+                <input name="siteName" type="text" value="${siteConfigState.siteName}" ${siteConfigState.logoUrl ? "" : "required"} placeholder="${siteConfigState.logoUrl ? "Optional when logo is set" : ""}" />
               </label>
               <label>
                 <span>Base company</span>
@@ -7164,7 +7243,7 @@ async function renderSettings() {
     const newTheme = data.get("theme")?.toString().trim() || siteConfigState.theme;
     const updatedConfig = {
       ...siteConfigState,
-      siteName: data.get("siteName")?.toString().trim() || siteConfigState.siteName,
+      siteName: data.get("siteName")?.toString().trim() ?? "",
       baseCompany: data.get("baseCompany")?.toString().trim() || siteConfigState.baseCompany,
       region: data.get("region")?.toString().trim() || "",
       timezone: data.get("timezone")?.toString().trim() || "",
@@ -7606,9 +7685,9 @@ async function loadTableFromApi(table, mapper, fallbackRows, options = {}) {
   return [];
 }
 
-async function loadLookupTable(table, fallbackRows, query = "") {
+async function loadLookupTable(table, fallbackRows) {
   try {
-    const res = await apiFetch(`/api/${table}${query ? "?" + query : ""}`);
+    const res = await apiFetch(`/api/${table}`);
     if (res.ok) {
       const data = await res.json();
       if (Array.isArray(data.rows) && data.rows.length) {
@@ -7629,7 +7708,7 @@ async function ensureLookupTablesReady() {
   if (lookupTablesReadyPromise) return lookupTablesReadyPromise;
   lookupTablesReadyPromise = Promise.all([
     loadLookupTable("doc_types", fallback.doc_types),
-    loadLookupTable("tags", fallback.tags, "limit=200")
+    loadLookupTable("tags", fallback.tags)
   ]).catch((err) => {
     console.warn("Lookup preload failed", err);
     lookupTablesReadyPromise = null;
@@ -8109,34 +8188,12 @@ async function openPreviewModal(tableKey, record) {
       console.warn("Pricing preview fell back", err);
       content = renderRecordPreview(tableKey, record);
     }
-  } else if (tableKey === "contacts") {
-    try {
-      content = renderContactPreview(record);
-    } catch (err) {
-      console.warn("Contact preview fell back", err);
-      content = renderRecordPreview(tableKey, record);
-    }
-  } else if (tableKey === "products") {
-    try {
-      content = renderProductPreview(record);
-    } catch (err) {
-      console.warn("Product preview fell back", err);
-      content = renderRecordPreview(tableKey, record);
-    }
-  } else if (tableKey === "companies") {
-    try {
-      content = renderCompanyPreview(record);
-    } catch (err) {
-      console.warn("Company preview fell back", err);
-      content = renderRecordPreview(tableKey, record);
-    }
   }
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
   const canDelete = Boolean(record?.id);
   const showPrint = tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "orders";
   const showScheduleMeeting = tableKey === "companies";
-  const showCopy = tableKey === "shipping_schedules";
   overlay.innerHTML = `
     <div class="modal modal-large">
       <div class="modal-header">
@@ -8147,14 +8204,12 @@ async function openPreviewModal(tableKey, record) {
       <div class="form-actions">
         ${showPrint ? `<button class="btn ghost" data-print-preview>Print</button>` : ""}
         ${showScheduleMeeting ? `<button class="btn" data-schedule-meeting><i data-lucide="calendar-plus"></i> Schedule Meeting</button>` : ""}
-        ${showCopy ? `<button class="btn ghost" data-copy-shipping>Copy Details</button>` : ""}
         ${canDelete ? `<button class="btn danger" data-delete>Delete</button>` : ""}
         <button class="btn" data-close>Close</button>
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
-  lucide?.createIcons({ context: overlay });
   if (tableKey === "quotations" || tableKey === "quotation_items" || tableKey === "invoices" || tableKey === "orders") {
     overlay.querySelector(".modal")?.classList.add("modal-xlarge");
   }
@@ -8182,35 +8237,6 @@ async function openPreviewModal(tableKey, record) {
           contactInput.value = record.contact_name;
         }
       });
-    });
-  }
-  if (showCopy) {
-    overlay.querySelector("[data-copy-shipping]")?.addEventListener("click", () => {
-      const lines = [];
-      lines.push("Shipping Schedule");
-      lines.push(`Status: ${record.status || computeShippingStatus(record) || "—"}`);
-      if (record.company_name || record.company) lines.push(`Company: ${record.company_name || record.company}`);
-      if (record.order_reference || record.order_id) lines.push(`Order: ${record.order_reference || "#" + record.order_id}`);
-      if (record.invoice_reference || record.invoice_id) lines.push(`Invoice: ${record.invoice_reference || "#" + record.invoice_id}`);
-      if (record.carrier) lines.push(`Carrier: ${record.carrier}`);
-      if (record.tracking_number) lines.push(`Tracking: ${record.tracking_number}`);
-      lines.push("");
-      lines.push("Schedule:");
-      const dateFields = [
-        ["Production Date",  record.production_date || record.processing_start_date],
-        ["Booking Date",     record.booking_date],
-        ["Cargo Closing",    record.cargo_closing_date || record.etc_date],
-        ["ETD (Departure)",  record.etd_date],
-        ["ETA (Arrival)",    record.eta],
-        ["Delivery Date",    record.delivery_date],
-      ];
-      dateFields.forEach(([label, val]) => {
-        if (val) lines.push(`${label}: ${new Date(val).toLocaleDateString()}`);
-      });
-      if (record.notes) { lines.push(""); lines.push(`Notes: ${record.notes}`); }
-      navigator.clipboard.writeText(lines.join("\n"))
-        .then(() => showToast("Copied to clipboard"))
-        .catch(() => showToast("Copy failed — try selecting text manually"));
     });
   }
   if (tableKey === "orders" || tableKey === "sample_shipments") {
@@ -9711,220 +9737,6 @@ async function renderOrderPreview(record) {
     </div>`;
 }
 
-// ─── Contact Preview ──────────────────────────────────────────────────────────
-function renderContactPreview(record) {
-  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
-  const fullName = `${record.first_name || ""} ${record.last_name || ""}`.trim()
-    || `Contact #${record.id}`;
-  const tone = statusToneFront(record.status || "");
-  const statusBadge = record.status
-    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
-    : "";
-  const primaryVal = record.email || record.phone || "";
-
-  const chips = [];
-  if (record.created_at) chips.push({ icon: "calendar", label: "Created", val: formatPreviewValue(record.created_at, "created_at", record) });
-  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated", val: formatPreviewValue(record.updated_at, "updated_at", record) });
-  if (record.email)      chips.push({ icon: "mail",     label: "Email",   val: sanitizeText(record.email) });
-  if (record.phone)      chips.push({ icon: "phone",    label: "Phone",   val: sanitizeText(record.phone) });
-  const chipsHtml = chips.map(c => `
-    <div class="odv-chip">
-      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
-      <span class="odv-chip-val">${c.val}</span>
-    </div>`).join("");
-
-  const contactInfoRows = [
-    record.role  ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("role",  record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.role)}</span></div>` : "",
-    record.email ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("email", record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.email)}</span></div>` : "",
-    record.phone ? `<div class="odv-extra-row"><span class="odv-extra-label">${formatPreviewLabel("phone", record, "contacts")}</span><span class="odv-extra-val">${sanitizeText(record.phone)}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const contactInfoSection = contactInfoRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="user"></i> Contact Info</div>
-      <div class="odv-extra-grid">${contactInfoRows}</div>
-    </div>` : "";
-
-  const companySection = record.company_name ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="building-2"></i> Company</div>
-      <div class="odv-extra-grid">
-        <div class="odv-extra-row">
-          <span class="odv-extra-label">Company</span>
-          <span class="odv-extra-val">${sanitizeText(record.company_name)}</span>
-        </div>
-      </div>
-    </div>` : "";
-
-  const noteTagRows = [
-    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
-    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const notesTagsSection = noteTagRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
-      <div class="odv-extra-grid">${noteTagRows}</div>
-    </div>` : "";
-
-  return `
-    <div class="odv">
-      <div class="odv-hero">
-        <div class="odv-hero-left">
-          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
-          <div class="odv-ref">${sanitizeText(fullName)}</div>
-          <div class="odv-parties">
-            ${record.company_name ? `<span><i data-lucide="building-2"></i>${sanitizeText(record.company_name)}</span>` : ""}
-            ${record.role         ? `<span><i data-lucide="briefcase"></i>${sanitizeText(record.role)}</span>`         : ""}
-          </div>
-          <div class="odv-hero-badges">${statusBadge}</div>
-        </div>
-        <div class="odv-hero-right">
-          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
-          ${primaryVal ? `<div class="odv-amount" style="font-size:16px;letter-spacing:0;">${sanitizeText(primaryVal)}</div>` : ""}
-        </div>
-      </div>
-      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
-      ${contactInfoSection}
-      ${companySection}
-      ${notesTagsSection}
-    </div>`;
-}
-
-// ─── Product Preview ───────────────────────────────────────────────────────────
-function renderProductPreview(record) {
-  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
-  const productName = record.name || `Product #${record.id}`;
-  const currency = (record.currency || "USD").toUpperCase();
-  const price = Number(record.price) || 0;
-  const tone = statusToneFront(record.status || "");
-  const statusBadge = record.status
-    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
-    : "";
-
-  const chips = [];
-  if (record.created_at) chips.push({ icon: "calendar", label: "Created",  val: formatPreviewValue(record.created_at, "created_at", record) });
-  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated",  val: formatPreviewValue(record.updated_at, "updated_at", record) });
-  if (record.sku)        chips.push({ icon: "barcode",  label: "SKU",      val: sanitizeText(record.sku) });
-  if (record.currency)   chips.push({ icon: "coins",    label: "Currency", val: sanitizeText(currency) });
-  const chipsHtml = chips.map(c => `
-    <div class="odv-chip">
-      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
-      <span class="odv-chip-val">${c.val}</span>
-    </div>`).join("");
-
-  const detailRows = [
-    record.description ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Description</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.description))}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const detailsSection = detailRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="package"></i> Product Details</div>
-      <div class="odv-extra-grid">${detailRows}</div>
-    </div>` : "";
-
-  const noteTagRows = [
-    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
-    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const notesTagsSection = noteTagRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
-      <div class="odv-extra-grid">${noteTagRows}</div>
-    </div>` : "";
-
-  return `
-    <div class="odv">
-      <div class="odv-hero">
-        <div class="odv-hero-left">
-          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
-          <div class="odv-ref">${sanitizeText(productName)}</div>
-          <div class="odv-parties">
-            ${record.category ? `<span><i data-lucide="folder"></i>${sanitizeText(record.category)}</span>` : ""}
-            ${record.sku      ? `<span><i data-lucide="barcode"></i>SKU: ${sanitizeText(record.sku)}</span>` : ""}
-          </div>
-          <div class="odv-hero-badges">${statusBadge}</div>
-        </div>
-        <div class="odv-hero-right">
-          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
-          ${price ? `<div class="odv-amount">${formatCurrency(price, currency)}</div>` : ""}
-          ${price ? `<div class="odv-currency">${currency}</div>` : ""}
-        </div>
-      </div>
-      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
-      ${detailsSection}
-      ${notesTagsSection}
-    </div>`;
-}
-
-// ─── Company Preview ───────────────────────────────────────────────────────────
-function renderCompanyPreview(record) {
-  const baseCompany = siteConfigState.baseCompany || siteConfigState.siteName || "";
-  const companyName = record.name || `Company #${record.id}`;
-  const tone = statusToneFront(record.status || "");
-  const statusBadge = record.status
-    ? `<span class="badge ${tone}">${sanitizeText(record.status)}</span>`
-    : "";
-  const heroRightVal = record.phone || record.email || "";
-
-  const chips = [];
-  if (record.created_at) chips.push({ icon: "calendar", label: "Created", val: formatPreviewValue(record.created_at, "created_at", record) });
-  if (record.updated_at) chips.push({ icon: "clock",    label: "Updated", val: formatPreviewValue(record.updated_at, "updated_at", record) });
-  if (record.phone)      chips.push({ icon: "phone",    label: "Phone",   val: sanitizeText(record.phone) });
-  if (record.email)      chips.push({ icon: "mail",     label: "Email",   val: sanitizeText(record.email) });
-  if (record.website)    chips.push({ icon: "globe",    label: "Website", val: sanitizeText(record.website) });
-  const chipsHtml = chips.map(c => `
-    <div class="odv-chip">
-      <span class="odv-chip-label"><i data-lucide="${c.icon}"></i>${c.label}</span>
-      <span class="odv-chip-val">${c.val}</span>
-    </div>`).join("");
-
-  const addressRows = [
-    record.address           ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Address</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.address))}</span></div>` : "",
-    record.receiving_address ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Receiving Address</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.receiving_address))}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const addressSection = addressRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="map-pin"></i> Address &amp; Details</div>
-      <div class="odv-extra-grid">${addressRows}</div>
-    </div>` : "";
-
-  const noteTagRows = [
-    record.notes ? `<div class="odv-extra-row" style="grid-column:1/-1"><span class="odv-extra-label">Notes</span><span class="odv-extra-val" style="white-space:pre-wrap;">${sanitizeText(String(record.notes))}</span></div>` : "",
-    record.tags  ? `<div class="odv-extra-row"><span class="odv-extra-label">Tags</span><span class="odv-extra-val">${formatPreviewValue(record.tags, "tags", record)}</span></div>` : "",
-  ].filter(Boolean).join("");
-
-  const notesTagsSection = noteTagRows ? `
-    <div class="odv-section">
-      <div class="odv-section-title"><i data-lucide="tag"></i> Notes &amp; Tags</div>
-      <div class="odv-extra-grid">${noteTagRows}</div>
-    </div>` : "";
-
-  return `
-    <div class="odv">
-      <div class="odv-hero">
-        <div class="odv-hero-left">
-          ${baseCompany ? `<div class="odv-base-company">${sanitizeText(baseCompany)}</div>` : ""}
-          <div class="odv-ref">${sanitizeText(companyName)}</div>
-          <div class="odv-parties">
-            ${record.industry ? `<span><i data-lucide="layers"></i>${sanitizeText(record.industry)}</span>` : ""}
-            ${record.website  ? `<span><i data-lucide="globe"></i>${sanitizeText(record.website)}</span>`  : ""}
-          </div>
-          <div class="odv-hero-badges">${statusBadge}</div>
-        </div>
-        <div class="odv-hero-right">
-          ${siteConfigState.logoUrl ? `<img class="odv-logo" src="${getFileUrl(siteConfigState.logoUrl)}" alt="Logo" />` : ""}
-          ${heroRightVal ? `<div class="odv-amount" style="font-size:15px;letter-spacing:0;">${sanitizeText(heroRightVal)}</div>` : ""}
-        </div>
-      </div>
-      ${chips.length ? `<div class="odv-chips">${chipsHtml}</div>` : ""}
-      ${addressSection}
-      ${notesTagsSection}
-    </div>`;
-}
-
 async function renderQuotationPreview(record) {
   // For new quotations (no legacy_id), items are embedded in record.items
   let items = await getQuotationItems(record.id, record.legacy_id);
@@ -10735,7 +10547,7 @@ function orderPreviewKeys(keys) {
 function statusToneFront(status) {
   const s = (status || "").toLowerCase();
   if (s.includes("paid") || s.includes("completed") || s.includes("active")) return "success";
-  if (s.includes("rejected") || s.includes("overdue") || s.includes("rescind")) return "danger";
+  if (s.includes("rejected") || s.includes("overdue")) return "danger";
   if (s.includes("pending") || s.includes("draft")) return "warning";
   return "info";
 }
@@ -11492,53 +11304,6 @@ function openForm(key, options = {}) {
         });
     }
   }
-  if (key === "documents") {
-    const companySelect = overlay.querySelector('select[name="company_id"]');
-    const contactSelect = overlay.querySelector('select[name="contact_id"]');
-    const invoiceSelect = overlay.querySelector('select[name="invoice_id"]');
-    const docTypeSelect = overlay.querySelector('select[name="doc_type_id"]');
-    const initialCompanyId = initialValues?.company_id ? String(initialValues.company_id) : "";
-    const initialContactId = initialValues?.contact_id ? String(initialValues.contact_id) : "";
-    const initialInvoiceId = initialValues?.invoice_id ? String(initialValues.invoice_id) : "";
-    const initialDocTypeId = initialValues?.doc_type_id ? String(initialValues.doc_type_id) : "";
-
-    if (companySelect) {
-      fetchCompaniesList().then((companies) => {
-        companySelect.innerHTML =
-          `${i18nPlaceholderOption("-- Select company --")}` +
-          companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-        if (initialCompanyId) companySelect.value = initialCompanyId;
-      }).catch(() => {});
-    }
-
-    if (contactSelect) {
-      fetchContactsList().then((contacts) => {
-        contactSelect.innerHTML =
-          `${i18nPlaceholderOption("-- Select contact (optional) --")}` +
-          contacts.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("");
-        if (initialContactId) contactSelect.value = initialContactId;
-      }).catch(() => {});
-    }
-
-    if (invoiceSelect) {
-      fetchInvoicesList().then((invoices) => {
-        invoiceSelect.innerHTML =
-          `${i18nPlaceholderOption("-- Select invoice --")}` +
-          invoices.map((inv) => `<option value="${inv.id}">${escapeHtml(inv.reference || String(inv.id))}</option>`).join("");
-        if (initialInvoiceId) invoiceSelect.value = initialInvoiceId;
-      }).catch(() => {});
-    }
-
-    if (docTypeSelect) {
-      ensureLookupTablesReady().then(() => {
-        const docTypes = tableRecords.doc_types || fallback.doc_types || [];
-        docTypeSelect.innerHTML =
-          `${i18nPlaceholderOption("-- Select document type --")}` +
-          docTypes.map((dt) => `<option value="${dt.id}">${escapeHtml(dt.name)}</option>`).join("");
-        if (initialDocTypeId) docTypeSelect.value = initialDocTypeId;
-      }).catch(() => {});
-    }
-  }
   if (key === "invoices") {
     const modal = overlay.querySelector(".modal");
     modal?.classList.add("modal-large");
@@ -11666,40 +11431,10 @@ function openForm(key, options = {}) {
         }
       }
 
-      const selectedSummary = document.createElement("div");
-      selectedSummary.className = "attachment-selected-summary";
-      if (insertParent) {
-        const refNode = attachmentLabel ? attachmentLabel.nextSibling : null;
-        insertParent.insertBefore(selectedSummary, refNode);
-      }
-
       let attachmentDocsCache = [];
       const selectedAttachmentKeys = new Set(normalizeSelectValues(initialValues?.attachment_key));
 
       const formatDocumentLabel = (doc) => (doc.title || doc.storage_key || `Document #${doc.id || ""}`).trim();
-
-      const updateSelectedSummary = () => {
-        if (!selectedAttachmentKeys.size) {
-          selectedSummary.innerHTML = "";
-          return;
-        }
-        const chips = Array.from(selectedAttachmentKeys).map((key) => {
-          const doc = attachmentDocsCache.find((d) => d.storage_key === key);
-          const label = doc ? formatDocumentLabel(doc) : key;
-          return `<span class="attachment-chip">${sanitizeText(label)}<button type="button" class="attachment-chip-remove" data-key="${key}" aria-label="Remove">&times;</button></span>`;
-        });
-        selectedSummary.innerHTML = `<div class="attachment-chip-list">${chips.join("")}</div>`;
-        selectedSummary.querySelectorAll(".attachment-chip-remove").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const key = btn.dataset.key;
-            selectedAttachmentKeys.delete(key);
-            Array.from(attachmentSelect.options).forEach((opt) => {
-              if (opt.value === key) opt.selected = false;
-            });
-            updateSelectedSummary();
-          });
-        });
-      };
 
       const renderDocumentOptions = (docs) => {
         const optionHtml = docs
@@ -11734,7 +11469,6 @@ function openForm(key, options = {}) {
             })
           : attachmentDocsCache;
         renderDocumentOptions(matches);
-        updateSelectedSummary();
       };
 
       docSearchInput.addEventListener("input", applyDocumentFilter);
@@ -11745,7 +11479,6 @@ function openForm(key, options = {}) {
           .map((opt) => opt.value)
           .filter(Boolean)
           .forEach((value) => selectedAttachmentKeys.add(value));
-        updateSelectedSummary();
       });
 
       fetchDocumentsList()
@@ -12079,7 +11812,7 @@ function openForm(key, options = {}) {
 
     const customerSection = document.createElement("div");
     customerSection.className = "quote-section quote-customer";
-    ["company_id", "contact_id", "customer_name", "currency", "exchange_rate"].forEach((name) => {
+    ["company_id", "company_id_manual", "contact_id", "contact_id_manual", "customer_name", "currency", "exchange_rate"].forEach((name) => {
       if (labels[name]) customerSection.appendChild(labels[name]);
     });
 
@@ -12560,8 +12293,8 @@ function openForm(key, options = {}) {
             currency: values.currency || "USD",
             exchange_rate: num(values.exchange_rate),
             amount: Number.isFinite(totals.total) ? totals.total + (num(values.inspection_charges) || 0) : initialValues.amount || 0,
-            company_id: values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null,
-            contact_id: values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null,
+            company_id: num(values.company_id_manual) ?? (values.company_id && !String(values.company_id).startsWith("--") ? values.company_id : null),
+            contact_id: num(values.contact_id_manual) ?? (values.contact_id && !String(values.contact_id).startsWith("--") ? values.contact_id : null),
             tags: values.tags,
             items
           };
@@ -12689,6 +12422,8 @@ function buildQuotePreviewPayload(form) {
   const totals = calculateQuoteTotals(items, taxRate);
   const companySelect = form.querySelector('select[name="company_id"]');
   const contactSelect = form.querySelector('select[name="contact_id"]');
+  const manualCompanyId = Number(values.company_id_manual) || undefined;
+  const manualContactId = Number(values.contact_id_manual) || undefined;
   const currency = values.currency || "USD";
   const tagsSelect = form.querySelector('select[name="tags"]');
   const selectedTagNames = tagsSelect
@@ -12702,8 +12437,8 @@ function buildQuotePreviewPayload(form) {
     title: values.title || "",
     status: values.status || "",
     valid_until: values.valid_until || "",
-    company: companySelect?.selectedOptions[0]?.textContent || "",
-    contact: contactSelect?.selectedOptions[0]?.textContent || "",
+    company: manualCompanyId ? `Company #${manualCompanyId}` : companySelect?.selectedOptions[0]?.textContent || "",
+    contact: manualContactId ? `Contact #${manualContactId}` : contactSelect?.selectedOptions[0]?.textContent || "",
     customer: values.customer_name || "",
     currency,
     exchange_rate: num(values.exchange_rate),
@@ -13012,8 +12747,6 @@ function openOrderPrintView(record, items, matchedQuote) {
   if (record.etd_date) metaItems.push({ label: "ETD", val: String(record.etd_date) });
   const metaHtml = metaItems.map(m => `<div><strong>${m.label}</strong><span>${m.val}</span></div>`).join("");
   const notesHtml = record.notes ? `<section class="notes-section"><strong>Notes</strong><p>${sanitizeText(record.notes).replace(/\n/g,"<br>")}</p></section>` : "";
-  const resolvedTags = resolveTagList(record.tags || matchedQuote?.tags);
-  const tagsHtml = resolvedTags.length ? `<section class="notes-section" style="margin-top:12px"><strong>Tags</strong><p>${sanitizeText(resolvedTags.join(", "))}</p></section>` : "";
 
   const html = `<!doctype html><html><head><meta charset="utf-8"/>
   <title>${sanitizeText(record.reference || `Order #${record.id}`)} | Order Print</title>
@@ -13075,7 +12808,6 @@ function openOrderPrintView(record, items, matchedQuote) {
         <div class="total-final"><span>Total</span><span>${fmt(totals.total || 0)}</span></div>
       </div>` : ""}
       ${notesHtml}
-      ${tagsHtml}
     </div>
     <div class="footer">Printed from CRM For All · ${new Date().toLocaleDateString()}</div>
   </div>
@@ -13844,6 +13576,75 @@ function openAiDraftQuoteModal() {
       showToast("AI error: " + err.message);
       btn.disabled = false; btn.textContent = "Generate Draft";
     }
+  });
+}
+
+// Feature 2: Extract PDF
+async function openAiExtractPdfModal() {
+  let docs = [];
+  try {
+    const res = await apiFetch("/api/documents?limit=50");
+    const data = await res.json();
+    docs = (data.rows || []).filter((d) => d.storage_key && (d.storage_key.endsWith(".pdf") || (d.content_type || "").includes("pdf")));
+  } catch (_) {}
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal modal-large">
+      <div class="modal-header">
+        <h3>&#9889; Extract PDF</h3>
+        <button class="btn-close" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="stat-label" style="margin-bottom:12px">Select a PDF document to extract structured fields.</p>
+        <select id="ai-extract-pdf-select" class="form-input" style="width:100%">
+          <option value="">&#8212; Select a document &#8212;</option>
+          ${docs.map((d) => `<option value="${sanitizeText(d.storage_key)}">${sanitizeText(d.title || d.storage_key)}</option>`).join("")}
+        </select>
+        <div id="ai-extract-result" style="display:none;margin-top:16px"></div>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary" id="ai-extract-run">Extract</button>
+        <button class="btn primary" id="ai-extract-create-quote" style="display:none">Create Quotation</button>
+        <button class="btn" data-close>Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.querySelector(".btn-close").addEventListener("click", () => overlay.remove());
+  overlay.querySelector("[data-close]").addEventListener("click", () => overlay.remove());
+
+  let extracted = null;
+
+  overlay.querySelector("#ai-extract-run").addEventListener("click", async () => {
+    const fileKey = overlay.querySelector("#ai-extract-pdf-select").value;
+    if (!fileKey) { showToast("Please select a document"); return; }
+    const btn = overlay.querySelector("#ai-extract-run");
+    btn.disabled = true; btn.textContent = "Extracting...";
+    try {
+      const data = await aiPost("/api/ai/extract-doc", { file_key: fileKey });
+      extracted = data.extracted || {};
+      const result = overlay.querySelector("#ai-extract-result");
+      result.style.display = "block";
+      result.innerHTML = `<pre style="background:var(--surface-alt,#f5f5f5);padding:12px;border-radius:6px;overflow:auto;font-size:12px;max-height:300px">${sanitizeText(JSON.stringify(extracted, null, 2))}</pre>`;
+      overlay.querySelector("#ai-extract-create-quote").style.display = "inline-flex";
+    } catch (err) {
+      showToast("Extract error: " + err.message);
+    } finally {
+      btn.disabled = false; btn.textContent = "Extract";
+    }
+  });
+
+  overlay.querySelector("#ai-extract-create-quote").addEventListener("click", () => {
+    if (!extracted) return;
+    overlay.remove();
+    openForm("quotations", { initialValues: {
+      company_name: extracted.company_name || "",
+      notes: extracted.notes || "",
+      currency: extracted.currency || "USD",
+    }});
+    showToast("Draft loaded from PDF &#8212; review and save");
   });
 }
 
