@@ -420,9 +420,7 @@ app.get('/api/dashboard', async (req: Request, res: Response) => {
   const db: Db = (req as any).db;
   console.log('[DEBUG] Dashboard API called for user:', ownerEmail);
   try {
-    console.log('[DEBUG] Starting syncShippingMilestonesForUser...');
-    await syncShippingMilestonesForUser(db, ownerEmail);
-    console.log('[DEBUG] syncShippingMilestonesForUser completed');
+    syncShippingMilestonesForUser(db, ownerEmail).catch(err => console.warn('[dashboard] Shipping sync error:', err?.message));
 
     const [companies, contacts, quotations, invoices, tasksOpen] = await Promise.all([
       db.collection('companies').countDocuments({ owner_email: ownerEmail }),

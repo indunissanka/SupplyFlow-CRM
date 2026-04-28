@@ -5,7 +5,9 @@
       "Bash(docker ps:*)",
       "Bash(npm install:*)",
       "Bash(docker exec:*)",
-      "Bash(./node_modules/.bin/tsc)"
+      "Bash(./node_modules/.bin/tsc)",
+      "Bash(node --check \"c:/Users/mark/OneDrive/Documents/GitHub/SupplyFlow-CRM/public/app.js\")",
+      "Bash(node --check src/server.ts)"
     ]
   }
 }
